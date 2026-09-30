@@ -7,5 +7,6 @@ Android·iOS 네이티브 앱과 위젯을 구현 중이다. SNS별 세션 수�
 - [구현 가능성 조사](docs/FEASIBILITY.md): 쿠키 기반 접근, SNS별 조건, 위젯 제약, 경쟁 앱, 배포 판단
 - [구현 계획서](docs/IMPLEMENTATION_PLAN.md): 단계별 범위, 로컬 구조, 세션·명단 처리, 실기기 완료 조건
 - [구현 기록](docs/WORK_LOG.md): 단계별 진행 상태와 실제 검증 증거
+- [개발과 검증](docs/DEVELOPMENT.md): 개발 환경, 핵심 테스트, 수집 경로의 검증 범위
 
 조사·계획 작성일: 2026-10-01, Asia/Seoul
