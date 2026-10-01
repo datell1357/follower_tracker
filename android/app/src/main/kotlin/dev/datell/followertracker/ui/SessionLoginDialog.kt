@@ -17,6 +17,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
+import android.view.ViewGroup
 import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.Provider
 import org.json.JSONArray
@@ -62,6 +63,8 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                 if (loading || busy || checking) LinearProgressIndicator(Modifier.fillMaxWidth())
                 AndroidView(modifier = Modifier.weight(1f).fillMaxWidth(), factory = { webContext ->
                     WebView(webContext).apply {
+                        // Compose's default WRAP_CONTENT height collapses percentage-height pages.
+                        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                         browser = this
                         WebView.setWebContentsDebuggingEnabled(false)
                         settings.javaScriptEnabled = true
