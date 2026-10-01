@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">팔로워 트래커</string>
+    <string name="widget_description">팔로워 수와 최근 변화를 홈 화면에서 확인하세요.</string>
+    <string name="widget_loading">마지막 기록을 불러오고 있어요</string>
+</resources>

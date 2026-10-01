@@ -14,13 +14,14 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
-    sourceSets["main"].assets.srcDir("../../shared")
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/session-assets"))
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -31,6 +32,11 @@ android {
 }
 kotlin { jvmToolchain(21) }
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+val copySessionCapture by tasks.registering(Copy::class) {
+    from(rootProject.projectDir.parentFile.resolve("shared/web-session-capture.js"))
+    into(layout.buildDirectory.dir("generated/session-assets"))
+}
+tasks.named("preBuild") { dependsOn(copySessionCapture) }
 dependencies {
     implementation(project(":core"))
     implementation(platform(libs.compose.bom))
@@ -52,4 +58,9 @@ dependencies {
     implementation(libs.okhttp)
     debugImplementation(libs.compose.tooling)
     testImplementation(libs.junit)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.test.runner)
+    androidTestImplementation(libs.test.junit)
+    androidTestImplementation(libs.compose.test)
+    debugImplementation(libs.compose.test.manifest)
 }
