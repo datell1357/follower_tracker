@@ -8,6 +8,17 @@ enum TrackerStyle {
     static func change(_ value: Int64?) -> String {
         guard let value else { return "첫 기록" }; return (value > 0 ? "+" : "") + count(value)
     }
+    static func change(_ row: AccountOverview) -> String {
+        row.previous != nil && row.comparison == nil ? "비교 불가" : change(row.change)
+    }
+    static func observationTime(_ value: Int64, compact: Bool = false) -> String {
+        let date = Date(timeIntervalSince1970: Double(value) / 1_000)
+        let calendar = Calendar(identifier: .gregorian)
+        let formatter = DateFormatter()
+        formatter.calendar = calendar; formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = compact ? (calendar.component(.year, from: date) == calendar.component(.year, from: Date()) ? "M/d HH:mm" : "yy/M/d HH:mm") : "yyyy.M.d HH:mm"
+        return formatter.string(from: date)
+    }
     static func time(_ value: Int64?) -> String {
         guard let value else { return "아직 기록 없음" }
         let date = Date(timeIntervalSince1970: Double(value) / 1_000)

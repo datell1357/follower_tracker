@@ -41,7 +41,7 @@ cd android
 ./gradlew :app:connectedDebugAndroidTest --no-daemon
 ```
 
-화면 검사는 SNS 선택·탭 이동·설정, 저장 검사는 Android Keystore의 암호화와 변조 거부 및 Room 트랜잭션 경계를 확인한다. 위젯 검사는 실제 Glance `RemoteViews`를 크기별로 생성·적용·레이아웃한다. 합성 위젯 계정은 검사 안에만 존재하며 앱 DB에 저장하지 않는다. 홈 화면 런처의 위젯 추가·클릭·자동 갱신은 [기기 검증](DEVICE_VALIDATION.md)에서 별도로 확인한다.
+화면 검사는 SNS 선택·탭 이동·설정, 저장 검사는 Android Keystore의 암호화와 변조 거부 및 Room 트랜잭션 경계를 확인한다. 위젯 검사는 실제 Glance `RemoteViews`를 크기별로 생성·적용·레이아웃하고 부모 영역에 가려지거나 숫자·비교 시각이 말줄임 처리되지 않는지 검사한다. 합성 위젯 계정은 검사 안에만 존재하며 앱 DB에 저장하지 않는다. 홈 화면 런처의 위젯 추가·클릭·자동 갱신은 [기기 검증](DEVICE_VALIDATION.md)에서 별도로 확인한다.
 
 Android DB 버전 2는 `relationship_changes`와 `relationship_history_cursor`를 추가한다. Room의 `AutoMigration(1, 2)`를 사용하며 `android/app/schemas/`에 두 버전의 스키마를 보존한다. `RelationshipHistoryRuntimeTest`는 테스트 전용 UUID DB에 실제 버전 1 스키마·합성 암호문을 만들고 최신 Room으로 열어 계정·수치·명단 보존, 모든 저장 명단의 이탈 기록 복원, 연결 해제 cascade를 확인한다. 테스트 스키마는 `androidTest` APK에만 포함된다. [Room 마이그레이션 문서](https://developer.android.com/training/data-storage/room/migrating-db-versions)
 
@@ -61,6 +61,16 @@ xcodebuild -project ios/FollowerTracker.xcodeproj -scheme FollowerTracker \
 ```
 
 시뮬레이터 이름은 설치한 기기에 맞게 바꾼다. 위 명령은 컴파일 검사이며 시뮬레이터 부팅이나 기기 설치를 하지 않는다. 실기기에서 앱과 위젯을 사용하려면 같은 서명 팀에서 App Group·Keychain 공유 권한을 설정해야 한다. 로컬 `ios/Signing.local.xcconfig`에 실제 팀과 등록된 그룹을 지정하고 Xcode에서 앱·위젯 두 대상의 서명을 확인한다. 이 파일은 Git에서 제외한다.
+
+시뮬레이터에서 앱을 실제로 실행할 산출물은 ad hoc 서명으로 빌드한다. 서명 없는 컴파일 산출물에서는 App Group 컨테이너를 열지 못할 수 있으며, 이를 앱의 저장소 오류를 숨기거나 별도 DB를 만드는 방식으로 해결하지 않는다.
+
+```sh
+xcodebuild -project ios/FollowerTracker.xcodeproj -scheme FollowerTracker \
+  -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- build
+```
+
+이 명령도 설치·실행은 하지 않는다. 설치한 앱의 초기 화면에서 저장소 오류가 없는지 확인하고, SNS 세션 저장·앱과 위젯의 Keychain 공유는 로그인 후 별도로 검사한다. 서명 설정 변경 없이 로컬 시뮬레이터용 빌드 인자로 적용하며 실기기 서명을 대신하지 않는다.
 
 ```xcconfig
 DEVELOPMENT_TEAM = YOUR_TEAM_ID

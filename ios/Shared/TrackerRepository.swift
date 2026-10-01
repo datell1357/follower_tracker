@@ -8,10 +8,9 @@ struct AccountOverview: Identifiable, Sendable {
     var id: String { account.id }
     var latest: MetricSnapshot? { history.last }
     var previous: MetricSnapshot? { history.dropLast().last }
-    var change: Int64? {
-        guard let latest, let previous, latest.precision == .exact, previous.precision == .exact else { return nil }
-        return latest.followers - previous.followers
-    }
+    var comparison: MetricComparison? { MetricComparison.between(previous: previous, current: latest) }
+    var change: Int64? { comparison?.change }
+    var comparisonAt: Int64? { comparison?.previousAt }
 }
 
 private enum SQLValue { case text(String), integer(Int64), blob(Data) }

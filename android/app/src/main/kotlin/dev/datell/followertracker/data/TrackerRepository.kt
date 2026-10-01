@@ -11,8 +11,9 @@ import kotlinx.serialization.json.Json
 data class AccountOverview(val account: Account, val history: List<MetricSnapshot>) {
     val latest: MetricSnapshot? get() = history.lastOrNull()
     val previous: MetricSnapshot? get() = history.dropLast(1).lastOrNull()
-    val change: Long? get() = if (latest?.precision == Precision.EXACT && previous?.precision == Precision.EXACT)
-        latest!!.followers - previous!!.followers else null
+    val comparison: MetricComparison? get() = MetricComparison.between(previous, latest)
+    val change: Long? get() = comparison?.change
+    val comparisonAt: Long? get() = comparison?.previousAt
 }
 
 class TrackerRepository(private val database: TrackerDatabase, private val cipher: DataCipher) {

@@ -65,13 +65,13 @@ private fun AccountCard(row: AccountOverview, onClick: () -> Unit) {
                     Text(row.latest?.let { formatCount(it.followers) } ?: "—", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
                 }
                 Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(10.dp)) {
-                    Text(formatChange(row.change), Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelLarge)
+                    Text(formatChange(row), Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelLarge)
                 }
             }
             if (row.history.size > 1) GrowthChart(row.history, Modifier.fillMaxWidth().height(64.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatusLine(row.account, row.latest?.observedAt)
-                Text(if (row.previous != null) "이전 기록 대비" else "변화 기록을 시작해요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(row.comparisonAt?.let { "${observationTime(it)} 대비" } ?: if (row.previous == null) "변화 기록을 시작해요" else "정확한 두 기록이 필요해요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

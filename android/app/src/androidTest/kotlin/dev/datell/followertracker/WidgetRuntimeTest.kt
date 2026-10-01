@@ -3,6 +3,7 @@ package dev.datell.followertracker
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Rect
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -16,6 +17,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.widget.TrackerWidgetContent
+import dev.datell.followertracker.ui.compactObservationTime
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -65,6 +67,19 @@ class WidgetRuntimeTest {
         }
     }
 
+    @Test fun comparisonDatesUseEachAccountsActualPreviousObservation() = runBlocking {
+        val rows = listOf(Provider.INSTAGRAM, Provider.TIKTOK, Provider.REDDIT).mapIndexed { index, provider ->
+            val original = row(provider)
+            original.copy(history = listOf(original.history.first().copy(observedAt = original.history.last().observedAt - (index + 1) * 86_400_000L), original.history.last()))
+        }
+        val small = render(listOf(rows.first()), sizes[0], "widget-comparison-small.png")
+        assertTrue(small.contains("비교 ${compactObservationTime(rows.first().comparisonAt!!)}"))
+        for ((index, size) in sizes.drop(1).withIndex()) {
+            val labels = render(rows, size, "widget-comparison-multiple-$index.png")
+            rows.forEach { owner -> assertTrue(labels.any { it.contains("${compactObservationTime(owner.comparisonAt!!)} 대비") }) }
+        }
+    }
+
     private fun row(provider: Provider, status: SyncStatus = SyncStatus.READY, followers: Long = 123_456): AccountOverview {
         val account = Account(provider, "fixture_${provider.name}", "fixture_owner", profileUrl = provider.loginUrl,
             connectedAt = 1, status = status)
@@ -94,9 +109,12 @@ class WidgetRuntimeTest {
                     assertTrue("Widget text has no visible height: ${node.text}", node.height > 0)
                     assertTrue("Widget text extends above its host: ${node.text}", top >= 0)
                     assertTrue("Widget text extends below its host: ${node.text}", top + node.height <= height)
-                    if (node.text.toString() in setOf("123,456", "1,234,567,890")) {
+                    val visible = Rect()
+                    assertTrue("Widget text is hidden by its parent: ${node.text}", node.getLocalVisibleRect(visible))
+                    assertEquals("Widget text is clipped vertically: ${node.text}", node.height, visible.height())
+                    if (node.text.toString() in setOf("123,456", "1,234,567,890") || node.text.startsWith("비교 ") || node.text.contains(" 대비")) {
                         val layout = checkNotNull(node.layout)
-                        for (line in 0 until layout.lineCount) assertEquals("Follower count must be fully visible", 0, layout.getEllipsisCount(line))
+                        for (line in 0 until layout.lineCount) assertEquals("Count and comparison date must be fully visible", 0, layout.getEllipsisCount(line))
                     }
                 }
                 if (node is ViewGroup) for (index in 0 until node.childCount) inspect(node.getChildAt(index), top)

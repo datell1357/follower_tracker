@@ -90,10 +90,10 @@ struct AccountCard: View {
             }
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 4) { Text("팔로워").font(.caption).foregroundStyle(.secondary); Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—").font(.system(size: 36, weight: .semibold, design: .rounded)).monospacedDigit() }
-                Spacer(); Text(TrackerStyle.change(row.change)).font(.subheadline.weight(.semibold)).foregroundStyle(TrackerStyle.blue).padding(.horizontal, 10).padding(.vertical, 7).background(TrackerStyle.blue.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
+                Spacer(); Text(TrackerStyle.change(row)).font(.subheadline.weight(.semibold)).foregroundStyle(TrackerStyle.blue).padding(.horizontal, 10).padding(.vertical, 7).background(TrackerStyle.blue.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
             }
             if row.history.count > 1 { GrowthChart(history: row.history).frame(height: 64) }
-            HStack { Text(row.account.status == .ready ? TrackerStyle.time(row.latest?.observedAt) : row.account.status.label); Spacer(); Text(row.previous == nil ? "변화 기록을 시작해요" : "이전 기록 대비") }.font(.caption2).foregroundStyle(.secondary)
+            HStack { Text(row.account.status == .ready ? TrackerStyle.time(row.latest?.observedAt) : row.account.status.label); Spacer(); Text(row.comparisonAt.map { TrackerStyle.observationTime($0) + " 대비" } ?? (row.previous == nil ? "변화 기록을 시작해요" : "정확한 두 기록이 필요해요")) }.font(.caption2).foregroundStyle(.secondary)
         }.padding(22).background(.background, in: RoundedRectangle(cornerRadius: 24)).accessibilityElement(children: .combine)
     }
 }

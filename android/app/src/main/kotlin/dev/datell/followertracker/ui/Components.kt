@@ -13,6 +13,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.datell.followertracker.core.*
+import dev.datell.followertracker.data.AccountOverview
 import java.text.NumberFormat
 import java.time.Instant
 import java.time.ZoneId
@@ -21,7 +22,14 @@ import java.time.format.DateTimeFormatter
 fun formatCount(count: Long) = NumberFormat.getIntegerInstance().format(count)
 fun observationTime(at: Long): String = DateTimeFormatter.ofPattern("yyyy.M.d HH:mm")
     .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(at))
+fun compactObservationTime(at: Long): String {
+    val zone = ZoneId.systemDefault()
+    val date = Instant.ofEpochMilli(at).atZone(zone)
+    val pattern = if (date.year == java.time.Year.now(zone).value) "M/d HH:mm" else "yy/M/d HH:mm"
+    return DateTimeFormatter.ofPattern(pattern).format(date)
+}
 fun formatChange(change: Long?) = when { change == null -> "첫 기록"; change > 0 -> "+${formatCount(change)}"; else -> formatCount(change) }
+fun formatChange(row: AccountOverview): String = if (row.previous != null && row.comparison == null) "비교 불가" else formatChange(row.change)
 fun relativeTime(at: Long?): String {
     if (at == null) return "아직 기록이 없어요"
     val minutes = ((System.currentTimeMillis() - at).coerceAtLeast(0) / 60_000)

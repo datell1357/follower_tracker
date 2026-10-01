@@ -25,6 +25,7 @@ import dev.datell.followertracker.ui.MainActivity
 import dev.datell.followertracker.ui.formatChange
 import dev.datell.followertracker.ui.formatCount
 import dev.datell.followertracker.ui.relativeTime
+import dev.datell.followertracker.ui.compactObservationTime
 import kotlin.math.min
 
 class TrackerWidget : GlanceAppWidget() {
@@ -51,7 +52,7 @@ internal fun TrackerWidgetContent(rows: List<AccountOverview>?, singleAccount: B
             .cornerRadius(24.dp).padding(18.dp).clickable(actionStartActivity<MainActivity>())) {
             if (!single) {
                 Text("팔로워 트래커", style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 13.sp, fontWeight = FontWeight.Bold), maxLines = 1)
-                Spacer(GlanceModifier.height(10.dp))
+                Spacer(GlanceModifier.height(4.dp))
             }
             when {
                 rows == null -> Text("기록을 읽지 못했어요\n앱에서 확인해주세요", style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 14.sp))
@@ -63,7 +64,7 @@ internal fun TrackerWidgetContent(rows: List<AccountOverview>?, singleAccount: B
                 single -> SingleAccount(rows.first())
                 else -> {
                     val limit = if (LocalSize.current.height >= 280.dp) 5 else 3
-                    Column { rows.take(limit).forEach { WidgetRow(it); Spacer(GlanceModifier.height(9.dp)) } }
+                    Column { rows.take(limit).forEachIndexed { index, row -> if (index > 0) Spacer(GlanceModifier.height(2.dp)); WidgetRow(row) } }
                 }
             }
         }
@@ -77,29 +78,36 @@ private fun ColumnScope.SingleAccount(row: AccountOverview) {
     Text(row.account.provider.title + " · @" + row.account.username, style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp), maxLines = 1)
     Spacer(GlanceModifier.height(6.dp))
     Text(count, style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = countSize, fontWeight = FontWeight.Bold), maxLines = 1)
-    Text("팔로워 · ${formatChange(row.change)}", style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 12.sp), maxLines = 1)
+    Text("팔로워 · ${formatChange(row)}", style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 12.sp), maxLines = 1)
+    row.comparisonAt?.let { Text("비교 ${compactObservationTime(it)}", style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 10.sp), maxLines = 1) }
     Spacer(GlanceModifier.defaultWeight())
     Text(widgetStatus(row), style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 10.sp), maxLines = 2)
 }
 
-private fun fittedCountSize(context: Context, value: String, widthDp: Float): TextUnit {
+private fun fittedCountSize(context: Context, value: String, widthDp: Float, maximum: Float = 30f): TextUnit {
     val density = context.resources.displayMetrics.density
     val fontScale = context.resources.configuration.fontScale
-    val paint = Paint().apply { textSize = 30 * density * fontScale; typeface = Typeface.DEFAULT_BOLD }
+    val paint = Paint().apply { textSize = maximum * density * fontScale; typeface = Typeface.DEFAULT_BOLD }
     val ratio = widthDp * density / paint.measureText(value).coerceAtLeast(1f)
-    return min(30f, 30f * ratio).coerceAtLeast(8f).sp
+    return min(maximum, maximum * ratio).coerceAtLeast(8f).sp
 }
 
 @Composable
 private fun WidgetRow(row: AccountOverview) {
-    Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(GlanceModifier.defaultWeight()) {
-            Text(row.account.provider.title, style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold), maxLines = 1)
-            Text(widgetStatus(row), style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 10.sp), maxLines = 1)
+    Column(GlanceModifier.fillMaxWidth()) {
+        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(row.account.provider.title, modifier = GlanceModifier.defaultWeight(), style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+            val count = row.latest?.let { formatCount(it.followers) } ?: "—"
+            Text(count, style = TextStyle(color = GlanceTheme.colors.onSurface,
+                fontSize = fittedCountSize(LocalContext.current, count, LocalSize.current.width.value - 126,
+                    if (LocalSize.current.height < 280.dp) 18f else 20f), fontWeight = FontWeight.Bold), maxLines = 1)
         }
-        Text(row.latest?.let { formatCount(it.followers) } ?: "—", style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold), maxLines = 1)
-        Spacer(GlanceModifier.width(10.dp))
-        Text(formatChange(row.change), style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 11.sp), maxLines = 1)
+        Row(GlanceModifier.fillMaxWidth().height(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(widgetStatus(row), modifier = GlanceModifier.defaultWeight(), style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 10.sp), maxLines = 1)
+            Spacer(GlanceModifier.width(8.dp))
+            Text(formatChange(row) + (row.comparisonAt?.let { " · ${compactObservationTime(it)} 대비" } ?: ""),
+                style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 10.sp), maxLines = 1)
+        }
     }
 }
 private fun widgetStatus(row: AccountOverview): String = if (row.account.status == SyncStatus.READY) relativeTime(row.latest?.observedAt)
