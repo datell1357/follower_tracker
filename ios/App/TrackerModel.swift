@@ -1,0 +1,78 @@
+import Foundation
+import Observation
+import WidgetKit
+import FollowerCore
+
+@MainActor @Observable
+final class TrackerModel {
+    var accounts: [AccountOverview] = []
+    var loading = true
+    var busy = false
+    var storageError = false
+    var message: String?
+    var selectedKey: String?
+    var report: RelationshipReport?
+    let repository: TrackerRepository?
+    let sync: SyncService?
+    init() {
+        do { let repository = try TrackerRepository(); self.repository = repository; sync = SyncService(repository: repository) }
+        catch { repository = nil; sync = nil; storageError = true; loading = false }
+    }
+    func reload() async {
+        guard let repository else { return }
+        do {
+            accounts = try await repository.overviews()
+            if !accounts.contains(where: { $0.id == selectedKey }) { selectedKey = accounts.first?.id }
+            if let key = selectedKey { report = try await repository.report(key) } else { report = nil }
+            storageError = false; loading = false
+        } catch { storageError = true; loading = false; message = "저장된 기록을 읽지 못했어요. 데이터를 보존했어요." }
+    }
+    func select(_ key: String) async { selectedKey = key; await reload() }
+    func refresh(_ key: String? = nil) async {
+        guard !busy, let sync else { return }
+        busy = true; defer { busy = false }
+        do { for row in accounts where key == nil || row.id == key { try await sync.refresh(row.id) }; await reload(); WidgetCenter.shared.reloadAllTimelines() }
+        catch is CancellationError { }
+        catch { message = "갱신을 마치지 못했어요. 마지막 기록을 유지했어요." }
+    }
+    func relationships() async {
+        guard !busy, let selectedKey, let sync else { return }
+        busy = true; defer { busy = false }
+        do { try await sync.relationships(selectedKey); await reload() }
+        catch is CancellationError { }
+        catch { message = "명단 갱신을 마치지 못했어요. 마지막 완료된 비교를 유지했어요." }
+    }
+    func connect(_ provider: Provider, session: SavedSession, payload: String?) async throws {
+        guard !busy, let repository else { throw StorageFailure.unavailable }
+        busy = true; message = nil; defer { busy = false }
+        try await SessionVault.shared.save(provider, session)
+        let expected = try await repository.accounts().first { $0.provider == provider }
+        let collector = SessionCollector(vault: .shared)
+        let observation: (Account, MetricSnapshot)
+        if [.instagram, .reddit].contains(provider) { observation = try await collector.native(provider, expected: expected) }
+        else {
+            guard let payload else { throw CollectionFailure(.checkRequired) }
+            let captured = try await collector.captured(provider, payload: payload, expected: expected)
+            var saved = session; saved.expectedID = captured.0.stableID
+            try await SessionVault.shared.save(provider, saved)
+            if provider == .tiktok {
+                do { observation = try await collector.native(provider, expected: captured.0) }
+                catch let failure as CollectionFailure where failure.status == .formatChanged { observation = captured }
+            } else { observation = captured }
+        }
+        try Task.checkCancellation()
+        try await repository.saveObservation(observation.0, observation.1)
+        WidgetCenter.shared.reloadAllTimelines()
+        await reload()
+    }
+    func disconnect(_ key: String) async {
+        guard !busy, let repository else { return }
+        busy = true; defer { busy = false }
+        do {
+            guard let account = try await repository.account(key) else { return }
+            try await SessionVault.shared.remove(account.provider)
+            try await repository.disconnect(key)
+            await reload(); WidgetCenter.shared.reloadAllTimelines()
+        } catch { message = "연결 해제를 마치지 못했어요. 다시 확인해주세요." }
+    }
+}
