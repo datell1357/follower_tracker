@@ -31,9 +31,9 @@ Android와 iOS를 모두 목표로 한다. **Android에서 첫 수집기를 검�
 
 기술 검증에 실패한 플랫폼을 목 데이터로 지원하는 것처럼 보이게 하지 않는다. 수동 데이터 파일 가져오기는 추후 선택 기능이 될 수 있으나, 로그인 세션 자동 수집 요구사항을 대신 충족한 것으로 처리하지 않는다.
 
-## 3. 기술 구성 제안
+## 3. 적용한 기술 구성
 
-저장소에는 현재 애플리케이션 코드·빌드 설정·lockfile·CI가 없다. 아래 스택은 기존 설정을 바꾸는 결정이 아니라 신규 프로젝트를 위한 제안이다. 이 문서를 작성하면서 SDK나 패키지를 설치하지 않았다.
+빈 저장소에서 시작한 초기 제안을 구현에 적용했다. Android 앱은 Kotlin·Compose, iOS 앱은 SwiftUI를 사용하며, 로그인 세션·예약 수집·위젯은 각 운영체제의 네이티브 기능으로 구성한다. 버전과 실행 명령은 [개발 문서](DEVELOPMENT.md), 실제 검증 상태는 [구현 기록](WORK_LOG.md)에 남긴다.
 
 | 영역 | Android | iOS |
 | --- | --- | --- |
@@ -41,12 +41,12 @@ Android와 iOS를 모두 목표로 한다. **Android에서 첫 수집기를 검�
 | 로그인 | 앱 소유 WebView, CookieManager | WKWebView, WKHTTPCookieStore |
 | 데이터 요청 | 네이티브 HTTP 클라이언트와 URL별 세션 처리 | URLSession과 도메인별 쿠키 처리 |
 | 로컬 기록 | Room 기반 앱 전용 DB | SQLite 기반 앱 전용 DB |
-| 세션 복사본 보호 | Android Keystore로 보호한 앱 내부 저장 | Keychain, 필요한 최소 접근 그룹 |
+| 세션 보호 | CookieManager의 앱 전용 WebView 저장소, 추가 메타데이터는 Keystore로 암호화 | Keychain, 앱·위젯 공유 접근 그룹 |
 | 홈 화면 위젯 | Jetpack Glance/AppWidget | WidgetKit |
 | 예약 수집 | WorkManager | WidgetKit 타임라인의 제한된 네트워크 요청, 필요한 경우 앱 백그라운드 작업 평가 |
-| 앱·위젯 데이터 전달 | 로컬 요약 캐시 | App Group의 요약 캐시, 비밀정보는 Keychain |
+| 앱·위젯 데이터 전달 | Room의 수치·상태를 읽어 위젯에 전달 | App Group의 SQLite에서 수치·상태 조회, 비밀정보는 Keychain |
 
-Flutter/React Native 등의 공통 화면 구조도 가능하지만 WebView 세션, 네이티브 요청, 백그라운드와 위젯 코드는 OS별 검증이 필요하다. 이번 위험의 중심이 이 부분이므로 첫 기술 검증은 네이티브 SDK로 진행하는 것을 권장한다. 화면 코드 공유는 검증 후 개발·유지보수 부담을 비교해 결정한다.
+로그인·요청·백그라운드·위젯의 운영체제별 동작을 직접 검증하기 위해 두 앱을 네이티브로 구성했다. 기기에 포함한 공통 JavaScript는 로그인 후 자기 프로필의 공개 화면 정보를 읽는 경로에만 사용한다. 테스트에서 얻은 결과를 실제 SNS 지원으로 확대하지 않는다.
 
 운영체제 근거: [Android CookieManager](https://developer.android.com/reference/android/webkit/CookieManager), [Apple 쿠키 저장소](https://developer.apple.com/documentation/webkit/wkhttpcookiestore/getallcookies%28_%3A%29), [Keychain 공유](https://developer.apple.com/documentation/security/sharing-access-to-keychain-items-among-a-collection-of-apps)
 
