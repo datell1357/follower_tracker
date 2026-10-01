@@ -54,6 +54,33 @@
   function capture(provider, expectedID, suppliedDocument) {
     const doc = suppliedDocument || document;
     const roots = jsonRoots(doc);
+    if (provider === "INSTAGRAM") {
+      if (!expectedID || !/^[0-9]+$/.test(expectedID)) return { error: "identity_missing" };
+      const isOwner = value => textID(value.pk ?? value.id) === expectedID && value.username;
+      const owner = findRecord(roots, value => isOwner(value) && exactCount(value.follower_count ?? value.edge_followed_by?.count) !== null) || findRecord(roots, isOwner);
+      if (owner) {
+        const profileURL = "https://www.instagram.com/" + encodeURIComponent(owner.username) + "/";
+        const captured = result(provider, expectedID, owner.username, owner.full_name, profileURL,
+          owner.follower_count ?? owner.edge_followed_by?.count,
+          owner.following_count ?? owner.edge_follow?.count, "instagram-webview-profile");
+        if (!captured.error) return captured;
+        const currentURL = new URL(doc.location.href), ownURL = new URL(profileURL);
+        if (currentURL.pathname.replace(/\/$/, "") !== ownURL.pathname.replace(/\/$/, ""))
+          return { error: "own_profile_required", profileURL };
+        let followers = null, following = null;
+        for (const link of doc.querySelectorAll("a[href]")) {
+          const target = new URL(link.getAttribute("href"), currentURL);
+          if (target.origin !== currentURL.origin) continue;
+          const path = target.pathname.replace(/\/$/, "");
+          const ownPath = ownURL.pathname.replace(/\/$/, "");
+          if (path === ownPath + "/followers") followers ??= countInLink(link);
+          if (path === ownPath + "/following") following ??= countInLink(link);
+        }
+        if (followers !== null) return result(provider, expectedID, owner.username, owner.full_name,
+          profileURL, followers, following, "instagram-webview-dom");
+      }
+      return { error: "exact_count_missing" };
+    }
     if (provider === "TIKTOK") {
       for (const root of roots) {
         const scope = root.__DEFAULT_SCOPE__;
@@ -62,7 +89,11 @@
         const signedIn = context.user || context.userInfo?.user;
         const ownerID = textID(signedIn?.id || signedIn?.uid);
         const info = scope["webapp.user-detail"]?.userInfo;
-        if (!ownerID || !info?.user || !info.stats) continue;
+        if (!ownerID) continue;
+        if (!info?.user || !info.stats) {
+          if (signedIn.uniqueId) return { error: "own_profile_required", profileURL: "https://www.tiktok.com/@" + encodeURIComponent(signedIn.uniqueId) };
+          continue;
+        }
         const id = textID(info.user.id);
         if (id !== ownerID || (expectedID && id !== expectedID)) return { error: "own_profile_required" };
         return result(provider, id, info.user.uniqueId, info.user.nickname,
@@ -106,7 +137,65 @@
     }
     return { error: "native_collection_required" };
   }
-  const api = { capture, exactCount };
+  async function captureAsync(provider, expectedID, suppliedDocument, suppliedFetch) {
+    const doc = suppliedDocument || document;
+    if (!['INSTAGRAM', 'REDDIT'].includes(provider)) return capture(provider, expectedID, doc);
+    const page = new URL(doc.location.href);
+    const domain = provider === 'INSTAGRAM' ? 'instagram.com' : 'reddit.com';
+    if (page.protocol !== 'https:' || page.username || page.password || (page.port && page.port !== '443') ||
+        !(page.hostname === domain || page.hostname.endsWith('.' + domain))) return { error: 'own_profile_required' };
+    if (provider === 'INSTAGRAM') {
+      const local = capture(provider, expectedID, doc);
+      if (!local.error || local.profileURL || local.error === 'identity_missing') return local;
+    }
+    const path = provider === 'INSTAGRAM' ? '/api/v1/users/' + expectedID + '/info/' : '/api/me.json';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const headers = { Accept: 'application/json' };
+      if (provider === 'INSTAGRAM') headers['X-IG-App-ID'] = '936619743392459';
+      const response = await (suppliedFetch || fetch)(page.origin + path,
+        { method: 'GET', credentials: 'include', redirect: 'error', headers, signal: controller.signal });
+      if (!response.ok) {
+        const retry = response.headers.get('Retry-After');
+        return { error: 'http', status: response.status,
+          retryAfterSeconds: /^[0-9]+$/.test(retry || '') ? Math.min(86400, Math.max(60, Number(retry))) : null };
+      }
+      const declared = Number(response.headers.get('Content-Length'));
+      if (declared > MAX_JSON_BYTES) return { error: 'format_changed' };
+      const reader = response.body.getReader();
+      const chunks = []; let size = 0;
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > MAX_JSON_BYTES) { await reader.cancel(); return { error: 'format_changed' }; }
+        chunks.push(chunk.value);
+      }
+      const bytes = new Uint8Array(size); let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      const root = JSON.parse(new TextDecoder().decode(bytes));
+      if (provider === 'INSTAGRAM') {
+        if (root.status === 'fail') {
+          const message = String(root.message || '');
+          return { error: /login/i.test(message) ? 'reauth_required' : root.challenge || /challenge/i.test(message) ? 'check_required' :
+            /wait|rate/i.test(message) ? 'rate_limited' : 'format_changed' };
+        }
+        const user = root.user;
+        if (!user || textID(user.pk ?? user.id) !== expectedID) return { error: 'own_profile_required' };
+        return result(provider, expectedID, user.username, user.full_name,
+          page.origin + '/' + encodeURIComponent(user.username) + '/', user.follower_count, user.following_count, 'instagram-webview-session');
+      }
+      const user = root.data || root, id = textID(user.id);
+      if (!id || !user.name) return { error: 'reauth_required' };
+      if (expectedID && id !== expectedID) return { error: 'own_profile_required' };
+      return result(provider, id, user.name, user.subreddit?.title,
+        page.origin + '/user/' + encodeURIComponent(user.name) + '/', user.subreddit?.subscribers, null, 'reddit-webview-session');
+    } catch (error) {
+      return { error: error instanceof SyntaxError ? 'format_changed' : 'offline' };
+    } finally { clearTimeout(timer); }
+  }
+  const api = { capture, captureAsync, exactCount };
   globalThis.FollowerTrackerCapture = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

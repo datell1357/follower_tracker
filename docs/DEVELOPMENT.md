@@ -45,6 +45,12 @@ cd android
 
 `LoginNavigationPolicyTest`는 로그인 호스트와 수집 쿠키 호스트의 분리, 공식 로그인 이동과 유사 도메인 거부를 검사한다. `LoginRuntimeTest.eachProviderOpensAProtectedLoginWindowAndCanBeClosed`는 SDK 29 이상에서 다섯 SNS 창 진입·닫기와 실제 `FLAG_SECURE` 적용을 확인한다. `recordOfficialLoginPageAvailability`는 네트워크가 있는 시험 기기에 명시적으로 실행하는 진단이며, 입력 요소 개수·화면 높이·입력란 중심점의 터치 가능 여부와 페이지 상태만 기록한다. 수집하는 입력값은 없고 로그인 성공을 주장하는 검사가 아니다. 기본 CI는 테스트 APK를 컴파일하며 실제 SNS 페이지 진단을 실행하지 않는다.
 
+Android 로그인 창은 인증 쿠키 후보와 공식 페이지 상태를 확인한 뒤 본인 계정 수치를 자동으로 읽는다. 로그인·추가 인증 화면에서는 연결을 보류한다. `AutoConnectionPolicyTest`는 중복 요청과 HTTP 429의 대기 시간, 제한된 네트워크 재시도 및 오류 안내를 검사한다. `AutoConnectionRuntimeTest`는 개인 세션이 없는 별도 기기에서 합성 쿠키·페이지로 버튼 없는 연결, 미인증·다른 계정 거부, 정확한 0, 요청 없이 프로필 수치 읽기, HTTP 429 뒤 추가 요청 없이 늦게 표시된 수치 확보를 검사한다. 합성 계정을 앱 DB에 저장하지 않는다.
+
+Instagram은 쿠키의 본인 ID와 JSON의 사용자 ID를 먼저 맞춘다. 본인 프로필의 정확한 JSON 수치나 같은 프로필의 팔로워 링크 수치를 우선 읽으며, 축약 수만 있으면 저장하지 않는다. Instagram·Reddit의 추가 읽기 요청은 현재 공식 HTTPS 출처 안에서 `fetch`의 세션 자격증명을 사용한다. HTTP 429에는 서버의 숫자 `Retry-After` 또는 기본 15분을 적용하고 네이티브 요청으로 즉시 재시도하지 않는다. 대기 중에도 현재 문서만 읽는 작업은 가능하다. 웹 화면에서 확보한 수치는 전경 수집으로 표시하며 백그라운드 요청 성공으로 취급하지 않는다.
+
+`ConnectionStatusDiagnostic`은 명시적으로 실행하는 읽기 전용 진단이다. SNS별 세션 후보·계정 존재·수치 존재와 상태·수집 경로만 출력하며, 식별자·사용자명·수치·원시 쿠키·DOM은 출력하지 않는다. 실제 세션 기기에는 전체 `connectedDebugAndroidTest`를 실행하지 않는다.
+
 `percentageHeightLoginFormIsVisibleAndAcceptsTouch`는 `height:100%`와 `overflow:hidden`으로 구성한 로컬 로그인 폼의 높이·실제 픽셀·터치 후 입력 포커스를 검사한다. WebView가 Compose의 기본 `WRAP_CONTENT` 레이아웃 파라미터를 사용하면 폼 높이가 0이 되는 실패를 재현했다. 로그인 WebView에는 `MATCH_PARENT`를 명시해 페이지의 백분율 높이가 주어진 화면 영역을 기준으로 계산되도록 한다. [Chromium의 WebView 높이 처리](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/android_webview/java/src/org/chromium/android_webview/AwLayoutSizer.java)
 
 Apple Silicon 에뮬레이터에서 웹 화면 또는 시스템 프로세스가 불안정하면 공식 안내에 따라 테스트 AVD 실행 인자에 `-feature -Vulkan`을 적용할 수 있다. 이번 API 36 시험에서 같은 AVD의 기본 Vulkan 실행은 시스템 프로세스 종료를 동반했고, Vulkan을 끈 실행에서는 로그인·화면 검사가 정상 종료했다. 앱 설정이나 실제 기기의 보안 설정을 바꾸는 인자는 아니다. 사용자가 사용하는 AVD를 초기화하지 않고 별도 시험 AVD로 확인한다. [Android 에뮬레이터 문제 해결](https://developer.android.com/studio/run/emulator-troubleshooting)

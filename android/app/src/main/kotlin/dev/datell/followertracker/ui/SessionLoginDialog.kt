@@ -20,9 +20,11 @@ import androidx.compose.ui.window.SecureFlagPolicy
 import android.view.ViewGroup
 import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.Provider
-import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import dev.datell.followertracker.core.CollectionFailure
+import dev.datell.followertracker.core.SyncStatus
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -34,13 +36,57 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
     var loading by remember { mutableStateOf(true) }
     var checking by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
-    var ownProfile by remember { mutableStateOf<String?>(null) }
+    val policy = remember(provider) { AutoConnectionPolicy() }
+    val navigatedProfiles = remember(provider) { mutableSetOf<String>() }
+    val capturedPages = remember(provider) { mutableSetOf<String>() }
+    val currentBusy by rememberUpdatedState(busy)
+    val currentConnect by rememberUpdatedState(onConnect)
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var sessionReady by remember { mutableStateOf(false) }
     val script = remember { context.assets.open("web-session-capture.js").bufferedReader().use { it.readText() } }
     DisposableEffect(Unit) { onDispose { browser?.stopLoading(); browser?.destroy(); browser = null } }
     LaunchedEffect(provider, browser) {
         while (browser != null) {
+            val web = browser ?: break
+            now = System.currentTimeMillis()
             sessionReady = runCatching { context.appGraph.sessions.hasAuthentication(provider) }.getOrDefault(false)
+            val url = web.url.orEmpty()
+            val identity = context.appGraph.sessions.identity(provider)
+            val pageKey = "$identity:$url"
+            if (canAutoConnect(provider, url, sessionReady, loading, currentBusy || checking) && pageKey !in capturedPages) {
+                val allowRequest = policy.begin(pageKey, now)
+                // Hydrated pages can expose exact counts later. Re-read locally without another SNS request.
+                if (!allowRequest && provider == Provider.REDDIT) { delay(1_000); continue }
+                checking = allowRequest
+                if (allowRequest) notice = null
+                try {
+                    val payload = captureWebSession(web, provider, identity, script, allowRequest)
+                    val result = JSONObject(payload)
+                    val failure = webCaptureFailure(result)
+                    if (failure == null) {
+                        capturedPages.add(pageKey)
+                        currentConnect(payload, web.settings.userAgentString)
+                    } else {
+                        val profile = result.optString("profileURL")
+                        if (result.optString("error") == "own_profile_required" && provider.allows(profile) &&
+                            profile != web.url && navigatedProfiles.add(profile)) {
+                            web.loadUrl(profile)
+                        } else if (allowRequest) {
+                            policy.failed(failure, System.currentTimeMillis())
+                            notice = connectionFailureMessage(failure)
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: CollectionFailure) {
+                    if (allowRequest) {
+                        policy.failed(failure, System.currentTimeMillis())
+                        notice = connectionFailureMessage(failure)
+                    }
+                } catch (_: Exception) {
+                    if (allowRequest) notice = connectionFailureMessage(CollectionFailure(SyncStatus.FORMAT_CHANGED))
+                } finally { checking = false }
+            }
             delay(1_000)
         }
     }
@@ -57,8 +103,7 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                     IconButton(onClick = { notice = null; browser?.reload() }, enabled = !busy && !checking) { Icon(Icons.Outlined.Refresh, "페이지 새로고침") }
                     IconButton(onClick = { if (browser?.canGoBack() == true) browser?.goBack() }, enabled = !busy) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "이전 페이지") }
                 }
-                Text(if (provider in setOf(Provider.INSTAGRAM, Provider.REDDIT)) "공식 페이지에서 로그인한 뒤 ‘연결 확인’을 눌러주세요."
-                    else "공식 페이지에서 로그인한 뒤 내 프로필을 열고 ‘연결 확인’을 눌러주세요.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                Text("공식 페이지에서 로그인하면 내 계정을 자동으로 연결해요.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (loading || busy || checking) LinearProgressIndicator(Modifier.fillMaxWidth())
                 AndroidView(modifier = Modifier.weight(1f).fillMaxWidth(), factory = { webContext ->
@@ -125,42 +170,15 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                         loadUrl(provider.loginUrl)
                     }
                 })
-                if (sessionReady) Text("세션 쿠키가 있어요. ‘연결 확인’으로 로그인 계정을 확인해주세요.",
+                if (busy || checking) Text("로그인한 내 계정과 팔로워 수를 확인하고 있어요.",
                     Modifier.padding(horizontal = 20.dp, vertical = 6.dp), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary)
-                (notice ?: message)?.let { Text(it, Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                ownProfile?.let { url -> TextButton(onClick = { browser?.loadUrl(url); ownProfile = null; notice = null }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("내 프로필 열기") } }
-                Button(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), enabled = !busy && !checking && !loading,
-                    onClick = {
-                        val web = browser ?: return@Button
-                        if (!provider.allows(web.url.orEmpty())) { notice = "공식 SNS 페이지를 열어주세요."; return@Button }
-                        if (!runCatching { context.appGraph.sessions.hasAuthentication(provider) }.getOrDefault(false)) {
-                            notice = "아직 로그인 세션을 확인하지 못했어요. 공식 페이지에서 로그인을 완료해주세요."
-                            return@Button
-                        }
-                        notice = null
-                        if (provider in setOf(Provider.INSTAGRAM, Provider.REDDIT)) onConnect(null, web.settings.userAgentString)
-                        else {
-                            checking = true
-                            val identity = context.appGraph.sessions.identity(provider)
-                            val arguments = JSONObject.quote(provider.name) + "," + (identity?.let(JSONObject::quote) ?: "null")
-                            web.evaluateJavascript(script + ";JSON.stringify(FollowerTrackerCapture.capture($arguments));") { encoded ->
-                                checking = false
-                                runCatching {
-                                    val payload = JSONArray("[$encoded]").getString(0)
-                                    val result = JSONObject(payload)
-                                    if (result.has("error")) {
-                                        ownProfile = result.optString("profileURL").takeIf { provider.allows(it) }
-                                        notice = when (result.optString("error")) {
-                                            "own_profile_required" -> "로그인한 내 계정의 프로필 페이지를 열어주세요."
-                                            "exact_count_missing" -> "정확한 팔로워 수를 읽지 못했어요. 내 프로필이 열린 상태인지 확인해주세요."
-                                            else -> "로그인 계정을 확인하지 못했어요. 직접 로그인한 뒤 내 프로필을 열어주세요."
-                                        }
-                                    } else onConnect(payload, web.settings.userAgentString)
-                                }.onFailure { notice = "페이지의 데이터를 읽지 못했어요. 내 프로필에서 다시 확인해주세요." }
-                            }
-                        }
-                    }) { Text(if (busy || checking) "계정 확인 중…" else "연결 확인") }
+                (notice ?: message)?.let {
+                    Text(it, Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { notice = null; capturedPages.clear(); policy.requestRetry() },
+                        enabled = !busy && !checking && now >= policy.nextAllowedAt,
+                        modifier = Modifier.padding(horizontal = 12.dp)) { Text("다시 시도") }
+                }
             }
         }
     }

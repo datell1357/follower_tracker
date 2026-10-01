@@ -68,18 +68,17 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             graph.sessions.save(provider, SessionMetadata(userAgent, graph.sessions.identity(provider), System.currentTimeMillis()))
         }
         val expected = graph.repository.accounts().firstOrNull { it.provider == provider }
-        val observation = if (provider in setOf(Provider.INSTAGRAM, Provider.REDDIT)) graph.collector.native(provider, expected)
+        val observation = if (payload == null) graph.collector.native(provider, expected)
         else {
-            val captured = graph.collector.captured(provider, payload ?: throw CollectionFailure(SyncStatus.CHECK_REQUIRED), expected)
+            val captured = graph.collector.captured(provider, payload, expected)
             withContext(Dispatchers.IO) { graph.sessions.save(provider, SessionMetadata(userAgent, captured.first.stableId, System.currentTimeMillis())) }
-            if (provider == Provider.TIKTOK) try { graph.collector.native(provider, captured.first) }
-            catch (failure: CollectionFailure) { if (failure.status == SyncStatus.FORMAT_CHANGED) captured else throw failure }
-            else captured
+            captured
         }
         currentCoroutineContext().ensureActive()
         graph.repository.saveObservation(observation.first, observation.second)
         completed()
-        if (provider == Provider.INSTAGRAM) SyncScheduler.initialLists(getApplication(), observation.first.key)
+        if (provider == Provider.INSTAGRAM && observation.first.status != SyncStatus.FOREGROUND_ONLY)
+            SyncScheduler.initialLists(getApplication(), observation.first.key)
         TrackerWidget().updateAll(getApplication())
         reload()
     }
@@ -97,7 +96,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             state.update { it.copy(busy = true, message = null) }
             try { block() }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: CollectionFailure) { state.update { it.copy(message = failure.status.label + ". 공식 로그인 페이지에서 계정을 확인해주세요.") } }
+            catch (failure: CollectionFailure) { state.update { it.copy(message = connectionFailureMessage(failure)) } }
             catch (_: Exception) { state.update { it.copy(message = "작업을 마치지 못했어요. 기존 기록을 유지했어요.") } }
             finally { state.update { it.copy(busy = false) } }
         }.also { operation = it }

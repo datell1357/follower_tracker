@@ -47,19 +47,23 @@ class SessionCollector(private val sessions: SessionStore) {
         val id = text("stableId") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
         if (expected != null && id != expected.stableId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
         val cookieIdentity = sessions.identity(provider)
-        if (provider in setOf(Provider.X, Provider.FACEBOOK) && id != cookieIdentity)
+        if (provider in setOf(Provider.INSTAGRAM, Provider.X, Provider.FACEBOOK) && id != cookieIdentity)
             throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
         if (!sessions.hasAuthentication(provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
+        if (text("provider") != provider.name) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
         val username = text("username") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
         val now = System.currentTimeMillis()
+        val source = text("source") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val sessionResponse = source == "instagram-webview-session" && provider == Provider.INSTAGRAM ||
+            source == "reddit-webview-session" && provider == Provider.REDDIT
         val account = Account(provider, id, username, text("displayName") ?: username,
             text("profileURL") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED),
-            status = SyncStatus.FOREGROUND_ONLY,
-            capabilities = (expected?.capabilities ?: Capabilities()).copy(count = Capability.FOREGROUND_ONLY,
-                background = Capability.FOREGROUND_ONLY), connectedAt = expected?.connectedAt ?: now, lastAttemptAt = now)
+            status = if (sessionResponse) SyncStatus.READY else SyncStatus.FOREGROUND_ONLY,
+            capabilities = (expected?.capabilities ?: Capabilities()).copy(count = if (sessionResponse) Capability.OBSERVED else Capability.FOREGROUND_ONLY,
+                background = if (sessionResponse) Capability.UNVERIFIED else Capability.FOREGROUND_ONLY), connectedAt = expected?.connectedAt ?: now, lastAttemptAt = now)
         val followers = (root["followers"] as? JsonPrimitive)?.longOrNull ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
         val following = (root["following"] as? JsonPrimitive)?.longOrNull
-        val metric = MetricSnapshot(account.key, now, followers, following, source = text("source") ?: "webview-profile")
+        val metric = MetricSnapshot(account.key, now, followers, following, source = source)
         return account to metric
     }
 
