@@ -32,6 +32,8 @@ class SessionHttpClientTest {
             assertEquals("GET", request.method)
             assertEquals("synthetic-csrf", request.header("X-CSRFToken"))
             assertEquals("fixture-agent", request.header("User-Agent"))
+            assertEquals("https://www.instagram.com", request.header("Origin"))
+            assertEquals("https://www.instagram.com/", request.header("Referer"))
         }
         assertEquals("{}", http.read(Provider.INSTAGRAM, url, "fixture-agent"))
         assertTrue(session.cookiesAccepted)

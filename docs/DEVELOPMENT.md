@@ -43,6 +43,8 @@ cd android
 
 화면 검사는 SNS 선택·탭 이동·설정, 저장 검사는 Android Keystore의 암호화와 변조 거부 및 Room 트랜잭션 경계를 확인한다. 위젯 검사는 실제 Glance `RemoteViews`를 크기별로 생성·적용·레이아웃하고 부모 영역에 가려지거나 숫자·비교 시각이 말줄임 처리되지 않는지 검사한다. 합성 위젯 계정은 검사 안에만 존재하며 앱 DB에 저장하지 않는다. 홈 화면 런처의 위젯 추가·클릭·자동 갱신은 [기기 검증](DEVICE_VALIDATION.md)에서 별도로 확인한다.
 
+`LoginNavigationPolicyTest`는 로그인 호스트와 수집 쿠키 호스트의 분리, 공식 로그인 이동과 유사 도메인 거부를 검사한다. `LoginRuntimeTest.eachProviderOpensAProtectedLoginWindowAndCanBeClosed`는 SDK 29 이상에서 다섯 SNS 창 진입·닫기와 실제 `FLAG_SECURE` 적용을 확인한다. `recordOfficialLoginPageAvailability`는 네트워크가 있는 시험 기기에 명시적으로 실행하는 진단이며, 입력 요소 개수와 페이지 상태만 기록한다. 수집하는 입력값은 없고 로그인 성공을 주장하는 검사가 아니다. 기본 CI는 테스트 APK를 컴파일하며 실제 SNS 페이지 진단을 실행하지 않는다.
+
 Android DB 버전 2는 `relationship_changes`와 `relationship_history_cursor`를 추가한다. Room의 `AutoMigration(1, 2)`를 사용하며 `android/app/schemas/`에 두 버전의 스키마를 보존한다. `RelationshipHistoryRuntimeTest`는 테스트 전용 UUID DB에 실제 버전 1 스키마·합성 암호문을 만들고 최신 Room으로 열어 계정·수치·명단 보존, 모든 저장 명단의 이탈 기록 복원, 연결 해제 cascade를 확인한다. 테스트 스키마는 `androidTest` APK에만 포함된다. [Room 마이그레이션 문서](https://developer.android.com/training/data-storage/room/migrating-db-versions)
 
 ## iOS 앱·위젯

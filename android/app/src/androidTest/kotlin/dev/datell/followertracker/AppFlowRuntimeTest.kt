@@ -32,6 +32,17 @@ class AppFlowRuntimeTest {
         listOf("Instagram", "TikTok", "X", "Facebook", "Reddit").forEach { rule.onNodeWithText(it).assertIsDisplayed() }
         capture("provider-picker.png")
     }
+    @Test fun choosingAProviderOpensLoginAndClosingItReturnsToTracking() {
+        rule.waitUntil(15_000) { rule.onAllNodesWithText("SNS 연결하기").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("SNS 연결하기").performClick()
+        rule.onNodeWithText("Instagram").performClick()
+        rule.waitUntil(15_000) { rule.onAllNodesWithText("Instagram 연결").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("Instagram 연결").assertIsDisplayed()
+        rule.onNodeWithContentDescription("페이지 새로고침").assertIsDisplayed()
+        rule.onNodeWithContentDescription("닫기").performClick()
+        rule.waitUntil(15_000) { rule.onAllNodesWithText("SNS 연결하기").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("SNS 연결하기").assertIsDisplayed()
+    }
     @Test fun relationshipAndSettingsRemainUsableWithoutAnAccount() {
         rule.onNodeWithText("관계").performClick()
         rule.waitUntil(15_000) { rule.onAllNodesWithText("연결된 계정이 없어요").fetchSemanticsNodes().isNotEmpty() }

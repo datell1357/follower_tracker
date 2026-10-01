@@ -22,6 +22,7 @@ class SessionHttpClient(private val sessions: SessionAccess, private val transpo
         if (provider == Provider.INSTAGRAM) {
             // Public first-party web client identifier, not a user/developer API credential.
             request.header("X-IG-App-ID", "936619743392459").header("X-Requested-With", "XMLHttpRequest")
+                .header("Origin", "https://www.instagram.com").header("Referer", "https://www.instagram.com/")
             cookie.split(';').firstOrNull { it.trim().startsWith("csrftoken=") }
                 ?.substringAfter('=')?.let { request.header("X-CSRFToken", it) }
         }

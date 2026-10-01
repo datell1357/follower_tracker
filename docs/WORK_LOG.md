@@ -56,4 +56,8 @@
 - 설정 탭에서 위젯을 눌렀을 때 설정에 머무는 문제를 실제 화면에서 확인했다. 위젯에 추적 화면 진입 Intent를 지정하고 기존 Activity에 반복 전달돼도 추적 탭을 선택하도록 보완했다. 첫 회귀 검사에서 Activity 종료 추적 실패가 발생했고, Intent 전달 콜백과 UI 전환 신호만 처리하는 방식으로 고친 뒤 같은 검사가 통과했다. 실제 런처에서 설정 → 홈 → 위젯 → 추적 화면 복귀도 확인했다.
 - 최종 Android Debug·테스트 APK·Release(R8) 빌드, HTTP 단위 7개, debug/release lint와 런타임 11개(화면·Intent 5개, 위젯 6개)가 통과했다. lint는 오류 0개와 기존 UseKtx 제안 3개다. 저장 런타임 8개는 이번 위젯 변경에서 다시 실행하지 않았으며 앞선 검증 기록을 유지한다. 첫 API import 컴파일 실패, Intent 검사 종료 실패, 패키지 갱신 시작 중 앱 ANR 및 Cold Boot의 System UI·Google Play services ANR 자료는 로컬에 보존했다. 이를 실기기 재시작·백그라운드 안정성 통과로 취급하지 않는다.
 
-아직 실제 SNS 세션·백그라운드 갱신을 검증하지 않았다. 로그인 대기 중인 iPhone 17 Pro의 계정·수치·명단·이탈 기록은 모두 0건이다. 빌드 성공과 목 응답 테스트는 실제 데이터 수집 성공으로 취급하지 않는다.
+- 로그인 실패 보고에 따라 FollowMeter 7.0.1과 Followers & Unfollowers 9.2의 원본 패키지·서명을 확인하고 독립 Android 에뮬레이터에 설치했다. JADX로 Java·Manifest·리소스를 분석하고 FollowMeter의 Flutter AOT 문자열을 추가 확인했다. 복원 오류와 AOT 분석 한계를 포함한 근거를 `LOGIN_APP_COMPARISON.md`에 기록했다. 타사 코드·리소스나 쿠키 업로드 경로를 앱에 가져오지 않았다.
+- Android 로그인 WebView의 교차 사이트 쿠키, Instagram→Facebook·X→Twitter 공식 이동, 키보드 여백, 오류 코드·재시도, 세션 후보 쿠키 안내를 보완했다. 수집 쿠키의 SNS 경계는 유지하며 화면 캡처 보호를 실제 Dialog 정책으로 적용했다. Instagram 읽기 요청에는 웹 출처·참조 헤더를 추가했다. Google·Apple 외부 로그인과 외부 브라우저 쿠키 공유는 지원 범위에 포함하지 않는다.
+- 최종 Android 단위 12개와 독립 에뮬레이터 런타임 8개가 통과했다. 런타임 중 1개는 공식 페이지의 입력 요소·페이지 상태를 기록하는 진단이며, 계정 인증 성공 검사가 아니다. Instagram·X·Facebook·Reddit의 비밀번호 입력 요소와 TikTok 로그인 방식 선택 페이지 로딩을 확인했다. Reddit은 인증 전에도 세션 후보 쿠키를 발급해 안내가 로그인 성공으로 오해되지 않도록 고쳤다. 최종 Debug·테스트 APK·Release(R8)·debug/release lint가 통과했으며 lint는 오류 0개와 기존 UseKtx 제안 3개다. Android Studio 밖의 전용 에뮬레이터에 최종 APK를 설치하고 앱을 열어두었다. 사용자의 요청 이후 데스크톱 포커스를 바꾸는 UI 조작은 하지 않았다.
+
+아직 실제 SNS 계정 인증·백그라운드 갱신을 검증하지 않았다. 로그인 대기 중인 iPhone 17 Pro의 계정·수치·명단·이탈 기록은 앞선 검사에서 0건이었으며, 이번 Android 변경에서 iOS를 다시 검사하지 않았다. 빌드 성공·목 응답·공식 로그인 폼 로딩을 실제 데이터 수집 성공으로 취급하지 않는다.
