@@ -69,6 +69,9 @@ actor SessionVault {
         try keychain.read("session-" + provider.rawValue).map { try JSONDecoder().decode(SavedSession.self, from: $0) }
     }
     func save(_ provider: Provider, _ session: SavedSession) throws {
+        try withSessionLock(provider) { try persist(provider, session) }
+    }
+    private func persist(_ provider: Provider, _ session: SavedSession) throws {
         let allowed = session.cookies.filter { cookie in
             let domain = cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
             guard let url = URL(string: "https://\(domain)/") else { return false }
@@ -78,16 +81,25 @@ actor SessionVault {
         try keychain.write("session-" + provider.rawValue, JSONEncoder().encode(copy))
     }
     func responseCookies(_ provider: Provider, url: URL, headers: [String: String], sessionVersion: Int64) throws {
-        guard provider.allows(url), var session = try load(provider), session.savedAt == sessionVersion else { return }
-        for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: url) {
-            let record = CookieRecord(cookie)
-            let host = record.domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-            guard let domainURL = URL(string: "https://\(host)/"), provider.allows(domainURL),
-                  url.host == host || (record.domain.hasPrefix(".") && url.host?.hasSuffix("." + host) == true) else { continue }
-            session.cookies.removeAll { $0.name == record.name && $0.domain == record.domain && $0.path == record.path }
-            if record.expires == nil || record.expires! > Date() { session.cookies.append(record) }
+        guard provider.allows(url) else { return }
+        try withSessionLock(provider) {
+            guard var session = try load(provider), session.savedAt == sessionVersion else { return }
+            for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: url) {
+                let record = CookieRecord(cookie)
+                let host = record.domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                guard let domainURL = URL(string: "https://\(host)/"), provider.allows(domainURL),
+                      url.host == host || (record.domain.hasPrefix(".") && url.host?.hasSuffix("." + host) == true) else { continue }
+                session.cookies.removeAll { $0.name == record.name && $0.domain == record.domain && $0.path == record.path }
+                if record.expires == nil || record.expires! > Date() { session.cookies.append(record) }
+            }
+            try persist(provider, session)
         }
-        try save(provider, session)
     }
-    func remove(_ provider: Provider) throws { try keychain.remove("session-" + provider.rawValue) }
+    func remove(_ provider: Provider) throws { try withSessionLock(provider) { try keychain.remove("session-" + provider.rawValue) } }
+    private func withSessionLock<T>(_ provider: Provider, operation: () throws -> T) throws -> T {
+        let group = Bundle.main.object(forInfoDictionaryKey: "SharedAppGroup") as? String ?? "group.dev.datell.followertracker"
+        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else { throw StorageFailure.unavailable }
+        let url = container.appendingPathComponent("Library/Application Support/.session-\(provider.rawValue).lock")
+        return try SessionFileLock.withLock(at: url, operation: operation)
+    }
 }

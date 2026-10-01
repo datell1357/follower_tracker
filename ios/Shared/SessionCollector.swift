@@ -142,16 +142,16 @@ actor SyncService {
     }
     private func performRefresh(_ account: Account, background: Bool, timeout: TimeInterval) async throws {
         let key = account.id
-        try await repository.updateStatus(key, .refreshing)
+        try await repository.updateStatus(key, .refreshing, expectedConnectedAt: account.connectedAt)
         do {
             var (updated, metric) = try await collector.native(account.provider, expected: account, timeout: timeout)
             if background { updated.capabilities.background = .observed }
             try Task.checkCancellation()
             try await repository.saveObservation(updated, metric, requireExisting: true)
         } catch is CancellationError {
-            try await repository.updateStatus(key, account.status); throw CancellationError()
+            try await repository.updateStatus(key, account.status, expectedConnectedAt: account.connectedAt); throw CancellationError()
         } catch let failure as CollectionFailure {
-            try await repository.updateStatus(key, failure.status, nextAllowedAt: failure.status == .rateLimited ? nowMillis() + (failure.retryAfterSeconds ?? 900) * 1_000 : nil)
+            try await repository.updateStatus(key, failure.status, nextAllowedAt: failure.status == .rateLimited ? nowMillis() + (failure.retryAfterSeconds ?? 900) * 1_000 : nil, expectedConnectedAt: account.connectedAt)
         }
     }
     func relationships(_ key: String) async throws {
@@ -166,13 +166,13 @@ actor SyncService {
     }
     private func performRelationships(_ account: Account) async throws {
         let key = account.id
-        try await repository.listStatus(key, .refreshing)
-        do { let (followers, following) = try await collector.relationships(account); try await repository.saveScans(followers, following) }
-        catch is CancellationError { try await repository.listStatus(key, .listIncomplete); throw CancellationError() }
+        try await repository.listStatus(key, .refreshing, expectedConnectedAt: account.connectedAt)
+        do { let (followers, following) = try await collector.relationships(account); try await repository.saveScans(followers, following, expectedConnectedAt: account.connectedAt) }
+        catch is CancellationError { try await repository.listStatus(key, .listIncomplete, expectedConnectedAt: account.connectedAt); throw CancellationError() }
         catch let failure as CollectionFailure {
-            try await repository.listStatus(key, failure.status)
+            try await repository.listStatus(key, failure.status, expectedConnectedAt: account.connectedAt)
             if failure.status.blocksAutomaticRetry || failure.status == .rateLimited {
-                try await repository.updateStatus(key, failure.status, nextAllowedAt: failure.status == .rateLimited ? nowMillis() + (failure.retryAfterSeconds ?? 900) * 1_000 : nil)
+                try await repository.updateStatus(key, failure.status, nextAllowedAt: failure.status == .rateLimited ? nowMillis() + (failure.retryAfterSeconds ?? 900) * 1_000 : nil, expectedConnectedAt: account.connectedAt)
             }
         }
     }

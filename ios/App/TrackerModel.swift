@@ -12,6 +12,7 @@ final class TrackerModel {
     var message: String?
     var selectedKey: String?
     var report: RelationshipReport?
+    private var reloadVersion = 0
     let repository: TrackerRepository?
     let sync: SyncService?
     init() {
@@ -20,14 +21,23 @@ final class TrackerModel {
     }
     func reload() async {
         guard let repository else { return }
+        reloadVersion += 1
+        let version = reloadVersion
         do {
-            accounts = try await repository.overviews()
-            if !accounts.contains(where: { $0.id == selectedKey }) { selectedKey = accounts.first?.id }
-            if let key = selectedKey { report = try await repository.report(key) } else { report = nil }
+            let rows = try await repository.overviews()
+            guard version == reloadVersion else { return }
+            let key = rows.contains(where: { $0.id == selectedKey }) ? selectedKey : rows.first?.id
+            let result: RelationshipReport?
+            if let key { result = try await repository.report(key) } else { result = nil }
+            guard version == reloadVersion else { return }
+            accounts = rows; selectedKey = key; report = result
             storageError = false; loading = false
-        } catch { storageError = true; loading = false; message = "저장된 기록을 읽지 못했어요. 데이터를 보존했어요." }
+        } catch {
+            guard version == reloadVersion else { return }
+            storageError = true; loading = false; message = "저장된 기록을 읽지 못했어요. 데이터를 보존했어요."
+        }
     }
-    func select(_ key: String) async { selectedKey = key; await reload() }
+    func select(_ key: String) async { selectedKey = key; report = nil; await reload() }
     func refresh(_ key: String? = nil) async {
         guard !busy, let sync else { return }
         busy = true; defer { busy = false }

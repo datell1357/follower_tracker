@@ -107,7 +107,7 @@ actor TrackerRepository {
         guard account.id == metric.accountKey else { throw StorageFailure.corrupted }
         try database.transaction {
             let existing = try self.account(account.id)
-            if requireExisting && existing == nil { return }
+            if requireExisting && existing?.connectedAt != account.connectedAt { return }
             if let occupied = try accounts().first(where: { $0.provider == account.provider }), occupied.id != account.id { throw CollectionFailure(.checkRequired) }
             var preserved = account
             if let existing { preserved.relationshipStatus = existing.relationshipStatus }
@@ -115,20 +115,26 @@ actor TrackerRepository {
             try database.run("INSERT INTO metrics(owner,observed,payload) VALUES(?,?,?)", [.text(metric.accountKey), .integer(metric.observedAt), .blob(try encoder.encode(metric))])
         }
     }
-    func updateStatus(_ key: String, _ status: SyncStatus, nextAllowedAt: Int64? = nil) throws {
+    func updateStatus(_ key: String, _ status: SyncStatus, nextAllowedAt: Int64? = nil, expectedConnectedAt: Int64? = nil) throws {
         try database.transaction {
             guard var account = try account(key) else { return }
+            if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
             account.status = status; account.lastAttemptAt = nowMillis(); account.nextAllowedAt = nextAllowedAt
             try put(account)
         }
     }
-    func listStatus(_ key: String, _ status: SyncStatus) throws {
-        try database.transaction { guard var account = try account(key) else { return }; account.relationshipStatus = status; try put(account) }
+    func listStatus(_ key: String, _ status: SyncStatus, expectedConnectedAt: Int64? = nil) throws {
+        try database.transaction {
+            guard var account = try account(key) else { return }
+            if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
+            account.relationshipStatus = status; try put(account)
+        }
     }
-    func saveScans(_ followers: RelationshipSnapshot, _ following: RelationshipSnapshot) throws {
+    func saveScans(_ followers: RelationshipSnapshot, _ following: RelationshipSnapshot, expectedConnectedAt: Int64? = nil) throws {
         _ = try RelationshipAnalyzer.compare(followers: followers, following: following)
         try database.transaction {
             guard var account = try account(followers.accountKey) else { return }
+            if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
             for scan in [followers, following] {
                 try database.run("INSERT INTO scans(owner,direction,finished,payload) VALUES(?,?,?,?)",
                     [.text(scan.accountKey), .text(scan.direction.rawValue), .integer(scan.finishedAt), .blob(try keychain.seal(encoder.encode(scan)))])
