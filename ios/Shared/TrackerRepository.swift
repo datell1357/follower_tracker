@@ -22,13 +22,10 @@ private final class SQLiteDatabase {
         sqlite3_busy_timeout(handle, 5_000)
         try run("PRAGMA foreign_keys=ON")
         try run("PRAGMA journal_mode=WAL")
-        let version = try scalar("PRAGMA user_version")
-        guard version <= 1 else { throw StorageFailure.corrupted }
-        try run("CREATE TABLE IF NOT EXISTS accounts (key TEXT PRIMARY KEY, provider TEXT UNIQUE NOT NULL, connected INTEGER NOT NULL, payload BLOB NOT NULL)")
-        try run("CREATE TABLE IF NOT EXISTS metrics (owner TEXT NOT NULL REFERENCES accounts(key) ON DELETE CASCADE, observed INTEGER NOT NULL, payload BLOB NOT NULL, PRIMARY KEY(owner, observed))")
-        try run("CREATE TABLE IF NOT EXISTS scans (owner TEXT NOT NULL REFERENCES accounts(key) ON DELETE CASCADE, direction TEXT NOT NULL, finished INTEGER NOT NULL, payload BLOB NOT NULL, PRIMARY KEY(owner,direction,finished))")
-        try run("CREATE TABLE IF NOT EXISTS sync_leases (owner TEXT PRIMARY KEY, token TEXT NOT NULL, expires INTEGER NOT NULL)")
-        try run("PRAGMA user_version=1")
+        try transaction {
+            let version = try scalar("PRAGMA user_version")
+            for statement in try TrackerSchema.migrationStatements(from: version) { try run(statement) }
+        }
     }
     deinit { sqlite3_close(handle) }
     private func prepare(_ sql: String, _ values: [SQLValue]) throws -> OpaquePointer {
@@ -52,8 +49,8 @@ private final class SQLiteDatabase {
         while result == SQLITE_ROW { result = sqlite3_step(statement) }
         guard result == SQLITE_DONE else { throw StorageFailure.database }
     }
-    func scalar(_ sql: String) throws -> Int64 {
-        let statement = try prepare(sql, []); defer { sqlite3_finalize(statement) }
+    func scalar(_ sql: String, _ values: [SQLValue] = []) throws -> Int64 {
+        let statement = try prepare(sql, values); defer { sqlite3_finalize(statement) }
         guard sqlite3_step(statement) == SQLITE_ROW else { throw StorageFailure.database }
         return sqlite3_column_int64(statement, 0)
     }
@@ -135,6 +132,8 @@ actor TrackerRepository {
         try database.transaction {
             guard var account = try account(followers.accountKey) else { return }
             if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
+            try restoreRelationshipHistory(followers.accountKey)
+            try recordRelationshipChanges(followers, previous: scans(followers.accountKey, .followers).first)
             for scan in [followers, following] {
                 try database.run("INSERT INTO scans(owner,direction,finished,payload) VALUES(?,?,?,?)",
                     [.text(scan.accountKey), .text(scan.direction.rawValue), .integer(scan.finishedAt), .blob(try keychain.seal(encoder.encode(scan)))])
@@ -146,6 +145,38 @@ actor TrackerRepository {
     private func scans(_ key: String, _ direction: Direction) throws -> [RelationshipSnapshot] {
         try database.blobs("SELECT payload FROM scans WHERE owner=? AND direction=? ORDER BY finished DESC LIMIT 3", [.text(key), .text(direction.rawValue)])
             .map { try decoder.decode(RelationshipSnapshot.self, from: keychain.open($0)) }
+    }
+    private func pendingRelationshipChanges(_ key: String) throws -> [RelationshipChange] {
+        try database.blobs("SELECT payload FROM relationship_changes WHERE owner=? AND state!='REOBSERVED' ORDER BY detected DESC,id", [.text(key)])
+            .map { try decoder.decode(RelationshipChange.self, from: keychain.open($0)) }
+    }
+    private func recordRelationshipChanges(_ current: RelationshipSnapshot, previous: RelationshipSnapshot?) throws {
+        for change in try RelationshipHistory.observe(current: current, previous: previous, existing: pendingRelationshipChanges(current.accountKey)) {
+            try database.run("INSERT INTO relationship_changes(id,owner,detected,state,payload) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,payload=excluded.payload",
+                [.text(change.id), .text(change.accountKey), .integer(change.detectedAt), .text(change.state.rawValue), .blob(try keychain.seal(encoder.encode(change)))])
+        }
+        try database.run("INSERT INTO relationship_history_cursor(owner,finished) VALUES(?,?) ON CONFLICT(owner) DO UPDATE SET finished=excluded.finished",
+            [.text(current.accountKey), .integer(current.finishedAt)])
+    }
+    private func restoreRelationshipHistory(_ key: String) throws {
+        guard try database.scalar("SELECT COUNT(*) FROM relationship_history_cursor WHERE owner=?", [.text(key)]) == 0 else { return }
+        var previous: RelationshipSnapshot?
+        var after = Int64.min
+        while let data = try database.blobs("SELECT payload FROM scans WHERE owner=? AND direction='FOLLOWERS' AND finished>? ORDER BY finished LIMIT 1",
+            [.text(key), .integer(after)]).first {
+            let current = try decoder.decode(RelationshipSnapshot.self, from: keychain.open(data))
+            guard current.accountKey == key else { throw StorageFailure.corrupted }
+            try recordRelationshipChanges(current, previous: previous)
+            previous = current; after = current.finishedAt
+        }
+    }
+    func relationshipChanges(_ key: String) throws -> [RelationshipChange] {
+        try database.transaction {
+            guard try account(key) != nil else { return [] }
+            try restoreRelationshipHistory(key)
+            return try database.blobs("SELECT payload FROM relationship_changes WHERE owner=? ORDER BY detected DESC,id", [.text(key)])
+                .map { try decoder.decode(RelationshipChange.self, from: keychain.open($0)) }
+        }
     }
     func report(_ key: String) throws -> RelationshipReport? {
         let followers = try scans(key, .followers), following = try scans(key, .following)

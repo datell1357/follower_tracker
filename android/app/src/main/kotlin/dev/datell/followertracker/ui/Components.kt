@@ -19,6 +19,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 fun formatCount(count: Long) = NumberFormat.getIntegerInstance().format(count)
+fun observationTime(at: Long): String = DateTimeFormatter.ofPattern("yyyy.M.d HH:mm")
+    .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(at))
 fun formatChange(change: Long?) = when { change == null -> "첫 기록"; change > 0 -> "+${formatCount(change)}"; else -> formatCount(change) }
 fun relativeTime(at: Long?): String {
     if (at == null) return "아직 기록이 없어요"

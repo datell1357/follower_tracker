@@ -61,6 +61,9 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
         database.withTransaction {
             val previous = account(followers.accountKey) ?: return@withTransaction
             if (expectedConnectedAt != null && previous.connectedAt != expectedConnectedAt) return@withTransaction
+            restoreRelationshipHistory(followers.accountKey)
+            val baseline = scans(followers.accountKey, Direction.FOLLOWERS).firstOrNull()
+            recordRelationshipChanges(followers, baseline)
             for (scan in listOf(followers, following)) {
                 dao.putScan(ScanEntity(scan.accountKey, scan.direction.name, scan.finishedAt,
                     cipher.seal(json.encodeToString(scan).toByteArray(Charsets.UTF_8))))
@@ -80,6 +83,39 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
     }
     private suspend fun scans(key: String, direction: Direction): List<RelationshipSnapshot> = withContext(Dispatchers.IO) {
         dao.scans(key, direction.name, 3).map { json.decodeFromString<RelationshipSnapshot>(cipher.open(it.encrypted).toString(Charsets.UTF_8)) }
+    }
+    private fun decodeChange(row: RelationshipChangeEntity): RelationshipChange =
+        json.decodeFromString(cipher.open(row.encrypted).toString(Charsets.UTF_8))
+
+    private suspend fun recordRelationshipChanges(current: RelationshipSnapshot, previous: RelationshipSnapshot?) {
+        val existing = dao.pendingRelationshipChanges(current.accountKey).map(::decodeChange)
+        for (change in RelationshipHistory.observe(current, previous, existing)) {
+            dao.putRelationshipChange(RelationshipChangeEntity(change.id, change.accountKey, change.detectedAt, change.state.name,
+                cipher.seal(json.encodeToString(change).toByteArray(Charsets.UTF_8))))
+        }
+        dao.putHistoryCursor(RelationshipHistoryCursorEntity(current.accountKey, current.finishedAt))
+    }
+
+    // Replay legacy scans once, one encrypted snapshot at a time, within the caller's transaction.
+    private suspend fun restoreRelationshipHistory(key: String) {
+        if (dao.historyCursor(key) != null) return
+        var previous: RelationshipSnapshot? = null
+        var after = Long.MIN_VALUE
+        while (true) {
+            val row = dao.nextFollowersScan(key, after) ?: break
+            val current = json.decodeFromString<RelationshipSnapshot>(cipher.open(row.encrypted).toString(Charsets.UTF_8))
+            require(current.accountKey == key && current.finishedAt == row.finishedAt)
+            recordRelationshipChanges(current, previous)
+            previous = current; after = row.finishedAt
+        }
+    }
+
+    suspend fun relationshipChanges(key: String): List<RelationshipChange> = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            if (account(key) == null) return@withTransaction emptyList()
+            restoreRelationshipHistory(key)
+            dao.relationshipChanges(key).map(::decodeChange)
+        }
     }
     suspend fun report(key: String): RelationshipReport? = withContext(Dispatchers.IO) {
         val followers = scans(key, Direction.FOLLOWERS)

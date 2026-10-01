@@ -22,6 +22,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
     sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/session-assets"))
+    sourceSets["androidTest"].assets.srcDir("schemas")
     buildTypes {
         release {
             isMinifyEnabled = true

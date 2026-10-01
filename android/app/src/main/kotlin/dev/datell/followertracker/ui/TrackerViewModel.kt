@@ -15,7 +15,8 @@ import kotlinx.coroutines.flow.*
 
 data class TrackerState(val accounts: List<AccountOverview> = emptyList(), val loading: Boolean = true,
     val busy: Boolean = false, val message: String? = null, val selectedKey: String? = null,
-    val report: RelationshipReport? = null, val storageError: Boolean = false)
+    val report: RelationshipReport? = null, val storageError: Boolean = false,
+    val relationshipChanges: List<RelationshipChange> = emptyList())
 
 class TrackerViewModel(application: Application) : AndroidViewModel(application) {
     private val graph = application.appGraph
@@ -35,13 +36,14 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             val rows = graph.repository.overviews()
             val key = state.value.selectedKey?.takeIf { key -> rows.any { it.account.key == key } } ?: rows.firstOrNull()?.account?.key
             val report = key?.let { graph.repository.report(it) }
-            if (version == reloadVersion) state.update { it.copy(accounts = rows, selectedKey = key, report = report, loading = false, storageError = false) }
+            val changes = key?.let { graph.repository.relationshipChanges(it) }.orEmpty()
+            if (version == reloadVersion) state.update { it.copy(accounts = rows, selectedKey = key, report = report, relationshipChanges = changes, loading = false, storageError = false) }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
             if (version == reloadVersion) state.update { it.copy(loading = false, storageError = true, message = "저장된 기록을 읽지 못했어요. 데이터를 보존했어요.") }
         }
     }
-    fun select(key: String) { state.update { it.copy(selectedKey = key, report = null) }; viewModelScope.launch { reload() } }
+    fun select(key: String) { state.update { it.copy(selectedKey = key, report = null, relationshipChanges = emptyList()) }; viewModelScope.launch { reload() } }
     fun dismissMessage() = state.update { it.copy(message = null) }
     fun refresh(key: String? = null) = action {
         val accounts = graph.repository.accounts().filter { key == null || it.key == key }
