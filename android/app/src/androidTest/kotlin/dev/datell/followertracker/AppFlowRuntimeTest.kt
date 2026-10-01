@@ -1,5 +1,6 @@
 package dev.datell.followertracker
 
+import android.content.Intent
 import android.graphics.Bitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -54,6 +55,21 @@ class AppFlowRuntimeTest {
         }
         runBlocking { job.join() }
         rule.waitUntil(15_000) { !model.state.value.busy }
+    }
+    @Test fun repeatedWidgetIntentsReturnToTracking() {
+        listOf("설정" to "수집 요청 간격", "관계" to "연결된 계정이 없어요").forEach { (tab, content) ->
+            rule.onNodeWithText(tab).performClick()
+            rule.onNodeWithText(content).assertIsDisplayed()
+            rule.runOnIdle {
+                InstrumentationRegistry.getInstrumentation().callActivityOnNewIntent(rule.activity,
+                    Intent(rule.activity, MainActivity::class.java)
+                    .setAction(MainActivity.ACTION_OPEN_TRACKING)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            }
+            rule.waitUntil(15_000) { rule.onAllNodesWithText("내 계정부터 연결해보세요").fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithText("내 계정부터 연결해보세요").assertIsDisplayed()
+            rule.onNodeWithText(content).assertDoesNotExist()
+        }
     }
     private fun capture(name: String) {
         rule.waitForIdle()

@@ -23,6 +23,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     val state = MutableStateFlow(TrackerState())
     private var reloadVersion = 0L
     private var operation: Job? = null
+    private var widgetRefresh: Job? = null
     init {
         viewModelScope.launch {
             try { graph.repository.accounts.collect { reload() } }
@@ -45,6 +46,14 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     }
     fun select(key: String) { state.update { it.copy(selectedKey = key, report = null, relationshipChanges = emptyList()) }; viewModelScope.launch { reload() } }
     fun dismissMessage() = state.update { it.copy(message = null) }
+    fun refreshWidgets(): Job {
+        widgetRefresh?.takeUnless { it.isCompleted }?.let { return it }
+        return viewModelScope.launch {
+            try { TrackerWidget().updateAll(getApplication()) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { state.update { it.copy(message = "위젯 새로고침을 요청하지 못했어요. 앱을 다시 열어 확인해주세요.") } }
+        }.also { widgetRefresh = it }
+    }
     fun refresh(key: String? = null) = action {
         val accounts = graph.repository.accounts().filter { key == null || it.key == key }
         for (account in accounts) graph.coordinator.refresh(account.key)

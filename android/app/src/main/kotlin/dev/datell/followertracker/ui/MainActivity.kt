@@ -1,5 +1,6 @@
 package dev.datell.followertracker.ui
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,16 +22,29 @@ import kotlinx.coroutines.Job
 
 class MainActivity : ComponentActivity() {
     private val model: TrackerViewModel by viewModels()
+    private var openTrackingRequest by mutableIntStateOf(0)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent.action == ACTION_OPEN_TRACKING) openTrackingRequest++
         enableEdgeToEdge()
-        setContent { TrackerTheme { TrackerApp(model) } }
+        setContent { TrackerTheme { TrackerApp(model, openTrackingRequest) } }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == ACTION_OPEN_TRACKING) openTrackingRequest++
+    }
+    override fun onResume() {
+        super.onResume()
+        model.refreshWidgets()
+    }
+    companion object {
+        const val ACTION_OPEN_TRACKING = "dev.datell.followertracker.OPEN_TRACKING"
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrackerApp(model: TrackerViewModel) {
+fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
     val state by model.state.collectAsStateWithLifecycle()
     var tab by remember { mutableIntStateOf(0) }
     var picking by remember { mutableStateOf(false) }
@@ -39,6 +53,9 @@ fun TrackerApp(model: TrackerViewModel) {
     var disconnect by remember { mutableStateOf<String?>(null) }
     var loginJob by remember { mutableStateOf<Job?>(null) }
     val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(openTrackingRequest) {
+        if (openTrackingRequest > 0) { tab = 0; detail = null }
+    }
     LaunchedEffect(state.message, login) {
         if (login == null) state.message?.let { snackbar.showSnackbar(it); model.dismissMessage() }
     }

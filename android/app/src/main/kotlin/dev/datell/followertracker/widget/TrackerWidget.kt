@@ -1,6 +1,7 @@
 package dev.datell.followertracker.widget
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.runtime.*
@@ -9,9 +10,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
 import androidx.glance.*
-import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.*
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.layout.*
 import androidx.glance.text.*
@@ -47,9 +48,12 @@ class TrackerWidget : GlanceAppWidget() {
 @Composable
 internal fun TrackerWidgetContent(rows: List<AccountOverview>?, singleAccount: Boolean = false) {
     val single = !rows.isNullOrEmpty() && (LocalSize.current.width < 250.dp || singleAccount || rows.size == 1)
+    val openTracking = Intent(LocalContext.current, MainActivity::class.java)
+        .setAction(MainActivity.ACTION_OPEN_TRACKING)
+        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     GlanceTheme {
         Column(GlanceModifier.fillMaxSize().background(GlanceTheme.colors.widgetBackground).appWidgetBackground()
-            .cornerRadius(24.dp).padding(18.dp).clickable(actionStartActivity<MainActivity>())) {
+            .cornerRadius(24.dp).padding(18.dp).clickable(actionStartActivity(openTracking))) {
             if (!single) {
                 Text("팔로워 트래커", style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 13.sp, fontWeight = FontWeight.Bold), maxLines = 1)
                 Spacer(GlanceModifier.height(4.dp))
@@ -57,7 +61,7 @@ internal fun TrackerWidgetContent(rows: List<AccountOverview>?, singleAccount: B
             when {
                 rows == null -> Text("기록을 읽지 못했어요\n앱에서 확인해주세요", style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 14.sp))
                 rows.isEmpty() -> {
-                    Text("SNS를 연결해보세요", style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 17.sp, fontWeight = FontWeight.Bold))
+                    Text("SNS 연결하기", style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 17.sp, fontWeight = FontWeight.Bold))
                     Spacer(GlanceModifier.height(8.dp))
                     Text("눌러서 앱 열기", style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp))
                 }

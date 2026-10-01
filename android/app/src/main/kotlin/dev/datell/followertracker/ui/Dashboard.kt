@@ -1,5 +1,6 @@
 package dev.datell.followertracker.ui
 
+import android.appwidget.AppWidgetManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -7,13 +8,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.core.*
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.datastore.preferences.core.emptyPreferences
+import dev.datell.followertracker.widget.TrackerWidget
+import dev.datell.followertracker.widget.TrackerWidgetReceiver
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 @Composable
 fun Dashboard(state: TrackerState, onConnect: () -> Unit, onDetail: (String) -> Unit, onRefresh: () -> Unit) {
@@ -33,15 +41,46 @@ fun Dashboard(state: TrackerState, onConnect: () -> Unit, onDetail: (String) -> 
                 AccountCard(row, onClick = { onDetail(row.account.key) })
             }
         }
-        item {
-            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .42f)) {
-                Row(Modifier.padding(20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Icon(Icons.Outlined.Widgets, null, tint = MaterialTheme.colorScheme.primary)
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("홈 화면에서 바로 확인", style = MaterialTheme.typography.titleSmall)
-                        Text("홈 화면을 길게 눌러 위젯 → 팔로워 트래커를 선택해주세요. 마지막으로 읽은 수와 시각을 표시해요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        item { WidgetGuide() }
+    }
+}
+
+@Composable
+private fun WidgetGuide() {
+    val context = LocalContext.current
+    val canPin = remember(context) { AppWidgetManager.getInstance(context).isRequestPinAppWidgetSupported }
+    val scope = rememberCoroutineScope()
+    var requesting by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf(false) }
+    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .42f)) {
+        Row(Modifier.padding(20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Outlined.Widgets, null, tint = MaterialTheme.colorScheme.primary)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("홈 화면에서 바로 확인", style = MaterialTheme.typography.titleSmall)
+                Text("마지막으로 읽은 수와 시각을 표시해요. 표시할 계정을 고르려면 홈 화면을 길게 눌러 위젯 → 팔로워 트래커를 선택해주세요.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (canPin) OutlinedButton(onClick = {
+                    requesting = true
+                    error = false
+                    scope.launch {
+                        try {
+                            error = !GlanceAppWidgetManager(context).requestPinGlanceAppWidget(
+                                TrackerWidgetReceiver::class.java, preview = TrackerWidget(), previewState = emptyPreferences())
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            error = true
+                        } finally {
+                            requesting = false
+                        }
                     }
+                }, enabled = !requesting) {
+                    Icon(Icons.Outlined.Add, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (requesting) "확인창 여는 중" else "모든 계정 위젯 추가")
                 }
+                if (error) Text("위젯 추가 요청을 열지 못했어요. 홈 화면에서 직접 추가해주세요.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         }
     }

@@ -34,7 +34,7 @@ class WidgetRuntimeTest {
     @Test fun emptyWidgetsShowConnectionGuidanceAtEverySize() = runBlocking {
         sizes.forEachIndexed { index, size ->
             val text = render(emptyList(), size, "widget-empty-$index.png")
-            assertTrue(text.contains("SNS를 연결해보세요"))
+            assertTrue(text.contains("SNS 연결하기"))
             assertTrue(text.contains("눌러서 앱 열기"))
             assertFalse(text.contains("0"))
         }
@@ -42,7 +42,7 @@ class WidgetRuntimeTest {
     @Test fun storageFailureDoesNotRenderAnEmptyAccountOrZeroCount() = runBlocking {
         val text = render(null, sizes.first(), "widget-storage-error.png")
         assertTrue(text.any { it.contains("기록을 읽지 못했어요") })
-        assertFalse(text.contains("SNS를 연결해보세요"))
+        assertFalse(text.contains("SNS 연결하기"))
         assertFalse(text.contains("0"))
     }
     @Test fun reauthenticationKeepsTheLastCountAndChange() = runBlocking {

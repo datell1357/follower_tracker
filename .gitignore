@@ -8,6 +8,7 @@
 .env
 .env.*
 android/.gradle/
+android/.idea/
 android/.kotlin/
 android/**/build/
 android/local.properties
