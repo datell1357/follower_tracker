@@ -77,6 +77,10 @@ iOS 로그인 창도 인증 쿠키 후보와 공식 페이지 상태를 확인�
 
 같은 테스트 대상의 `DesignRuntimeTests` 5개는 시간 범위 밖·미래 관측 제외, 당일 경계·최근 14개 기록, 정확하지 않거나 한 개뿐인 기록의 비교 보류, 수집 실패 중 마지막 성공 시각과 0 보존을 검사한다. 실제 UIColor의 밝은/어두운 주요 글자 대비 6쌍을 확인하고, DB에 저장하지 않는 합성 계정 카드와 세 크기의 위젯을 ImageRenderer로 그린다. 카드의 280pt 너비·Dynamic Type accessibility1 캡처를 포함하며 이미지는 QA 앱의 임시 `tracker-ui-qa` 폴더에 남는다. 렌더링 성공은 전체 VoiceOver·다계정 배치·실제 SNS 수집의 성공을 뜻하지 않는다.
 
+iOS의 `RefreshPolicy`는 수동·백그라운드 갱신 모두 `nextAllowedAt` 이전의 수집 요청을 차단한다. 대기가 끝나면 사용자가 명시적으로 재시도할 수 있으며, 인증·확인·형식 오류와 전경 전용 상태의 자동 반복은 계속 중단한다. 앱과 위젯의 수 수집은 같은 `SyncService`를 사용한다. 관계 명단 수집에도 같은 대기 시각을 적용한다.
+
+`RefreshPolicyTests`는 대기 시각의 직전·일치·이후 경계와 다른 상태에서의 대기 보존을 검사한다. `SyncCooldownRuntimeTests` 4개는 UUID 임시 SQLite DB와 주입한 합성 수집기로 실제 `SyncService`를 실행한다. 수동·백그라운드·명단 요청 중 대기 유지, 요청 횟수 0, 마지막 정상 기록 보존, 임대 잠금 미점유와 대기 종료 후 재시도를 확인한다. 시험 DB는 명시적인 경로에만 생성하며 사용자의 App Group DB와 세션 Vault를 사용하지 않는다. 실제 SNS에 요청하는 검사가 아니다.
+
 ```sh
 xcodebuild -project ios/FollowerTracker.xcodeproj -scheme FollowerTracker \
   -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' \

@@ -76,7 +76,11 @@ actor TrackerRepository {
     private let database: SQLiteDatabase
     private let encoder = JSONEncoder(), decoder = JSONDecoder()
     private let keychain = KeychainStore()
-    init() throws {
+    init(databaseURL: URL? = nil) throws {
+        if let databaseURL {
+            database = try SQLiteDatabase(url: databaseURL)
+            return
+        }
         let group = Bundle.main.object(forInfoDictionaryKey: "SharedAppGroup") as? String ?? "group.dev.datell.followertracker"
         guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else { throw StorageFailure.unavailable }
         let directory = container.appendingPathComponent("Library/Application Support", isDirectory: true)

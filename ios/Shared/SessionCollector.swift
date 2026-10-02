@@ -56,7 +56,12 @@ struct SessionHTTPClient {
     }
 }
 
-struct SessionCollector {
+protocol SessionCollecting: Sendable {
+    func native(_ provider: Provider, expected: Account?, timeout: TimeInterval) async throws -> (Account, MetricSnapshot)
+    func relationships(_ account: Account) async throws -> (RelationshipSnapshot, RelationshipSnapshot)
+}
+
+struct SessionCollector: SessionCollecting {
     let vault: SessionVault
     func native(_ provider: Provider, expected: Account?, timeout: TimeInterval = 25) async throws -> (Account, MetricSnapshot) {
         guard let saved = try await vault.load(provider), saved.authenticated(provider) else { throw CollectionFailure(.reauthRequired) }
@@ -117,11 +122,13 @@ struct SessionCollector {
 actor SyncService {
     private var active: Set<String> = []
     let repository: TrackerRepository
-    let collector = SessionCollector(vault: .shared)
-    init(repository: TrackerRepository) { self.repository = repository }
+    let collector: any SessionCollecting
+    init(repository: TrackerRepository, collector: any SessionCollecting = SessionCollector(vault: .shared)) {
+        self.repository = repository; self.collector = collector
+    }
     func refresh(_ key: String, background: Bool = false, timeout: TimeInterval = 25) async throws {
         guard !active.contains(key), let account = try await repository.account(key) else { return }
-        if background && (account.status.blocksAutomaticRetry || account.status == .foregroundOnly || (account.nextAllowedAt ?? 0) > nowMillis()) { return }
+        guard RefreshPolicy.canRefresh(account, now: nowMillis(), background: background) else { return }
         let token = UUID().uuidString
         guard try await repository.claimSync(key, token: token) else { return }
         active.insert(key); defer { active.remove(key) }
