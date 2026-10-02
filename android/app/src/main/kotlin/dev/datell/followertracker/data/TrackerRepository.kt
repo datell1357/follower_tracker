@@ -75,7 +75,7 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
             dao.putAccount(AccountEntity(updated.key, updated.provider.name, updated.connectedAt, json.encodeToString(updated)))
         }
     }
-    suspend fun updateListStatus(key: String, status: SyncStatus, expectedConnectedAt: Long? = null) = withContext(Dispatchers.IO) {
+    suspend fun updateListStatus(key: String, status: SyncStatus?, expectedConnectedAt: Long? = null) = withContext(Dispatchers.IO) {
         database.withTransaction {
             val previous = account(key) ?: return@withTransaction
             if (expectedConnectedAt != null && previous.connectedAt != expectedConnectedAt) return@withTransaction

@@ -18,23 +18,28 @@ class SyncCoordinator(context: Context, private val repository: TrackerRepositor
         val account = repository.account(key) ?: return@withLock
         val now = System.currentTimeMillis()
         if (!RefreshPolicy.canRefresh(account, now, background)) return@withLock
-        repository.updateStatus(key, SyncStatus.REFRESHING, now, account.nextAllowedAt,
-            expectedConnectedAt = account.connectedAt, transientRetry = account.transientRetry)
         try {
-            val (updated, metric) = collector.native(account.provider, account)
-            val capabilities = if (background) updated.capabilities.copy(background = Capability.OBSERVED) else updated.capabilities
-            repository.saveObservation(updated.copy(capabilities = capabilities), metric, requireExisting = true)
-        } catch (cancelled: CancellationException) {
-            withContext(NonCancellable) { repository.updateStatus(key, account.status, now, account.nextAllowedAt,
-                expectedConnectedAt = account.connectedAt, transientRetry = account.transientRetry) }
-            throw cancelled
-        } catch (failure: CollectionFailure) {
-            val failedAt = System.currentTimeMillis()
-            repository.updateStatus(key, failure.status, now, RefreshPolicy.serviceRetryAt(failure, failedAt),
+            repository.updateStatus(key, SyncStatus.REFRESHING, now, account.nextAllowedAt,
                 expectedConnectedAt = account.connectedAt,
-                transientRetry = if (failure.status == SyncStatus.OFFLINE) RefreshPolicy.nextTransientRetry(account, failedAt) else null)
-        } catch (_: Exception) {
-            repository.updateStatus(key, SyncStatus.FORMAT_CHANGED, now, expectedConnectedAt = account.connectedAt)
+                transientRetry = account.transientRetry)
+            try {
+                val (updated, metric) = collector.native(account.provider, account)
+                val capabilities = if (background) updated.capabilities.copy(background = Capability.OBSERVED) else updated.capabilities
+                repository.saveObservation(updated.copy(capabilities = capabilities), metric, requireExisting = true)
+            } catch (failure: CollectionFailure) {
+                val failedAt = System.currentTimeMillis()
+                repository.updateStatus(key, failure.status, now, RefreshPolicy.serviceRetryAt(failure, failedAt),
+                    expectedConnectedAt = account.connectedAt,
+                    transientRetry = if (failure.status == SyncStatus.OFFLINE) RefreshPolicy.nextTransientRetry(account, failedAt) else null)
+            }
+        } catch (failure: Exception) {
+            try {
+                withContext(NonCancellable) {
+                    repository.updateStatus(key, account.status, now, account.nextAllowedAt,
+                        expectedConnectedAt = account.connectedAt, transientRetry = account.transientRetry)
+                }
+            } catch (restorationFailure: Exception) { failure.addSuppressed(restorationFailure) }
+            throw failure
         }
         publishWidgets()
     }
@@ -42,24 +47,32 @@ class SyncCoordinator(context: Context, private val repository: TrackerRepositor
         val account = repository.account(key) ?: return@withLock
         val now = System.currentTimeMillis()
         if (account.status.blocksAutomaticRetry || !RefreshPolicy.canRefresh(account, now, background)) return@withLock
-        repository.updateListStatus(key, SyncStatus.REFRESHING, expectedConnectedAt = account.connectedAt)
         try {
-            val (followers, following) = collector.relationships(account)
-            repository.saveScans(followers, following, expectedConnectedAt = account.connectedAt)
-        } catch (cancelled: CancellationException) {
-            withContext(NonCancellable) { repository.updateListStatus(key, account.relationshipStatus ?: SyncStatus.LIST_INCOMPLETE, expectedConnectedAt = account.connectedAt) }
-            throw cancelled
-        }
-        catch (failure: CollectionFailure) {
-            repository.updateListStatus(key, failure.status, expectedConnectedAt = account.connectedAt)
-            if (failure.status.blocksAutomaticRetry || failure.status in setOf(SyncStatus.RATE_LIMITED, SyncStatus.OFFLINE)) {
-                val failedAt = System.currentTimeMillis()
-                repository.updateStatus(key, failure.status, now, RefreshPolicy.serviceRetryAt(failure, failedAt),
-                    expectedConnectedAt = account.connectedAt,
-                    transientRetry = if (failure.status == SyncStatus.OFFLINE) RefreshPolicy.nextTransientRetry(account, failedAt) else null)
+            repository.updateListStatus(key, SyncStatus.REFRESHING, expectedConnectedAt = account.connectedAt)
+            try {
+                val (followers, following) = collector.relationships(account)
+                repository.saveScans(followers, following, expectedConnectedAt = account.connectedAt)
+            } catch (failure: CollectionFailure) {
+                repository.updateListStatus(key, failure.status, expectedConnectedAt = account.connectedAt)
+                if (failure.status.blocksAutomaticRetry || failure.status in setOf(SyncStatus.RATE_LIMITED, SyncStatus.OFFLINE)) {
+                    val failedAt = System.currentTimeMillis()
+                    repository.updateStatus(key, failure.status, now, RefreshPolicy.serviceRetryAt(failure, failedAt),
+                        expectedConnectedAt = account.connectedAt,
+                        transientRetry = if (failure.status == SyncStatus.OFFLINE) RefreshPolicy.nextTransientRetry(account, failedAt) else null)
+                }
             }
+        } catch (failure: Exception) {
+            try {
+                withContext(NonCancellable) {
+                    val previousListStatus = if (failure is CancellationException)
+                        account.relationshipStatus ?: SyncStatus.LIST_INCOMPLETE else account.relationshipStatus
+                    repository.updateListStatus(key, previousListStatus, expectedConnectedAt = account.connectedAt)
+                    if (failure !is CancellationException) repository.updateStatus(key, account.status, now, account.nextAllowedAt,
+                        expectedConnectedAt = account.connectedAt, transientRetry = account.transientRetry)
+                }
+            } catch (restorationFailure: Exception) { failure.addSuppressed(restorationFailure) }
+            throw failure
         }
-        catch (_: Exception) { repository.updateListStatus(key, SyncStatus.LIST_INCOMPLETE, expectedConnectedAt = account.connectedAt) }
         publishWidgets()
     }
 }
