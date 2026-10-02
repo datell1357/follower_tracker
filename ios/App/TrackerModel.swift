@@ -58,20 +58,17 @@ final class TrackerModel {
     func connect(_ provider: Provider, session: SavedSession, payload: String?) async throws {
         guard !busy, let repository else { throw StorageFailure.unavailable }
         busy = true; message = nil; defer { busy = false }
-        try await SessionVault.shared.save(provider, session)
         let expected = try await repository.accounts().first { $0.provider == provider }
-        let collector = SessionCollector(vault: .shared)
         let observation: (Account, MetricSnapshot)
-        if [.instagram, .reddit].contains(provider) { observation = try await collector.native(provider, expected: expected) }
-        else {
-            guard let payload else { throw CollectionFailure(.checkRequired) }
-            let captured = try await collector.captured(provider, payload: payload, expected: expected)
+        if let payload {
+            let captured = try ResponseParser.capturedProfile(provider, payload: payload, session: session, expected: expected, now: nowMillis())
             var saved = session; saved.expectedID = captured.0.stableID
+            try Task.checkCancellation()
             try await SessionVault.shared.save(provider, saved)
-            if provider == .tiktok {
-                do { observation = try await collector.native(provider, expected: captured.0) }
-                catch let failure as CollectionFailure where failure.status == .formatChanged { observation = captured }
-            } else { observation = captured }
+            observation = captured
+        } else {
+            try await SessionVault.shared.save(provider, session)
+            observation = try await SessionCollector(vault: .shared).native(provider, expected: expected)
         }
         try Task.checkCancellation()
         try await repository.saveObservation(observation.0, observation.1)

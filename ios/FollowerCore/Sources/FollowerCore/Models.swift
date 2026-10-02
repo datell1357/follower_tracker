@@ -37,6 +37,13 @@ public enum Provider: String, Codable, CaseIterable, Sendable, Identifiable {
               url.port == nil || url.port == 443, let host = url.host?.lowercased() else { return false }
         return host == domain || host.hasSuffix(".\(domain)")
     }
+    public func allowsLogin(_ url: URL) -> Bool {
+        if allows(url) { return true }
+        if self == .instagram { return Provider.facebook.allows(url) }
+        guard self == .x, url.scheme == "https", url.user == nil, url.password == nil,
+              url.port == nil || url.port == 443, let host = url.host?.lowercased() else { return false }
+        return host == "twitter.com" || host.hasSuffix(".twitter.com")
+    }
 }
 
 public enum SyncStatus: String, Codable, Sendable {

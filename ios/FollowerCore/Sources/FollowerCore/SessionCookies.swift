@@ -49,7 +49,7 @@ public struct SavedSession: Codable, Sendable {
         }
     }
     public func authenticated(_ provider: Provider) -> Bool {
-        let names = Set(cookies.filter { $0.matches(provider.loginURL) }.map(\.name))
+        let names = Set(cookies.filter { !$0.value.isEmpty && $0.matches(provider.loginURL) }.map(\.name))
         switch provider {
         case .instagram: return names.contains("sessionid") && identity(provider) != nil
         case .tiktok: return !names.isDisjoint(with: ["sessionid", "sessionid_ss", "sid_tt", "sid_guard"])

@@ -69,6 +69,18 @@ iOS DB 버전 2의 추가 마이그레이션 SQL은 `FollowerCore/TrackerSchema.
 
 `ios/FollowerTracker.xcodeproj`와 공유 `FollowerTracker` scheme으로 앱 및 위젯 확장을 함께 빌드한다. 프로젝트를 재생성할 때는 `python3 ios/scripts/generate_project.py`를 실행한다. 외부 프로젝트 생성 도구는 필요하지 않다.
 
+iOS 로그인 창도 인증 쿠키 후보와 공식 페이지 상태를 확인한 뒤 정확한 본인 수치를 자동으로 확보한다. `WKWebView.callAsyncJavaScript`의 비동기 결과를 기다려 공통 캡처를 실행하고, 본인 ID·SNS·정수 수치·수집 출처를 검증한 다음 세션과 기록을 저장한다. 연결 확인 버튼은 필요하지 않다. 요청 제한에는 대기 시간을 유지하고 즉시 네이티브 요청으로 다시 시도하지 않는다. 대기 중 현재 문서의 수치 읽기는 계속하며 창을 닫으면 자동 연결 작업을 취소한다. [Apple WebKit API](https://developer.apple.com/documentation/webkit/wkwebview/callasyncjavascript(_:arguments:in:contentworld:))
+
+`AutoConnectionTests`는 로그인·추가 인증 보류, 중복 요청과 제한된 재시도, 계정 일치·정확한 0·출처 검증을 검사한다. `FollowerTrackerTests`의 `AutoConnectionRuntimeTests`는 개인 세션 없는 별도 시뮬레이터의 실제 WKWebView에 합성 쿠키와 문서를 주입해 자동 연결·미인증 거부·로그인 페이지 보류·HTTP 429 뒤 늦게 표시되는 DOM 수치·닫기 취소를 검사한다. 합성 fetch만 사용하며 세션 Vault와 계정 DB에 시험 값을 저장하지 않는다. CI는 테스트 묶음을 컴파일하고 실제 SNS 로그인이나 이 런타임 검사를 실행하지 않는다. 사용자가 로그인 중인 시뮬레이터에 이 검사를 실행하지 않는다.
+
+```sh
+xcodebuild -project ios/FollowerTracker.xcodeproj -scheme FollowerTracker \
+  -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- -parallel-testing-enabled NO test
+```
+
+시험 기기 이름은 비어 있는 QA 시뮬레이터로 지정한다. 합성 검사는 실제 계정의 로그인·수치·Keychain 공유·백그라운드 수집 성공을 증명하지 않는다.
+
 ```sh
 xcodebuild -project ios/FollowerTracker.xcodeproj -scheme FollowerTracker \
   -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \

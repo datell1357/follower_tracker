@@ -10,6 +10,68 @@ public enum ResponseParser {
         }
         return root
     }
+    public static func webCaptureFailure(_ root: [String: Any]) -> CollectionFailure? {
+        guard let value = root["error"], !(value is NSNull) else { return nil }
+        guard let error = value as? String else { return CollectionFailure(.formatChanged) }
+        let status: SyncStatus
+        switch error {
+        case "http":
+            guard let code = root["status"] as? NSNumber, CFGetTypeID(code) != CFBooleanGetTypeID(),
+                  code.doubleValue == Double(code.intValue) else { return CollectionFailure(.formatChanged) }
+            status = statusForHTTP(code.intValue) ?? .formatChanged
+        case "rate_limited": status = .rateLimited
+        case "offline": status = .offline
+        case "reauth_required", "identity_missing": status = .reauthRequired
+        case "own_profile_required", "check_required": status = .checkRequired
+        default: status = .formatChanged
+        }
+        let retry = (root["retryAfterSeconds"] as? NSNumber).flatMap { value -> Int64? in
+            guard CFGetTypeID(value) != CFBooleanGetTypeID(), let seconds = Int64(value.stringValue) else { return nil }
+            return min(86_400, max(60, seconds))
+        }
+        return CollectionFailure(status, retryAfterSeconds: retry)
+    }
+
+    public static func capturedProfile(_ provider: Provider, payload: String, session: SavedSession,
+                                       expected: Account?, now: Int64) throws -> (Account, MetricSnapshot) {
+        let root = try objectBody(payload)
+        if let failure = webCaptureFailure(root) { throw failure }
+        guard session.authenticated(provider) else { throw CollectionFailure(.reauthRequired) }
+        guard root["provider"] as? String == provider.rawValue else { throw CollectionFailure(.checkRequired) }
+        guard root["precision"] as? String == "EXACT", let id = root["stableId"] as? String,
+              let name = root["username"] as? String, let profile = root["profileURL"] as? String,
+              let url = URL(string: profile), let source = root["source"] as? String else { throw CollectionFailure(.formatChanged) }
+        guard expected == nil || expected?.provider == provider && expected?.stableID == id,
+              session.expectedID == nil || session.expectedID == id else { throw CollectionFailure(.checkRequired) }
+        if [.instagram, .x, .facebook].contains(provider), session.identity(provider) != id { throw CollectionFailure(.checkRequired) }
+        let sources: Set<String>
+        switch provider {
+        case .instagram: sources = ["instagram-webview-profile", "instagram-webview-dom", "instagram-webview-session"]
+        case .reddit: sources = ["reddit-webview-session"]
+        case .tiktok: sources = ["tiktok-webview-profile"]
+        case .x: sources = ["x-webview-profile", "x-webview-dom"]
+        case .facebook: sources = ["facebook-webview-profile"]
+        }
+        guard sources.contains(source) else { throw CollectionFailure(.formatChanged) }
+        func exact(_ value: Any?) throws -> Int64 {
+            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  let count = exactDisplayedCount(number.stringValue), count <= 9_007_199_254_740_991 else { throw CollectionFailure(.formatChanged) }
+            return count
+        }
+        let followers = try exact(root["followers"])
+        let following = try root["following"].flatMap { $0 is NSNull ? nil : try exact($0) }
+        var account = try Account(provider: provider, stableID: id, username: name,
+            displayName: root["displayName"] as? String ?? name, profileURL: url, connectedAt: expected?.connectedAt ?? now)
+        let sessionResponse = provider == .instagram && source == "instagram-webview-session" ||
+            provider == .reddit && source == "reddit-webview-session"
+        account.capabilities = expected?.capabilities ?? Capabilities()
+        account.capabilities.count = sessionResponse ? .observed : .foregroundOnly
+        account.capabilities.background = sessionResponse ? (account.capabilities.background == .foregroundOnly ? .unverified : account.capabilities.background) : .foregroundOnly
+        account.status = sessionResponse ? .ready : .foregroundOnly
+        account.lastAttemptAt = now
+        return (account, try MetricSnapshot(accountKey: account.id, observedAt: now, followers: followers,
+            following: following, source: source))
+    }
     public static func instagramProfile(_ body: String, expectedID: String?, now: Int64) throws -> (Account, MetricSnapshot) {
         let root = try objectBody(body)
         try checkServiceStatus(root)

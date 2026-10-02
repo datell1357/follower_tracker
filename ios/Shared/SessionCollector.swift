@@ -82,19 +82,8 @@ struct SessionCollector {
         return (updated, observation.1)
     }
     func captured(_ provider: Provider, payload: String, expected: Account?) async throws -> (Account, MetricSnapshot) {
-        let root = try ResponseParser.objectBody(payload)
-        guard root["error"] == nil, let id = root["stableId"] as? String, let name = root["username"] as? String,
-              let profile = root["profileURL"] as? String, let url = URL(string: profile),
-              let followers = root["followers"] as? NSNumber, CFGetTypeID(followers) != CFBooleanGetTypeID(), let exact = exactDisplayedCount(followers.stringValue),
-              let saved = try await vault.load(provider), saved.authenticated(provider) else { throw CollectionFailure(.checkRequired) }
-        guard expected == nil || expected?.stableID == id else { throw CollectionFailure(.checkRequired) }
-        if [.x, .facebook].contains(provider), saved.identity(provider) != id { throw CollectionFailure(.checkRequired) }
-        var account = try Account(provider: provider, stableID: id, username: name, displayName: root["displayName"] as? String ?? name,
-            profileURL: url, connectedAt: expected?.connectedAt ?? nowMillis())
-        account.capabilities = expected?.capabilities ?? Capabilities()
-        account.capabilities.count = .foregroundOnly; account.capabilities.background = .foregroundOnly; account.status = .foregroundOnly
-        let following = (root["following"] as? NSNumber).flatMap { exactDisplayedCount($0.stringValue) }
-        return (account, try MetricSnapshot(accountKey: account.id, observedAt: nowMillis(), followers: exact, following: following, source: root["source"] as? String ?? "webview-profile"))
+        guard let saved = try await vault.load(provider) else { throw CollectionFailure(.reauthRequired) }
+        return try ResponseParser.capturedProfile(provider, payload: payload, session: saved, expected: expected, now: nowMillis())
     }
     func relationships(_ account: Account) async throws -> (RelationshipSnapshot, RelationshipSnapshot) {
         guard account.provider == .instagram else { throw CollectionFailure(.foregroundOnly) }

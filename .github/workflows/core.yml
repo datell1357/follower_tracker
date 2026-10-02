@@ -34,5 +34,9 @@ jobs:
           git diff --exit-code -- ios/FollowerTracker.xcodeproj
       - run: >-
           xcodebuild -project ios/FollowerTracker.xcodeproj -scheme FollowerTracker
+          -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/follower-ios-tests" -jobs 2 CODE_SIGNING_ALLOWED=NO build-for-testing
+      - run: >-
+          xcodebuild -project ios/FollowerTracker.xcodeproj -scheme FollowerTracker
           -configuration Release -sdk iphoneos -destination 'generic/platform=iOS'
           -derivedDataPath "$RUNNER_TEMP/follower-ios" -jobs 2 CODE_SIGNING_ALLOWED=NO build
