@@ -2,14 +2,37 @@ import SwiftUI
 import FollowerCore
 
 enum TrackerStyle {
-    static let blue = Color(red: 0.216, green: 0.369, blue: 0.847)
-    static let background = Color(uiColor: .systemGroupedBackground)
+    static let blue = adaptive(0x3958D9, 0xADBCFF)
+    static let green = adaptive(0x08775D, 0x74D5B7)
+    static let ink = adaptive(0x172039, 0xEEF1FA)
+    static let muted = adaptive(0x5F6A80, 0xBBC3D7)
+    static let background = adaptive(0xF5F6FA, 0x101522)
+    static let surface = adaptive(0xFFFFFF, 0x1B2232)
+    static let outline = adaptive(0xE5E9F1, 0x333D52)
+    static let blueSurface = adaptive(0xE9EDFF, 0x253365)
+    static let onBlueSurface = adaptive(0x243D99, 0xE2E7FF)
+    static let onBlue = adaptive(0xFFFFFF, 0x192A75)
+    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let value = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: Double((value >> 16) & 255) / 255,
+                           green: Double((value >> 8) & 255) / 255,
+                           blue: Double(value & 255) / 255, alpha: 1)
+        })
+    }
     static func count(_ value: Int64) -> String { value.formatted(.number.grouping(.automatic)) }
     static func change(_ value: Int64?) -> String {
         guard let value else { return "첫 기록" }; return (value > 0 ? "+" : "") + count(value)
     }
     static func change(_ row: AccountOverview) -> String {
         row.previous != nil && row.comparison == nil ? "비교 불가" : change(row.change)
+    }
+    static func changeColor(_ change: Int64?) -> Color { (change ?? 0) > 0 ? green : blue }
+    static func collectedAt(_ value: Int64?, compact: Bool = false) -> String {
+        value.map { "수집 " + observationTime($0, compact: compact) } ?? "아직 기록 없음"
+    }
+    static func widgetStatus(_ row: AccountOverview) -> String {
+        (row.account.status == .ready ? "" : row.account.status.label + " · ") + collectedAt(row.latest?.observedAt, compact: true)
     }
     static func observationTime(_ value: Int64, compact: Bool = false) -> String {
         let date = Date(timeIntervalSince1970: Double(value) / 1_000)
@@ -30,11 +53,11 @@ enum TrackerStyle {
     }
     static func color(_ provider: Provider) -> Color {
         switch provider {
-        case .instagram: Color(red: 0.67, green: 0.27, blue: 0.48)
-        case .tiktok: Color(red: 0.13, green: 0.42, blue: 0.44)
-        case .x: Color(red: 0.15, green: 0.21, blue: 0.30)
+        case .instagram: adaptive(0xAA447A, 0xFFADD4)
+        case .tiktok: adaptive(0x216B70, 0x7CDADE)
+        case .x: ink
         case .facebook: blue
-        case .reddit: Color(red: 0.85, green: 0.40, blue: 0.20)
+        case .reddit: adaptive(0xAF5026, 0xFFB896)
         }
     }
 }
@@ -43,7 +66,7 @@ struct ProviderMark: View {
     var body: some View {
         Text([Provider.instagram: "IG", .tiktok: "Tk", .x: "X", .facebook: "f", .reddit: "r"][provider]!)
             .font(.headline).foregroundStyle(TrackerStyle.color(provider)).frame(width: 44, height: 44)
-            .background(TrackerStyle.color(provider).opacity(0.11), in: RoundedRectangle(cornerRadius: 14))
+            .background(TrackerStyle.color(provider).opacity(0.11), in: RoundedRectangle(cornerRadius: 14)).accessibilityHidden(true)
     }
 }
 struct EmptyCard<Content: View>: View {
@@ -51,8 +74,8 @@ struct EmptyCard<Content: View>: View {
     @ViewBuilder var action: Content
     init(_ title: String, _ detail: String, @ViewBuilder action: () -> Content) { self.title = title; self.detail = detail; self.action = action() }
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) { Text(title).font(.title3.bold()); Text(detail).font(.subheadline).foregroundStyle(.secondary); action }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(24).background(.background, in: RoundedRectangle(cornerRadius: 24))
+        VStack(alignment: .leading, spacing: 14) { Text(title).font(.title3.bold()); Text(detail).font(.subheadline).foregroundStyle(TrackerStyle.muted); action }
+            .foregroundStyle(TrackerStyle.ink).frame(maxWidth: .infinity, alignment: .leading).padding(22).background(TrackerStyle.surface, in: RoundedRectangle(cornerRadius: 24))
     }
 }
 extension EmptyCard where Content == EmptyView {

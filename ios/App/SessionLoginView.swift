@@ -143,10 +143,10 @@ private struct LoginWebView: UIViewRepresentable {
 struct SessionLoginView: View {
     let provider: Provider
     let model: TrackerModel
-    let completed: () -> Void
+    @Environment(\.dismiss) private var dismiss
     @State private var browser: LoginBrowser
-    init(provider: Provider, model: TrackerModel, completed: @escaping () -> Void) {
-        self.provider = provider; self.model = model; self.completed = completed
+    init(provider: Provider, model: TrackerModel) {
+        self.provider = provider; self.model = model
         _browser = State(initialValue: LoginBrowser(provider: provider, restoreSession: { try await SessionVault.shared.load(provider) }))
     }
     var body: some View {
@@ -161,11 +161,12 @@ struct SessionLoginView: View {
                 if let url = browser.ownProfile { Button("내 프로필 열기") { browser.notice = nil; browser.ownProfile = nil; browser.webView.load(URLRequest(url: url)) }.padding(.top, 8) }
                 if browser.notice != nil { Button("다시 시도") { browser.requestRetry() }.buttonStyle(.bordered).padding(12).disabled(!browser.canRetry || model.busy) }
             }.navigationTitle(provider.title + " 연결").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기") { browser.cancel(); completed() } }
-                    ToolbarItem(placement: .topBarTrailing) {
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기") { browser.cancel(); dismiss() } }
+                    ToolbarItemGroup(placement: .topBarTrailing) {
                         Button("페이지 새로고침", systemImage: "arrow.clockwise") { browser.webView.reload() }.disabled(browser.checking || model.busy)
-                        Button("이전 페이지", systemImage: "chevron.left") { if browser.webView.canGoBack { browser.webView.goBack() } }.disabled(model.busy)
+                        Button("이전 페이지", systemImage: "chevron.left") { if browser.webView.canGoBack { browser.webView.goBack() } }.disabled(model.busy || !browser.webView.canGoBack)
                     } }
-        }.onAppear { browser.open(isBusy: { model.busy }, onObservation: { session, payload in try await model.connect(provider, session: session, payload: payload) }, completed: completed) }.onDisappear { browser.cancel() }
+        }.presentationDetents([.large])
+            .onAppear { browser.open(isBusy: { model.busy }, onObservation: { session, payload in try await model.connect(provider, session: session, payload: payload) }, completed: { dismiss() }) }.onDisappear { browser.cancel() }
     }
 }

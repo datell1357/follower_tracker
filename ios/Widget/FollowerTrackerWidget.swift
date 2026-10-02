@@ -51,40 +51,12 @@ struct TrackerTimeline: AppIntentTimelineProvider {
 struct TrackerWidgetView: View {
     let entry: TrackerEntry
     @Environment(\.widgetFamily) private var family
-    private var single: Bool { family == .systemSmall || entry.rows.count == 1 }
     var body: some View {
-        VStack(alignment: .leading, spacing: single ? 6 : (family == .systemMedium ? 4 : 8)) {
-            if !single || entry.storageError || entry.rows.isEmpty { Text("팔로워 트래커").font(.caption.weight(.bold)).foregroundStyle(TrackerStyle.blue) }
-            if entry.storageError { Text("기록을 읽지 못했어요").font(.headline); Text("앱에서 확인해주세요").font(.caption).foregroundStyle(.secondary) }
-            else if entry.rows.isEmpty {
-                Text("SNS를 연결해보세요").font(.headline); Text("눌러서 앱 열기").font(.caption).foregroundStyle(.secondary); Spacer(minLength: 0)
-            } else if single {
-                let row = entry.rows[0]
-                Text(row.account.provider.title + " · @" + row.account.username).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—").font(.system(size: 32, weight: .bold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.6).lineLimit(1)
-                Text("팔로워 · " + TrackerStyle.change(row)).font(.caption2).foregroundStyle(TrackerStyle.blue)
-                if let comparedAt = row.comparisonAt { Text("비교 " + TrackerStyle.observationTime(comparedAt, compact: true)).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1) }
-                Spacer(minLength: 0)
-                Text(status(row)).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
-            } else {
-                ForEach(Array(entry.rows.prefix(family == .systemLarge ? 5 : 3))) { row in
-                    VStack(spacing: 0) {
-                        HStack {
-                            Text(row.account.provider.title).font(.system(size: 12, weight: .semibold)); Spacer(minLength: 6)
-                            Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—").font(.system(size: family == .systemMedium ? 18 : 21, weight: .bold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.5).lineLimit(1)
-                        }
-                        HStack {
-                            Text(status(row)).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1); Spacer(minLength: 6)
-                            Text(TrackerStyle.change(row) + (row.comparisonAt.map { " · " + TrackerStyle.observationTime($0, compact: true) + " 대비" } ?? "")).font(.system(size: 10)).foregroundStyle(TrackerStyle.blue).lineLimit(1)
-                        }
-                    }
-                }
-                if family == .systemLarge { Spacer(minLength: 0) }
-            }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .containerBackground(.background, for: .widget).widgetURL(URL(string: "followertracker://dashboard"))
+        TrackerWidgetContent(rows: entry.rows, storageError: entry.storageError,
+            size: family == .systemSmall ? .small : family == .systemLarge ? .large : .medium)
+            .containerBackground(TrackerStyle.surface, for: .widget)
+            .widgetURL(URL(string: "followertracker://dashboard"))
     }
-    private func status(_ row: AccountOverview) -> String { (row.account.status == .ready ? "" : row.account.status.label + " · ") + TrackerStyle.time(row.latest?.observedAt) }
 }
 @main
 struct FollowerTrackerWidget: Widget {

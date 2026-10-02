@@ -73,6 +73,10 @@ iOS 로그인 창도 인증 쿠키 후보와 공식 페이지 상태를 확인�
 
 `AutoConnectionTests`는 로그인·추가 인증 보류, 중복 요청과 제한된 재시도, 계정 일치·정확한 0·출처 검증을 검사한다. `FollowerTrackerTests`의 `AutoConnectionRuntimeTests`는 개인 세션 없는 별도 시뮬레이터의 실제 WKWebView에 합성 쿠키와 문서를 주입해 자동 연결·미인증 거부·로그인 페이지 보류·HTTP 429 뒤 늦게 표시되는 DOM 수치·닫기 취소를 검사한다. 합성 fetch만 사용하며 세션 Vault와 계정 DB에 시험 값을 저장하지 않는다. CI는 테스트 묶음을 컴파일하고 실제 SNS 로그인이나 이 런타임 검사를 실행하지 않는다. 사용자가 로그인 중인 시뮬레이터에 이 검사를 실행하지 않는다.
 
+앱은 홈·관계·위젯·더보기의 탭마다 NavigationStack을 사용한다. 지원·도움말·개인정보는 더보기의 하위 경로이며 계정 상세는 홈에 속한다. 선택 탭·관계 검색과 위젯 미리보기 선택은 SceneStorage로 보존한다. 위젯 확장과 앱 미리보기는 `Shared/TrackerWidgetContent.swift`를 공유하고 실제 마지막 성공 기록의 날짜·시각을 표시한다. iOS에는 1분 빠른 추적을 제공하지 않는다. [화면과 BM 안내](UI_UX.md)
+
+같은 테스트 대상의 `DesignRuntimeTests` 5개는 시간 범위 밖·미래 관측 제외, 당일 경계·최근 14개 기록, 정확하지 않거나 한 개뿐인 기록의 비교 보류, 수집 실패 중 마지막 성공 시각과 0 보존을 검사한다. 실제 UIColor의 밝은/어두운 주요 글자 대비 6쌍을 확인하고, DB에 저장하지 않는 합성 계정 카드와 세 크기의 위젯을 ImageRenderer로 그린다. 카드의 280pt 너비·Dynamic Type accessibility1 캡처를 포함하며 이미지는 QA 앱의 임시 `tracker-ui-qa` 폴더에 남는다. 렌더링 성공은 전체 VoiceOver·다계정 배치·실제 SNS 수집의 성공을 뜻하지 않는다.
+
 ```sh
 xcodebuild -project ios/FollowerTracker.xcodeproj -scheme FollowerTracker \
   -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' \
