@@ -133,7 +133,13 @@ actor SyncService {
         guard try await repository.claimSync(key, token: token) else { return }
         active.insert(key); defer { active.remove(key) }
         do { try await performRefresh(account, background: background, timeout: timeout) }
-        catch { try? await repository.releaseSync(key, token: token); throw error }
+        catch {
+            // Storage failures can occur in the collector or while committing its result.
+            try? await repository.updateStatus(key, account.status, nextAllowedAt: account.nextAllowedAt,
+                expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry)
+            try? await repository.releaseSync(key, token: token)
+            throw error
+        }
         try await repository.releaseSync(key, token: token)
     }
     private func performRefresh(_ account: Account, background: Bool, timeout: TimeInterval) async throws {
@@ -145,9 +151,6 @@ actor SyncService {
             if background { updated.capabilities.background = .observed }
             try Task.checkCancellation()
             try await repository.saveObservation(updated, metric, requireExisting: true)
-        } catch is CancellationError {
-            try await repository.updateStatus(key, account.status, nextAllowedAt: account.nextAllowedAt,
-                expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry); throw CancellationError()
         } catch let failure as CollectionFailure {
             let failedAt = nowMillis()
             try await repository.updateStatus(key, failure.status, nextAllowedAt: RefreshPolicy.serviceRetryAt(failure, failedAt: failedAt),
@@ -162,7 +165,15 @@ actor SyncService {
         guard try await repository.claimSync(key, token: token) else { return }
         active.insert(key); defer { active.remove(key) }
         do { try await performRelationships(account) }
-        catch { try? await repository.releaseSync(key, token: token); throw error }
+        catch {
+            if !(error is CancellationError) {
+                try? await repository.listStatus(key, account.relationshipStatus, expectedConnectedAt: account.connectedAt)
+                try? await repository.updateStatus(key, account.status, nextAllowedAt: account.nextAllowedAt,
+                    expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry)
+            }
+            try? await repository.releaseSync(key, token: token)
+            throw error
+        }
         try await repository.releaseSync(key, token: token)
     }
     private func performRelationships(_ account: Account) async throws {

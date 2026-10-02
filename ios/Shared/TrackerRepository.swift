@@ -126,7 +126,7 @@ actor TrackerRepository {
             try put(account)
         }
     }
-    func listStatus(_ key: String, _ status: SyncStatus, expectedConnectedAt: Int64? = nil) throws {
+    func listStatus(_ key: String, _ status: SyncStatus?, expectedConnectedAt: Int64? = nil) throws {
         try database.transaction {
             guard var account = try account(key) else { return }
             if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }

@@ -1,4 +1,5 @@
 import XCTest
+import Security
 import FollowerCore
 @testable import FollowerTracker
 
@@ -210,5 +211,119 @@ final class SyncTransientRetryRuntimeTests: XCTestCase {
         let after = try await repository.account(account.id), history = try await repository.history(account.id)
         XCTAssertEqual(after?.status, before?.status); XCTAssertEqual(after?.nextAllowedAt, before?.nextAllowedAt)
         XCTAssertEqual(after?.transientRetry, before?.transientRetry); XCTAssertEqual(history.count, 1)
+    }
+}
+
+private struct StorageFailingCollector: SessionCollecting {
+    let failure: StorageFailure
+    func native(_ provider: Provider, expected: Account?, timeout: TimeInterval) async throws -> (Account, MetricSnapshot) {
+        throw failure
+    }
+    func relationships(_ account: Account) async throws -> (RelationshipSnapshot, RelationshipSnapshot) {
+        throw failure
+    }
+}
+
+private struct ConflictingObservationCollector: SessionCollecting {
+    func native(_ provider: Provider, expected: Account?, timeout: TimeInterval) async throws -> (Account, MetricSnapshot) {
+        guard var account = expected else { throw CollectionFailure(.checkRequired) }
+        account.status = .ready
+        return (account, try MetricSnapshot(accountKey: account.id, observedAt: 1_000,
+            followers: 99, following: 2, source: "synthetic-conflicting-observation"))
+    }
+    func relationships(_ account: Account) async throws -> (RelationshipSnapshot, RelationshipSnapshot) {
+        throw CollectionFailure(.listIncomplete)
+    }
+}
+
+final class SyncStorageFailureRuntimeTests: XCTestCase {
+    private func fixture() async throws -> (TrackerRepository, Account) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tracker-storage-failure-qa-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let repository = try TrackerRepository(databaseURL: folder.appendingPathComponent("Tracker.sqlite"))
+        var account = try Account(provider: .instagram, stableID: "fixture", username: "sample", displayName: "Sample",
+            profileURL: URL(string: "https://www.instagram.com/sample/")!, connectedAt: 1)
+        account.status = .offline
+        account.nextAllowedAt = 500
+        account.transientRetry = TransientRetryState(failureCount: 2, nextAttemptAt: nowMillis() + 120_000)
+        try await repository.saveObservation(account, MetricSnapshot(accountKey: account.id, observedAt: 1_000,
+            followers: 7, following: 2, source: "synthetic-baseline"))
+        try await repository.updateStatus(account.id, .offline, nextAllowedAt: account.nextAllowedAt, expectedConnectedAt: account.connectedAt,
+            transientRetry: account.transientRetry)
+        return (repository, account)
+    }
+
+    private func assertOriginalFailure(_ expected: StorageFailure, operation: () async throws -> Void) async {
+        do { try await operation(); XCTFail("Storage failures must reach the caller.") }
+        catch let actual as StorageFailure {
+            switch (expected, actual) {
+            case (.keychain(let expectedCode), .keychain(let actualCode)): XCTAssertEqual(actualCode, expectedCode)
+            case (.database, .database): break
+            default: XCTFail("The original storage failure must be preserved.")
+            }
+        } catch { XCTFail("The original storage failure must be preserved.") }
+    }
+
+    func testStorageFailureRestoresCountStatusAndReleasesTheLease() async throws {
+        for failure: StorageFailure in [.keychain(errSecInteractionNotAllowed), .database] {
+            let (repository, account) = try await fixture()
+            let sync = SyncService(repository: repository, collector: StorageFailingCollector(failure: failure))
+            await assertOriginalFailure(failure) { try await sync.refresh(account.id) }
+            let stored = try await repository.account(account.id), history = try await repository.history(account.id)
+            XCTAssertEqual(stored?.status, .offline)
+            XCTAssertEqual(stored?.nextAllowedAt, account.nextAllowedAt)
+            XCTAssertEqual(stored?.transientRetry, account.transientRetry)
+            XCTAssertEqual(history.count, 1); XCTAssertEqual(history.last?.observedAt, 1_000)
+            XCTAssertEqual(history.last?.followers, 7)
+            let released = try await repository.claimSync(account.id, token: "qa-after-storage-failure")
+            XCTAssertTrue(released)
+            try await repository.releaseSync(account.id, token: "qa-after-storage-failure")
+        }
+    }
+
+    func testARealSQLiteCommitFailureRestoresStatusAndKeepsTheOriginalMetric() async throws {
+        let (repository, account) = try await fixture()
+        let sync = SyncService(repository: repository, collector: ConflictingObservationCollector())
+        // The existing (owner, observed) primary key makes the real transaction fail.
+        await assertOriginalFailure(.database) { try await sync.refresh(account.id) }
+        let stored = try await repository.account(account.id), history = try await repository.history(account.id)
+        XCTAssertEqual(stored?.status, .offline); XCTAssertEqual(stored?.transientRetry, account.transientRetry)
+        XCTAssertEqual(stored?.nextAllowedAt, account.nextAllowedAt)
+        XCTAssertEqual(history.count, 1); XCTAssertEqual(history.last?.followers, 7)
+        let released = try await repository.claimSync(account.id, token: "qa-after-commit-failure")
+        XCTAssertTrue(released)
+        try await repository.releaseSync(account.id, token: "qa-after-commit-failure")
+    }
+
+    func testStorageFailureBeforeTheFirstListRestoresTheAbsentListStatus() async throws {
+        let (repository, account) = try await fixture()
+        let sync = SyncService(repository: repository, collector: StorageFailingCollector(failure: .keychain(errSecInteractionNotAllowed)))
+        await assertOriginalFailure(.keychain(errSecInteractionNotAllowed)) { try await sync.relationships(account.id) }
+        let stored = try await repository.account(account.id), report = try await repository.report(account.id)
+        XCTAssertNil(stored?.relationshipStatus); XCTAssertNil(report)
+        XCTAssertEqual(stored?.transientRetry, account.transientRetry)
+        XCTAssertEqual(stored?.nextAllowedAt, account.nextAllowedAt)
+    }
+
+    func testStorageFailureRestoresTheCompletedRelationshipStatus() async throws {
+        for failure: StorageFailure in [.keychain(errSecInteractionNotAllowed), .database] {
+            let (repository, account) = try await fixture()
+            func baseline(_ direction: Direction) -> RelationshipSnapshot {
+                RelationshipSnapshot(accountKey: account.id, direction: direction, startedAt: 1, finishedAt: 2,
+                    members: [], complete: true, consistent: true, endReason: "synthetic-terminal")
+            }
+            try await repository.saveScans(baseline(.followers), baseline(.following))
+            let before = try await repository.account(account.id)
+            let sync = SyncService(repository: repository, collector: StorageFailingCollector(failure: failure))
+            await assertOriginalFailure(failure) { try await sync.relationships(account.id) }
+            let stored = try await repository.account(account.id), report = try await repository.report(account.id)
+            XCTAssertEqual(stored?.relationshipStatus, .ready)
+            XCTAssertEqual(stored?.status, before?.status); XCTAssertEqual(stored?.transientRetry, before?.transientRetry)
+            XCTAssertEqual(stored?.nextAllowedAt, before?.nextAllowedAt)
+            XCTAssertEqual(report?.comparedAt, 2)
+            let released = try await repository.claimSync(account.id, token: "qa-after-list-storage-failure")
+            XCTAssertTrue(released)
+            try await repository.releaseSync(account.id, token: "qa-after-list-storage-failure")
+        }
     }
 }

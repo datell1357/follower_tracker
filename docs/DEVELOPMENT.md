@@ -110,6 +110,8 @@ iOS에도 같은 `transientRetry` 정책을 적용하며 앱 예약과 위젯의
 
 `RefreshPolicyTests`는 대기 시각의 직전·일치·이후 경계와 다른 상태에서의 대기 보존을 검사한다. `SyncCooldownRuntimeTests` 4개는 UUID 임시 SQLite DB와 주입한 합성 수집기로 실제 `SyncService`를 실행한다. 수동·백그라운드·명단 요청 중 대기 유지, 요청 횟수 0, 마지막 정상 기록 보존, 임대 잠금 미점유와 대기 종료 후 재시도를 확인한다. 시험 DB는 명시적인 경로에만 생성하며 사용자의 App Group DB와 세션 Vault를 사용하지 않는다. 실제 SNS에 요청하는 검사가 아니다.
 
+`SyncStorageFailureRuntimeTests` 4개는 Keychain·저장 오류가 전파될 때 `수집 중` 상태가 남는 회귀를 검사한다. 수 수집은 이전 상태·서비스 대기·일시 오류 대기를 복원하고 실행 임대를 반환한다. 명단 수집은 기존 완료 상태 또는 첫 수집 전의 빈 상태를 복원한다. 기존 관측 시각과 수치·완료 명단은 보존하며 원래 오류를 호출부에 전달한다. Keychain 오류는 합성 수집기에서 주입하고, DB 확정 실패는 실제 SQLite 기본 키 충돌로 발생시킨다. 복원 기록도 실패할 수 있는 저장소 전체 장애나 실기기 잠금 상태의 Keychain 접근을 통과했다고 해석하지 않는다. [시험 결과와 공유 진단의 한계](DEVICE_VALIDATION.md#ios-저장-오류-복구와-공유-진단--2026-10-02)
+
 ```sh
 xcodebuild -project ios/FollowerTracker.xcodeproj -scheme FollowerTracker \
   -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' \
