@@ -1,6 +1,5 @@
 package dev.datell.followertracker.ui
 
-import android.appwidget.AppWidgetManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -9,78 +8,46 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.core.*
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.datastore.preferences.core.emptyPreferences
-import dev.datell.followertracker.widget.TrackerWidget
-import dev.datell.followertracker.widget.TrackerWidgetReceiver
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 
 @Composable
-fun Dashboard(state: TrackerState, onConnect: () -> Unit, onDetail: (String) -> Unit, onRefresh: () -> Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp, 8.dp, 24.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        if (state.accounts.isEmpty()) item {
-            EmptyCard("내 계정부터 연결해보세요", "팔로워 수와 변화를 기록하고 홈 화면 위젯에서 확인할 수 있어요.") {
-                Button(onClick = onConnect) { Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(8.dp)); Text("SNS 연결하기") }
-            }
-        } else {
+fun Dashboard(state: TrackerState, onConnect: () -> Unit, onDetail: (String) -> Unit, onRefresh: () -> Unit, onWidgets: () -> Unit = {}) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 4.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (state.accounts.isEmpty()) {
             item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("연결된 계정 ${state.accounts.size}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
-                    TextButton(onClick = onRefresh, enabled = !state.busy) { Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("갱신") }
-                }
-            }
-            items(state.accounts, key = { it.account.key }) { row ->
-                AccountCard(row, onClick = { onDetail(row.account.key) })
-            }
-        }
-        item { WidgetGuide() }
-    }
-}
-
-@Composable
-private fun WidgetGuide() {
-    val context = LocalContext.current
-    val canPin = remember(context) { AppWidgetManager.getInstance(context).isRequestPinAppWidgetSupported }
-    val scope = rememberCoroutineScope()
-    var requesting by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf(false) }
-    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .42f)) {
-        Row(Modifier.padding(20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(Icons.Outlined.Widgets, null, tint = MaterialTheme.colorScheme.primary)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("홈 화면에서 바로 확인", style = MaterialTheme.typography.titleSmall)
-                Text("마지막으로 읽은 수와 시각을 표시해요. 표시할 계정을 고르려면 홈 화면을 길게 눌러 위젯 → 팔로워 트래커를 선택해주세요.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (canPin) OutlinedButton(onClick = {
-                    requesting = true
-                    error = false
-                    scope.launch {
-                        try {
-                            error = !GlanceAppWidgetManager(context).requestPinGlanceAppWidget(
-                                TrackerWidgetReceiver::class.java, preview = TrackerWidget(), previewState = emptyPreferences())
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) {
-                            error = true
-                        } finally {
-                            requesting = false
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                    Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Icon(Icons.Outlined.Insights, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+                        Text("내 계정부터 연결해보세요", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("팔로워의 변화부터 홈 위젯까지. 내 SNS의 기록을 한곳에서 확인하세요.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Button(onClick = onConnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Icon(Icons.Outlined.Add, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("SNS 연결하기")
                         }
                     }
-                }, enabled = !requesting) {
-                    Icon(Icons.Outlined.Add, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (requesting) "확인창 여는 중" else "모든 계정 위젯 추가")
                 }
-                if (error) Text("위젯 추가 요청을 열지 못했어요. 홈 화면에서 직접 추가해주세요.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+            item { InfoPanel("연결하고, 기록하고, 확인해요", "공식 SNS 로그인 → 내 계정 수치 확인 → 홈 화면 위젯 추가. 로그인 후 확인 가능한 수치를 확보하면 자동으로 연결해요.", icon = Icons.Outlined.VerifiedUser) }
+        } else {
+            item { SectionHeading("내 계정 ${state.accounts.size}", "새로고침", !state.busy, onRefresh) }
+            items(state.accounts, key = { it.account.key }) { row -> AccountCard(row) { onDetail(row.account.key) } }
+            item { RapidTrackingCard(state, compact = true) }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                MenuRow("홈 화면에서 바로 확인", "위젯을 미리 보고 홈 화면에 추가하세요", Icons.Outlined.Widgets, onWidgets)
+            }
+        }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Outlined.Shield, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("기기에 기록 · 기본 기능 무료", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -88,70 +55,114 @@ private fun WidgetGuide() {
 
 @Composable
 private fun AccountCard(row: AccountOverview, onClick: () -> Unit) {
-    Card(onClick = onClick, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProviderMark(row.account.provider)
-                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Column(Modifier.weight(1f)) {
                     Text(row.account.provider.title, style = MaterialTheme.typography.titleMedium)
-                    Text("@${row.account.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    Text("@${row.account.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Icon(Icons.Outlined.ChevronRight, "계정 상세", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Row(verticalAlignment = Alignment.Bottom) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f)) {
                     Text("팔로워", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(row.latest?.let { formatCount(it.followers) } ?: "—", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
+                    Text(row.latest?.let { formatCount(it.followers) } ?: "—", style = MaterialTheme.typography.displaySmall)
                 }
-                Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(10.dp)) {
-                    Text(formatChange(row), Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelLarge)
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    ToneBadge(formatChange(row), positive = row.change?.let { it >= 0 } == true)
+                    Text(if (row.comparisonAt != null) "직전 기록 대비" else "기록을 시작해요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (row.history.size > 1) GrowthChart(row.history, Modifier.fillMaxWidth().height(64.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            if (row.history.size > 1) GrowthChart(row.history, Modifier.fillMaxWidth().height(56.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 StatusLine(row.account, row.latest?.observedAt)
-                Text(row.comparisonAt?.let { "${observationTime(it)} 대비" } ?: if (row.previous == null) "변화 기록을 시작해요" else "정확한 두 기록이 필요해요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(row.latest?.let { "마지막 수집 ${compactObservationTime(it.observedAt)}" } ?: "첫 수집을 기다리고 있어요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, onReconnect: () -> Unit) {
-    LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(24.dp, 8.dp, 24.dp, 36.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    var period by rememberSaveable(row.account.key) { mutableIntStateOf(0) }
+    val now = System.currentTimeMillis()
+    val start = when (period) {
+        1 -> now - 3_600_000
+        2 -> java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        else -> Long.MIN_VALUE
+    }
+    val visible = row.history.filter { it.observedAt >= start }
+    val comparison = if (visible.size > 1) MetricComparison.between(visible.first(), visible.last()) else null
+    LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 36.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProviderMark(row.account.provider)
-                Column { Text(row.account.displayName, style = MaterialTheme.typography.headlineSmall); Text("@${row.account.username}", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Column(Modifier.weight(1f)) {
+                    Text(row.account.displayName, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("${row.account.provider.title} · @${row.account.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         item {
-            Text(row.latest?.let { formatCount(it.followers) } ?: "—", style = MaterialTheme.typography.displayMedium)
-            Text("팔로워 · ${row.latest?.let { relativeTime(it.observedAt) } ?: "아직 기록 없음"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            row.latest?.following?.let { Text("팔로잉 ${formatCount(it)}", Modifier.padding(top = 8.dp)) }
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("현재 팔로워", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(row.latest?.let { formatCount(it.followers) } ?: "—", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(row.latest?.let { "${observationTime(it.observedAt)} 수집" } ?: "아직 수집 기록이 없어요", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    row.latest?.following?.let { Text("팔로잉 ${formatCount(it)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer) }
+                }
+            }
         }
-        item { GrowthChart(row.history, Modifier.fillMaxWidth().height(150.dp)) }
+        item {
+            SectionHeading("팔로워 변화")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("최근 기록", "최근 1시간", "오늘").forEachIndexed { index, label ->
+                    FilterChip(selected = period == index, onClick = { period = index }, label = { Text(label) })
+                }
+            }
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (visible.size < 2) Text("비교할 기록을 모으고 있어요", style = MaterialTheme.typography.bodyMedium)
+                    else {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("선택한 기록의 변화", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            ToneBadge(if (comparison == null) "비교 불가" else formatChange(comparison.change), positive = comparison?.change?.let { it >= 0 } == true)
+                        }
+                        GrowthChart(visible, Modifier.fillMaxWidth().height(120.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(compactObservationTime(visible.first().observedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(compactObservationTime(visible.last().observedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
         item {
             StatusLine(row.account, row.latest?.observedAt)
-            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onRefresh, enabled = !busy && row.account.status != SyncStatus.FOREGROUND_ONLY) { Text("지금 갱신") }
-                OutlinedButton(onClick = onReconnect, enabled = !busy) { Text("로그인 페이지 열기") }
+            Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy && row.account.status != SyncStatus.FOREGROUND_ONLY) { Text("지금 갱신") }
+                OutlinedButton(onClick = onReconnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text("공식 로그인 페이지 열기") }
             }
         }
         item {
-            Text("자동 갱신", style = MaterialTheme.typography.titleMedium)
-            Text(when (row.account.capabilities.background) {
-                Capability.OBSERVED -> "기기에서 백그라운드 수집이 실행됐어요. 실제 갱신 시각은 운영체제와 연결 상태에 따라 달라져요."
-                Capability.FOREGROUND_ONLY -> "현재 이 SNS는 로그인 페이지에서 프로필을 열어 갱신해요."
+            InfoPanel("자동 갱신", when (row.account.capabilities.background) {
+                Capability.OBSERVED -> "기기에서 백그라운드 수집에 성공했어요. 네트워크·절전·SNS 요청 제한에 따라 갱신 시각이 달라질 수 있어요."
+                Capability.FOREGROUND_ONLY -> "현재는 공식 로그인 페이지에서 본인 프로필을 열어 갱신할 수 있어요."
                 Capability.UNAVAILABLE -> "이 계정의 자동 수집 경로를 사용할 수 없어요."
-                Capability.UNVERIFIED -> "연결 후 예약된 수집을 시도해요. 백그라운드 수집 성공은 아직 확인되지 않았어요."
-            }, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                Capability.UNVERIFIED -> "연결한 뒤 예약 수집을 시도해요. 백그라운드 수집 성공은 아직 확인되지 않았어요."
+            }, icon = Icons.Outlined.Schedule)
         }
-        item { Text("최근 기록", style = MaterialTheme.typography.titleMedium) }
-        items(row.history.takeLast(14).asReversed(), key = { it.observedAt }) { metric ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(relativeTime(metric.observedAt), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(formatCount(metric.followers), fontWeight = FontWeight.Medium)
+        item { SectionHeading("최근 수집 기록") }
+        items(visible.takeLast(14).asReversed(), key = { it.observedAt }) { metric ->
+            Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(14.dp)) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(compactObservationTime(metric.observedAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(formatCount(metric.followers), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }

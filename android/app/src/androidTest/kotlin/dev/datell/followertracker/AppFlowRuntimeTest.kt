@@ -48,7 +48,8 @@ class AppFlowRuntimeTest {
         rule.waitUntil(15_000) { rule.onAllNodesWithText("연결된 계정이 없어요").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("연결된 계정이 없어요").assertIsDisplayed()
         capture("empty-relationships.png")
-        rule.onNodeWithText("설정").performClick()
+        rule.onAllNodesWithText("더보기").filter(hasClickAction()).onFirst().performClick()
+        rule.onNodeWithText("수집 설정").performClick()
         rule.onNodeWithText("1분 빠른 추적").assertIsDisplayed()
         rule.onNodeWithText("빠른 추적 시작").assertIsNotEnabled()
         rule.onNodeWithText("수집 요청 간격").assertIsDisplayed()
@@ -71,8 +72,9 @@ class AppFlowRuntimeTest {
         rule.waitUntil(15_000) { !model.state.value.busy }
     }
     @Test fun repeatedWidgetIntentsReturnToTracking() {
-        listOf("설정" to "수집 요청 간격", "관계" to "연결된 계정이 없어요").forEach { (tab, content) ->
-            rule.onNodeWithText(tab).performClick()
+        listOf("더보기" to "수집 요청 간격", "관계" to "연결된 계정이 없어요", "위젯" to "첫 계정을 기다려요").forEach { (tab, content) ->
+            rule.onAllNodesWithText(tab).filter(hasClickAction()).onFirst().performClick()
+            if (tab == "더보기") rule.onNodeWithText("수집 설정").performClick()
             rule.onNodeWithText(content).assertIsDisplayed()
             rule.runOnIdle {
                 InstrumentationRegistry.getInstrumentation().callActivityOnNewIntent(rule.activity,
@@ -84,6 +86,40 @@ class AppFlowRuntimeTest {
             rule.onNodeWithText("내 계정부터 연결해보세요").assertIsDisplayed()
             rule.onNodeWithText(content).assertDoesNotExist()
         }
+    }
+    @Test fun supportHelpAndBackReturnToThePageThatOpenedThem() {
+        rule.waitUntil(15_000) { rule.onAllNodesWithText("SNS 연결하기").fetchSemanticsNodes().isNotEmpty() }
+        rule.onAllNodesWithText("더보기").filter(hasClickAction()).onFirst().performClick()
+        rule.onNodeWithText("앱 지원").performClick()
+        rule.onNodeWithText("0원").assertIsDisplayed()
+        capture("support.png")
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("이용 안내"))
+        rule.onNodeWithText("이용 안내").performClick()
+        rule.onNodeWithText("1분마다 항상 갱신되나요?").assertIsDisplayed().performClick()
+        rule.onNodeWithText("홈 또는 수집 설정에서 빠른 추적을 시작하면", substring = true).assertIsDisplayed()
+        rule.onNodeWithContentDescription("이전 화면").performClick()
+        rule.onNodeWithText("이용 안내").assertIsDisplayed()
+        rule.onNodeWithContentDescription("이전 화면").performClick()
+        rule.onNodeWithText("무료 기능과 운영 방향 알아보기").assertIsDisplayed()
+        capture("more.png")
+    }
+    @Test fun widgetTabOffersAConnectionWhenNoAccountExists() {
+        rule.waitUntil(15_000) { rule.onAllNodesWithText("SNS 연결하기").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("위젯").performClick()
+        rule.onNodeWithText("첫 계정을 기다려요").assertIsDisplayed()
+        capture("widget-preview-empty.png")
+        rule.onNodeWithText("SNS 연결하기").performScrollTo().performClick()
+        rule.onNodeWithText("어떤 SNS를 연결할까요?").assertIsDisplayed()
+    }
+    @Test fun configurationChangePreservesTheOpenPage() {
+        rule.waitUntil(15_000) { rule.onAllNodesWithText("SNS 연결하기").fetchSemanticsNodes().isNotEmpty() }
+        rule.onAllNodesWithText("더보기").filter(hasClickAction()).onFirst().performClick()
+        rule.onNodeWithText("앱 지원").performClick()
+        rule.runOnIdle { rule.activity.recreate() }
+        rule.waitUntil(15_000) { rule.onAllNodesWithText("0원").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("0원").assertIsDisplayed()
+        rule.onNodeWithContentDescription("이전 화면").performClick()
+        rule.onNodeWithText("무료 기능과 운영 방향 알아보기").assertIsDisplayed()
     }
     private fun capture(name: String) {
         rule.waitForIdle()

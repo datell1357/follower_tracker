@@ -17,6 +17,7 @@ import androidx.glance.appwidget.cornerRadius
 import androidx.glance.layout.*
 import androidx.glance.text.*
 import androidx.glance.state.PreferencesGlanceStateDefinition
+import androidx.glance.material3.ColorProviders
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.datell.followertracker.appGraph
@@ -26,7 +27,10 @@ import dev.datell.followertracker.ui.MainActivity
 import dev.datell.followertracker.ui.formatChange
 import dev.datell.followertracker.ui.formatCount
 import dev.datell.followertracker.ui.compactObservationTime
+import dev.datell.followertracker.ui.trackerColorScheme
 import kotlin.math.min
+
+private val WidgetColors = ColorProviders(trackerColorScheme(false), trackerColorScheme(true))
 
 class TrackerWidget : GlanceAppWidget() {
     override val stateDefinition = PreferencesGlanceStateDefinition
@@ -50,7 +54,7 @@ internal fun TrackerWidgetContent(rows: List<AccountOverview>?, singleAccount: B
     val openTracking = Intent(LocalContext.current, MainActivity::class.java)
         .setAction(MainActivity.ACTION_OPEN_TRACKING)
         .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-    GlanceTheme {
+    GlanceTheme(colors = WidgetColors) {
         Column(GlanceModifier.fillMaxSize().background(GlanceTheme.colors.widgetBackground).appWidgetBackground()
             .cornerRadius(24.dp).padding(18.dp).clickable(actionStartActivity(openTracking))) {
             if (!single) {

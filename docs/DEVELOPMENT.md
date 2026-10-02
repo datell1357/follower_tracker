@@ -35,7 +35,7 @@ cd android
 
 디버그 APK는 `android/app/build/outputs/apk/debug/app-debug.apk`에 생성된다. Release APK는 서명되지 않은 로컬 산출물이며, 위 명령은 스토어에 제출하지 않는다.
 
-Android 설정의 `1분 빠른 추적`은 Instagram 연결 후 알림 권한을 허용하고 직접 시작한다. 앱을 홈 화면으로 내린 채 공식 프로필의 새 수치를 수집하고 저장 직후 위젯 갱신을 요청한다. 일반 예약은 최소 15분이며 빠른 모드는 최대 약 6시간의 전경 서비스다. 요청 제한은 수동·예약·빠른 수집 모두 대기하고 로그인·형식 오류는 자동 반복을 중단한다. 실제 성공과 시험 범위는 [기기 검증](DEVICE_VALIDATION.md)에 기록한다.
+Android 홈의 `1분 빠른 추적` 또는 `더보기 → 수집 설정`에서 Instagram 연결 후 알림 권한을 허용하고 직접 시작한다. 앱을 홈 화면으로 내린 채 공식 프로필의 새 수치를 수집하고 저장 직후 위젯 갱신을 요청한다. 일반 예약은 최소 15분이며 빠른 모드는 최대 약 6시간의 전경 서비스다. 요청 제한은 수동·예약·빠른 수집 모두 대기하고 로그인·형식 오류는 자동 반복을 중단한다. 실제 성공과 시험 범위는 [기기 검증](DEVICE_VALIDATION.md)에 기록한다.
 
 `RefreshPolicyTest`는 요청 제한 대기, 인증·형식 오류 중단, 기존 계정 JSON 호환성과 Instagram 프로필 경로의 재사용을 검사한다. `InstagramWebProfileTest`는 별도 세션 HTTP 후보 응답의 본인 ID·정확한 정수·실패 분류를 검사한다. 이 응답 검사를 HTTP 후보 경로의 실제 성공으로 취급하지 않는다. `ConnectionStatusDiagnostic.probeNativeCountWithoutLoginScreen`은 `probeNativeCount=true`로 명시적으로 선택해야 실제 요청을 수행하며 계정·쿠키·숫자를 출력하거나 기록을 덮어쓰지 않는다. 실제 사용자 기기에는 전체 instrumentation 검사를 실행하지 않는다.
 
@@ -46,6 +46,8 @@ Android 설정의 `1분 빠른 추적`은 Instagram 연결 후 알림 권한을 
 ```
 
 화면 검사는 SNS 선택·탭 이동·설정, 저장 검사는 Android Keystore의 암호화와 변조 거부 및 Room 트랜잭션 경계를 확인한다. 위젯 검사는 실제 Glance `RemoteViews`를 크기별로 생성·적용·레이아웃하고 부모 영역에 가려지거나 숫자·비교 시각이 말줄임 처리되지 않는지 검사한다. 합성 위젯 계정은 검사 안에만 존재하며 앱 DB에 저장하지 않는다. 홈 화면 런처의 위젯 추가·클릭·자동 갱신은 [기기 검증](DEVICE_VALIDATION.md)에서 별도로 확인한다.
+
+`AppFlowRuntimeTest`는 네 탭, 앱 지원·도움말의 뒤로 가기, 스크롤·화면 재생성 후 상태 유지와 반복 위젯 진입을 검사한다. `DesignRuntimeTest`는 DB에 저장하지 않는 합성 화면으로 수집 지연·빠른 추적 중지 사유 표시, 위젯 계정 선택, 검색 초기화, 미지원 명단 요청 차단, 320dp·글자 1.5배의 간격 선택 및 주요 밝은/어두운 텍스트 대비를 검사한다. 중지 사유 검사는 개인 세션 없는 QA 기기의 실행 상태만 임시 변경하고 복원한다. 화면 캡처는 기기 내부의 `qa` 폴더에 저장하며 실제 사용자 기기에서 이 검사를 실행하지 않는다. 디자인과 BM 안내의 범위는 [UI/UX](UI_UX.md)에 정리한다.
 
 `LoginNavigationPolicyTest`는 로그인 호스트와 수집 쿠키 호스트의 분리, 공식 로그인 이동과 유사 도메인 거부를 검사한다. `LoginRuntimeTest.eachProviderOpensAProtectedLoginWindowAndCanBeClosed`는 SDK 29 이상에서 다섯 SNS 창 진입·닫기와 실제 `FLAG_SECURE` 적용을 확인한다. `recordOfficialLoginPageAvailability`는 네트워크가 있는 시험 기기에 명시적으로 실행하는 진단이며, 입력 요소 개수·화면 높이·입력란 중심점의 터치 가능 여부와 페이지 상태만 기록한다. 수집하는 입력값은 없고 로그인 성공을 주장하는 검사가 아니다. 기본 CI는 테스트 APK를 컴파일하며 실제 SNS 페이지 진단을 실행하지 않는다.
 

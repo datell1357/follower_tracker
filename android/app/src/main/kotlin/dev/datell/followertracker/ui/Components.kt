@@ -2,15 +2,22 @@ package dev.datell.followertracker.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.data.AccountOverview
@@ -44,7 +51,7 @@ fun providerColor(provider: Provider): Color = when (provider) {
 fun ProviderMark(provider: Provider, modifier: Modifier = Modifier) {
     Box(modifier.size(44.dp).background(providerColor(provider).copy(alpha = .11f), RoundedCornerShape(14.dp)), contentAlignment = androidx.compose.ui.Alignment.Center) {
         Text(when (provider) { Provider.INSTAGRAM -> "IG"; Provider.TIKTOK -> "Tk"; Provider.X -> "X"; Provider.FACEBOOK -> "f"; Provider.REDDIT -> "r" },
-            color = providerColor(provider), style = MaterialTheme.typography.titleMedium)
+            color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium)
     }
 }
 @Composable
@@ -58,9 +65,10 @@ fun GrowthChart(history: List<MetricSnapshot>, modifier: Modifier = Modifier) {
         val firstTime = history.first().observedAt
         val duration = (history.last().observedAt - firstTime).coerceAtLeast(1L).toDouble()
         val padding = 6.dp.toPx()
+        for (level in 1..3) drawLine(color.copy(alpha = .08f), Offset(padding, size.height * level / 4), Offset(size.width - padding, size.height * level / 4), strokeWidth = 1.dp.toPx())
         fun point(metric: MetricSnapshot) = Offset(
             padding + ((metric.observedAt - firstTime) / duration).toFloat() * (size.width - 2 * padding),
-            size.height - padding - ((metric.followers - min) / span).toFloat() * (size.height - 2 * padding))
+            if (max == min) size.height / 2 else size.height - padding - ((metric.followers - min) / span).toFloat() * (size.height - 2 * padding))
         val points = history.map(::point)
         val path = Path().apply {
             moveTo(points.first().x, points.first().y)
@@ -77,8 +85,53 @@ fun GrowthChart(history: List<MetricSnapshot>, modifier: Modifier = Modifier) {
 @Composable
 fun StatusLine(account: Account, at: Long?) {
     val text = if (account.status == SyncStatus.READY) relativeTime(at) else account.status.label
-    val tone = if (account.status in setOf(SyncStatus.READY, SyncStatus.FOREGROUND_ONLY)) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+    val tone = if (account.status in setOf(SyncStatus.READY, SyncStatus.FOREGROUND_ONLY, SyncStatus.REFRESHING, SyncStatus.RATE_LIMITED, SyncStatus.OFFLINE)) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
     Text(text, color = tone, style = MaterialTheme.typography.labelMedium)
+}
+
+@Composable
+fun SectionHeading(title: String, action: String? = null, enabled: Boolean = true, onAction: () -> Unit = {}) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        if (action != null) TextButton(onClick = onAction, enabled = enabled) { Text(action) }
+    }
+}
+
+@Composable
+fun ToneBadge(text: String, modifier: Modifier = Modifier, positive: Boolean = false) {
+    val colors = MaterialTheme.colorScheme
+    Surface(modifier, shape = RoundedCornerShape(8.dp), color = if (positive) colors.secondaryContainer else colors.primaryContainer) {
+        Text(text, Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall,
+            color = if (positive) colors.onSecondaryContainer else colors.onPrimaryContainer)
+    }
+}
+
+@Composable
+fun InfoPanel(title: String, detail: String, modifier: Modifier = Modifier, icon: ImageVector = Icons.Outlined.Info) {
+    Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(18.dp)) {
+        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+fun MenuRow(title: String, detail: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).heightIn(min = 76.dp).padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+            Icon(icon, null, Modifier.padding(10.dp).size(22.dp), tint = MaterialTheme.colorScheme.primary)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.Outlined.ChevronRight, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 @Composable
 fun EmptyCard(title: String, detail: String, action: @Composable (() -> Unit)? = null) {

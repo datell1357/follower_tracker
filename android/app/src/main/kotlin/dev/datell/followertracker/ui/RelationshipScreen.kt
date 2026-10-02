@@ -9,15 +9,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.datell.followertracker.core.*
 
 @Composable
 fun RelationshipScreen(state: TrackerState, onSelect: (String) -> Unit, onRefresh: () -> Unit, onConnect: () -> Unit) {
-    var category by remember { mutableIntStateOf(0) }
-    var search by remember { mutableStateOf("") }
-    var reverse by remember { mutableStateOf(false) }
+    var category by rememberSaveable(state.selectedKey) { mutableIntStateOf(0) }
+    var search by rememberSaveable(state.selectedKey) { mutableStateOf("") }
+    var reverse by rememberSaveable(state.selectedKey) { mutableStateOf(false) }
     val row = state.accounts.firstOrNull { it.account.key == state.selectedKey }
     val report = state.report
     val labels = listOf("맞팔 아님", "언팔로우 추정", "맞팔")
@@ -25,7 +28,7 @@ fun RelationshipScreen(state: TrackerState, onSelect: (String) -> Unit, onRefres
         1 -> emptyList(); else -> report?.mutual }.orEmpty()
         .filter { search.isBlank() || it.username.contains(search, true) || it.displayName.contains(search, true) }
     val changes = state.relationshipChanges.filter { search.isBlank() || it.member.username.contains(search, true) || it.member.displayName.contains(search, true) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp, 8.dp, 24.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         if (row == null) {
             item { EmptyCard("연결된 계정이 없어요", "SNS를 연결하면 읽을 수 있는 명단으로 관계를 비교해요.") { Button(onClick = onConnect) { Text("SNS 연결") } } }
         } else {
@@ -35,18 +38,26 @@ fun RelationshipScreen(state: TrackerState, onSelect: (String) -> Unit, onRefres
                 }
             }
             item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column { Text("@${row.account.username}", style = MaterialTheme.typography.titleMedium)
-                        Text(report?.let { relativeTime(it.comparedAt) } ?: "아직 비교 기록 없음", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    TextButton(onClick = onRefresh, enabled = !state.busy && row.account.provider == Provider.INSTAGRAM) { Text("명단 갱신") }
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            ProviderMark(row.account.provider)
+                            Column(Modifier.weight(1f)) {
+                                Text("@${row.account.username}", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(report?.let { "${compactObservationTime(it.comparedAt)} 비교" } ?: "아직 비교 기록 없음", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        OutlinedButton(onClick = onRefresh, enabled = !state.busy && row.account.provider == Provider.INSTAGRAM, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("명단 갱신")
+                        }
+                    }
                 }
             }
             if (row.account.provider != Provider.INSTAGRAM) item {
-                EmptyCard("명단 수집을 확인 중이에요", "이 SNS의 전체 팔로워·팔로잉 명단 접근은 아직 검증되지 않았어요. 팔로워 수 기록은 추적 탭에서 확인해주세요.")
+                EmptyCard("명단 수집을 확인 중이에요", "이 SNS의 전체 팔로워·팔로잉 명단 접근은 아직 검증되지 않았어요. 팔로워 수 기록은 홈에서 확인해주세요.")
             } else {
                 row.account.relationshipStatus?.takeIf { it != SyncStatus.READY }?.let { status -> item {
-                    Text(status.label + if (report != null) " · 마지막 완료된 비교를 표시해요." else " · 완료된 명단이 있어야 비교할 수 있어요.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    InfoPanel(status.label, if (report != null) "마지막 완료된 비교를 표시하고 있어요. 새 명단을 끝까지 읽으면 갱신해요." else "완료된 명단이 있어야 비교할 수 있어요. 일부 명단으로 결과를 만들지 않아요.")
                 } }
                 item {
                     PrimaryScrollableTabRow(selectedTabIndex = category, edgePadding = 0.dp, containerColor = MaterialTheme.colorScheme.background) {
@@ -70,7 +81,8 @@ fun RelationshipScreen(state: TrackerState, onSelect: (String) -> Unit, onRefres
                         }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     item { OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                        placeholder = { Text("이름 또는 사용자 이름 검색") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }) }
+                        label = { Text("계정 검색") }, placeholder = { Text("이름 또는 사용자 이름") }, leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                        trailingIcon = { if (search.isNotEmpty()) IconButton(onClick = { search = "" }) { Icon(Icons.Outlined.Close, "검색어 지우기") } }) }
                     item { Text(if (category == 1) "${changes.size}개 기록" else "${members.size}명", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     if ((category == 1 && changes.isEmpty()) || (category != 1 && members.isEmpty())) item {
                         EmptyCard("표시할 계정이 없어요", if (search.isNotEmpty()) "검색어를 바꿔보세요." else "현재 완료된 명단 기준이에요.")
@@ -78,7 +90,10 @@ fun RelationshipScreen(state: TrackerState, onSelect: (String) -> Unit, onRefres
                     if (category == 1) items(changes, key = { it.id }) { change ->
                         RelationshipChangeRow(change)
                     } else items(members, key = { it.id }) { member ->
-                        ListItem(headlineContent = { Text(member.displayName) }, supportingContent = { Text("@${member.username}") })
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            ListItem(headlineContent = { Text(member.displayName, maxLines = 2, overflow = TextOverflow.Ellipsis) }, supportingContent = { Text("@${member.username}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                leadingContent = { Icon(Icons.Outlined.PersonOutline, null, tint = MaterialTheme.colorScheme.primary) })
+                        }
                     }
                 }
             }
@@ -88,12 +103,15 @@ fun RelationshipScreen(state: TrackerState, onSelect: (String) -> Unit, onRefres
 
 @Composable
 fun RelationshipChangeRow(change: RelationshipChange) {
-    ListItem(headlineContent = { Text(change.member.displayName) }, supportingContent = {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    ListItem(headlineContent = { Text(change.member.displayName, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        leadingContent = { Icon(Icons.Outlined.PersonOutline, null, tint = MaterialTheme.colorScheme.primary) }, supportingContent = {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("@${change.member.username}")
-            Text(change.state.label, color = if (change.state == RelationshipChangeState.REOBSERVED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            ToneBadge(change.state.label, positive = change.state == RelationshipChangeState.REOBSERVED)
             Text("미관측: ${observationTime(change.detectedAt)}", style = MaterialTheme.typography.labelSmall)
             Text("확인: ${observationTime(change.checkedAt)} · ${change.absenceChecks}회 미관측", style = MaterialTheme.typography.labelSmall)
         }
     })
+    }
 }
