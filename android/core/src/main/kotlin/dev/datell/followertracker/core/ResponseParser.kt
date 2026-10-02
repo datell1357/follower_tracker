@@ -41,6 +41,24 @@ object ResponseParser {
         return RelationshipPage(ownerKey, members, next, more)
     }
 
+    fun instagramWebProfile(body: String, expectedId: String, now: Long): Pair<Account, MetricSnapshot> {
+        val root = objectBody(body)
+        checkServiceStatus(root)
+        val user = (root["data"] as? JsonObject)?.get("user") as? JsonObject
+            ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val id = user.text("id") ?: user.text("pk") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        if (id != expectedId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+        val name = user.text("username") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val account = Account(Provider.INSTAGRAM, id, name, user.text("full_name") ?: name,
+            "https://www.instagram.com/$name/", connectedAt = now)
+        fun count(edge: String, direct: String): Long = if (user.containsKey(edge))
+            (user[edge] as? JsonObject)?.count("count") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        else user.count(direct)
+        return account to MetricSnapshot(account.key, now,
+            count("edge_followed_by", "follower_count"), count("edge_follow", "following_count"),
+            source = "instagram-web-profile-session")
+    }
+
     fun redditProfile(body: String, expectedId: String?, now: Long): Pair<Account, MetricSnapshot> {
         val root = objectBody(body)
         val user = root["data"] as? JsonObject ?: root

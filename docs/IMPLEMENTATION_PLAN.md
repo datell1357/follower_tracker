@@ -126,7 +126,11 @@ SNS 기본 로그인과 외부 계정 연동 로그인은 별도로 시험한다
 
 첫 위젯은 계정 한 개를 보여주는 작은 크기와 여러 SNS를 보여주는 중간 크기를 계획한다. 로그인 비밀정보와 사람별 명단은 위젯 캐시에 넣지 않는다. `42분 전 갱신`, `다시 로그인 필요`, `연결 확인 필요`처럼 짧게 상태를 보여준다.
 
-정상 상태의 수 수집은 30~60분 간격 요청부터 측정한다. 명단 수집은 사용자의 수동 요청과 하루 단위 예약부터 평가한다. OS는 정확한 실행 시각을 보장하지 않으므로 앱 설명에 초 단위 실시간 수집을 약속하지 않는다. [Android 위젯](https://developer.android.com/develop/ui/views/appwidgets/advanced), [WorkManager 실행 제약](https://developer.android.com/reference/androidx/work/PeriodicWorkRequest.Builder), [WidgetKit 갱신](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date)
+핵심 검증은 앱 화면을 닫고 짧은 간격으로 새 팔로워 수를 확보해 홈 화면 위젯에 반영하는 동작이다. Android 일반 예약은 15·30·60·120분 중 선택한다. 실행 시각은 OS가 정하므로 정확한 15분 주기를 보장하지 않는다. 별도 `1분 빠른 추적`은 사용자가 앱에서 시작하는 알림이 있는 `dataSync` 전경 서비스로 구현한다. 현재 대상은 Instagram이며 한 번에 최대 약 6시간 실행한다. Android 15 이상 실행 시간 제한과 절전·네트워크·SNS 요청 제한을 적용하고, 제한이 발생하면 대기하거나 중지한다. 부팅·강제 중지 뒤 임의로 재시작하거나 24시간 1분 갱신을 보장하지 않는다. [WorkManager 최소 간격](https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started/define-work), [전경 서비스 시간 제한](https://developer.android.com/develop/background-work/services/fgs/timeout)
+
+Instagram 프로필 화면에서 연결한 계정은 로그인 시의 CookieManager·사용자 에이전트로 공식 본인 프로필을 새로 로드한다. 정확한 본인 수치가 확인된 경우에만 관측 기록을 저장하고 위젯 갱신을 요청한다. 페이지 캐시·기존 DOM·저장된 숫자에 새 시각을 붙여 수집 성공으로 처리하지 않는다. 이 프로필 브라우저는 요청마다 정리하며 빠른 모드를 무제한 숨겨진 WebView 상주로 설명하지 않는다. 성공한 모드와 실제 기기 상태는 [기기 검증](DEVICE_VALIDATION.md)에 기록한다. 일반 예약·Doze·실기기의 동일 성공은 별도 검증한다.
+
+명단은 수동 요청과 하루 단위 예약부터 평가한다. 위젯에는 마지막 실제 수집 시각과 오류 상태를 표시하며, 새 기록을 저장한 직후 갱신을 요청한다. iOS 위젯과 Android 일반 위젯 타이머를 1분 갱신 수단으로 설명하지 않는다. [Android 위젯](https://developer.android.com/develop/ui/views/appwidgets/advanced), [WidgetKit 갱신](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date)
 
 iOS에서는 앱이 갱신한 요약을 App Group으로 전달하고 타임라인 갱신을 요청한다. 위젯 확장에서도 네이티브 수 수집을 수행할 수 있는지 시험한다. Keychain 접근, 잠금 상태, 요청 시간 제한을 통과한 플랫폼만 이 경로를 사용한다. 상시 실행 또는 서버 푸시를 기본 전제로 두지 않는다.
 

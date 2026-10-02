@@ -1,13 +1,14 @@
 package dev.datell.followertracker.sync
 
 import android.os.SystemClock
+import android.content.Context
 import dev.datell.followertracker.core.*
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.*
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
-class SessionCollector(private val sessions: SessionStore) {
+class SessionCollector(private val sessions: SessionStore, private val context: Context? = null) {
     private val http = SessionHttpClient(sessions)
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -19,9 +20,20 @@ class SessionCollector(private val sessions: SessionStore) {
             Provider.INSTAGRAM -> {
                 val id = sessions.identity(provider) ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
                 if (expected != null && id != expected.stableId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
-                val url = "https://www.instagram.com/api/v1/users/".toHttpUrl().newBuilder()
-                    .addPathSegment(id).addPathSegment("info").addPathSegment("").build()
-                ResponseParser.instagramProfile(http.read(provider, url, metadata.userAgent), id, now)
+                if (expected != null && RefreshPolicy.usesProfileBrowser(expected)) {
+                    val browser = ProfilePageCollector(context ?: throw CollectionFailure(SyncStatus.FOREGROUND_ONLY), sessions)
+                    val captured = captured(provider, browser.read(expected, metadata.userAgent), expected)
+                    captured.first.copy(countTransport = CountTransport.PROFILE_BROWSER) to
+                        captured.second.copy(source = "instagram-profile-browser")
+                } else if (expected != null) {
+                    val url = "https://www.instagram.com/api/v1/users/web_profile_info/".toHttpUrl().newBuilder()
+                        .addQueryParameter("username", expected.username).build()
+                    ResponseParser.instagramWebProfile(http.read(provider, url, metadata.userAgent), id, now)
+                } else {
+                    val url = "https://www.instagram.com/api/v1/users/".toHttpUrl().newBuilder()
+                        .addPathSegment(id).addPathSegment("info").addPathSegment("").build()
+                    ResponseParser.instagramProfile(http.read(provider, url, metadata.userAgent), id, now)
+                }
             }
             Provider.REDDIT -> ResponseParser.redditProfile(http.read(provider,
                 "https://www.reddit.com/api/me.json".toHttpUrl(), metadata.userAgent), expected?.stableId, now)
@@ -60,7 +72,8 @@ class SessionCollector(private val sessions: SessionStore) {
             text("profileURL") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED),
             status = if (sessionResponse) SyncStatus.READY else SyncStatus.FOREGROUND_ONLY,
             capabilities = (expected?.capabilities ?: Capabilities()).copy(count = if (sessionResponse) Capability.OBSERVED else Capability.FOREGROUND_ONLY,
-                background = if (sessionResponse) Capability.UNVERIFIED else Capability.FOREGROUND_ONLY), connectedAt = expected?.connectedAt ?: now, lastAttemptAt = now)
+                background = if (sessionResponse) Capability.UNVERIFIED else Capability.FOREGROUND_ONLY), connectedAt = expected?.connectedAt ?: now, lastAttemptAt = now,
+            countTransport = if (provider == Provider.INSTAGRAM && !sessionResponse) CountTransport.PROFILE_BROWSER else CountTransport.SESSION_HTTP)
         val followers = (root["followers"] as? JsonPrimitive)?.longOrNull ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
         val following = (root["following"] as? JsonPrimitive)?.longOrNull
         val metric = MetricSnapshot(account.key, now, followers, following, source = source)

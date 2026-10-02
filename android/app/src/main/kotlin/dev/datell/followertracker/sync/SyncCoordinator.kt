@@ -16,7 +16,7 @@ class SyncCoordinator(private val context: Context, private val repository: Trac
     suspend fun refresh(key: String, background: Boolean = false) = mutex.withLock {
         val account = repository.account(key) ?: return@withLock
         val now = System.currentTimeMillis()
-        if (background && (account.status.blocksAutomaticRetry || account.status == SyncStatus.FOREGROUND_ONLY || (account.nextAllowedAt ?: 0) > now)) return@withLock
+        if (!RefreshPolicy.canRefresh(account, now, background)) return@withLock
         repository.updateStatus(key, SyncStatus.REFRESHING, now, expectedConnectedAt = account.connectedAt)
         try {
             val (updated, metric) = collector.native(account.provider, account)
@@ -26,7 +26,7 @@ class SyncCoordinator(private val context: Context, private val repository: Trac
             withContext(NonCancellable) { repository.updateStatus(key, account.status, now, expectedConnectedAt = account.connectedAt) }
             throw cancelled
         } catch (failure: CollectionFailure) {
-            val retryAt = if (failure.status == SyncStatus.RATE_LIMITED) now + (failure.retryAfterSeconds ?: 900) * 1_000 else null
+            val retryAt = if (failure.status == SyncStatus.RATE_LIMITED) System.currentTimeMillis() + (failure.retryAfterSeconds ?: 900) * 1_000 else null
             repository.updateStatus(key, failure.status, now, retryAt, expectedConnectedAt = account.connectedAt)
         } catch (_: Exception) {
             repository.updateStatus(key, SyncStatus.FORMAT_CHANGED, now, expectedConnectedAt = account.connectedAt)
@@ -48,7 +48,7 @@ class SyncCoordinator(private val context: Context, private val repository: Trac
         catch (failure: CollectionFailure) {
             repository.updateListStatus(key, failure.status, expectedConnectedAt = account.connectedAt)
             if (failure.status.blocksAutomaticRetry || failure.status == SyncStatus.RATE_LIMITED) {
-                val retryAt = if (failure.status == SyncStatus.RATE_LIMITED) now + (failure.retryAfterSeconds ?: 900) * 1_000 else null
+                val retryAt = if (failure.status == SyncStatus.RATE_LIMITED) System.currentTimeMillis() + (failure.retryAfterSeconds ?: 900) * 1_000 else null
                 repository.updateStatus(key, failure.status, now, retryAt, expectedConnectedAt = account.connectedAt)
             }
         }

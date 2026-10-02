@@ -35,6 +35,10 @@ cd android
 
 디버그 APK는 `android/app/build/outputs/apk/debug/app-debug.apk`에 생성된다. Release APK는 서명되지 않은 로컬 산출물이며, 위 명령은 스토어에 제출하지 않는다.
 
+Android 설정의 `1분 빠른 추적`은 Instagram 연결 후 알림 권한을 허용하고 직접 시작한다. 앱을 홈 화면으로 내린 채 공식 프로필의 새 수치를 수집하고 저장 직후 위젯 갱신을 요청한다. 일반 예약은 최소 15분이며 빠른 모드는 최대 약 6시간의 전경 서비스다. 요청 제한은 수동·예약·빠른 수집 모두 대기하고 로그인·형식 오류는 자동 반복을 중단한다. 실제 성공과 시험 범위는 [기기 검증](DEVICE_VALIDATION.md)에 기록한다.
+
+`RefreshPolicyTest`는 요청 제한 대기, 인증·형식 오류 중단, 기존 계정 JSON 호환성과 Instagram 프로필 경로의 재사용을 검사한다. `InstagramWebProfileTest`는 별도 세션 HTTP 후보 응답의 본인 ID·정확한 정수·실패 분류를 검사한다. 이 응답 검사를 HTTP 후보 경로의 실제 성공으로 취급하지 않는다. `ConnectionStatusDiagnostic.probeNativeCountWithoutLoginScreen`은 `probeNativeCount=true`로 명시적으로 선택해야 실제 요청을 수행하며 계정·쿠키·숫자를 출력하거나 기록을 덮어쓰지 않는다. 실제 사용자 기기에는 전체 instrumentation 검사를 실행하지 않는다.
+
 빈 테스트용 에뮬레이터에서만 다음 실행 검사를 사용한다. Gradle의 기기 검사 수명 주기는 테스트 앱 설치·제거를 포함하므로 실제 SNS를 연결해 사용하는 앱 설치에 실행하지 않는다.
 
 ```sh

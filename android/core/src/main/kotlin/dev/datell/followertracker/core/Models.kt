@@ -37,6 +37,9 @@ enum class Precision { EXACT, ROUNDED, ESTIMATED }
 enum class Capability { UNVERIFIED, OBSERVED, FOREGROUND_ONLY, UNAVAILABLE }
 
 @Serializable
+enum class CountTransport { SESSION_HTTP, PROFILE_BROWSER }
+
+@Serializable
 data class Capabilities(
     val count: Capability = Capability.UNVERIFIED,
     val followers: Capability = Capability.UNVERIFIED,
@@ -57,6 +60,7 @@ data class Account(
     val lastAttemptAt: Long? = null,
     val nextAllowedAt: Long? = null,
     val relationshipStatus: SyncStatus? = null,
+    val countTransport: CountTransport = CountTransport.SESSION_HTTP,
 ) {
     val key: String get() = "${provider.name}:$stableId"
     init {
