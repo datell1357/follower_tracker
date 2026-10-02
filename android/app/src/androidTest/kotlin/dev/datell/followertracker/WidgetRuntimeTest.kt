@@ -51,6 +51,22 @@ class WidgetRuntimeTest {
         assertTrue(text.any { it.contains("+3") })
         assertTrue(text.any { it.startsWith("다시 로그인 필요") })
     }
+
+    @Test fun widgetsShowTheLastSuccessfulObservationTimeAfterTrackingStops() = runBlocking {
+        val original = row(Provider.INSTAGRAM)
+        val now = System.currentTimeMillis()
+        val stale = original.copy(history = listOf(
+            original.history.first().copy(observedAt = now - 8 * 3_600_000),
+            original.history.last().copy(observedAt = now - 6 * 3_600_000)))
+        val observed = "${compactObservationTime(stale.latest!!.observedAt)} 수집"
+        for ((index, size) in sizes.withIndex()) {
+            val text = render(listOf(stale), size, "widget-last-observation-$index.png")
+            assertTrue(text.contains(observed))
+            assertFalse(text.any { it.contains("방금 갱신") || it.contains("시간 전 갱신") })
+        }
+        val paused = render(listOf(stale.copy(account = stale.account.copy(status = SyncStatus.RATE_LIMITED))), sizes.first(), "widget-last-observation-paused.png")
+        assertTrue(paused.any { it.contains(observed) && it.startsWith("갱신 대기") })
+    }
     @Test fun mediumAndLargeWidgetsFitThreeAndFiveAccounts() = runBlocking {
         val rows = Provider.entries.map { row(it) }
         val medium = render(rows, sizes[1], "widget-medium.png")

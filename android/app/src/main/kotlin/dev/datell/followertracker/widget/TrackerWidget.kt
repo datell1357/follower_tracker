@@ -25,7 +25,6 @@ import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.ui.MainActivity
 import dev.datell.followertracker.ui.formatChange
 import dev.datell.followertracker.ui.formatCount
-import dev.datell.followertracker.ui.relativeTime
 import dev.datell.followertracker.ui.compactObservationTime
 import kotlin.math.min
 
@@ -114,7 +113,10 @@ private fun WidgetRow(row: AccountOverview) {
         }
     }
 }
-private fun widgetStatus(row: AccountOverview): String = if (row.account.status == SyncStatus.READY) relativeTime(row.latest?.observedAt)
-    else row.account.status.label + " · " + relativeTime(row.latest?.observedAt)
+private fun widgetStatus(row: AccountOverview): String {
+    // A host can retain these RemoteViews after tracking stops. Relative text would become stale.
+    val observed = row.latest?.observedAt?.let { "${compactObservationTime(it)} 수집" } ?: "수집 기록 없음"
+    return if (row.account.status == SyncStatus.READY) observed else row.account.status.label + " · " + observed
+}
 
 class TrackerWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = TrackerWidget() }
