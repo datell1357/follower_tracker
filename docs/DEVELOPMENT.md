@@ -9,6 +9,8 @@
 
 Gradle Wrapper는 공식 배포 SHA-256을 검증한다. 버전 카탈로그와 dependency lockfile을 함께 관리한다. Kotlin 컴파일은 Gradle 프로세스 안에서 실행해 한글 경로의 대체 프로세스 인자 처리와 별도 데몬의 캐시 접근 문제를 피한다.
 
+Android 앱의 `:core` 프로젝트 의존성에는 `LibraryElements.JAR` 속성을 지정한다. macOS 한글 경로에서 AGP의 클래스 디렉터리 dex 변환이 정규화된 클래스 경로와 원래 입력 경로를 다르게 비교해 실패하는 문제가 재현되어, Gradle이 제공하는 JAR 산출물을 선택하도록 했다. 저장소를 영문 경로에 복사하거나 캐시를 지우지 않고 원래 경로에서 빌드한다. 의존성 버전과 전이 의존성은 유지한다. [Gradle 산출물 선택](https://docs.gradle.org/current/userguide/artifact_transforms.html)
+
 ## 핵심 검사
 
 ```sh

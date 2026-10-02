@@ -1,3 +1,5 @@
+import org.gradle.api.attributes.LibraryElements
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -39,7 +41,12 @@ val copySessionCapture by tasks.registering(Copy::class) {
 }
 tasks.named("preBuild") { dependsOn(copySessionCapture) }
 dependencies {
-    implementation(project(":core"))
+    implementation(project(":core")) {
+        // Directory dex transforms can disagree on Unicode-normalized macOS paths.
+        attributes {
+            attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements.JAR))
+        }
+    }
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.preview)
