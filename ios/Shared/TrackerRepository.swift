@@ -110,16 +110,19 @@ actor TrackerRepository {
             if requireExisting && existing?.connectedAt != account.connectedAt { return }
             if let occupied = try accounts().first(where: { $0.provider == account.provider }), occupied.id != account.id { throw CollectionFailure(.checkRequired) }
             var preserved = account
+            preserved.transientRetry = nil
             if let existing { preserved.relationshipStatus = existing.relationshipStatus }
             try put(preserved)
             try database.run("INSERT INTO metrics(owner,observed,payload) VALUES(?,?,?)", [.text(metric.accountKey), .integer(metric.observedAt), .blob(try encoder.encode(metric))])
         }
     }
-    func updateStatus(_ key: String, _ status: SyncStatus, nextAllowedAt: Int64? = nil, expectedConnectedAt: Int64? = nil) throws {
+    func updateStatus(_ key: String, _ status: SyncStatus, nextAllowedAt: Int64? = nil, expectedConnectedAt: Int64? = nil,
+                      transientRetry: TransientRetryState? = nil) throws {
         try database.transaction {
             guard var account = try account(key) else { return }
             if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
             account.status = status; account.lastAttemptAt = nowMillis(); account.nextAllowedAt = nextAllowedAt
+            account.transientRetry = transientRetry
             try put(account)
         }
     }
@@ -142,6 +145,7 @@ actor TrackerRepository {
                     [.text(scan.accountKey), .text(scan.direction.rawValue), .integer(scan.finishedAt), .blob(try keychain.seal(encoder.encode(scan)))])
             }
             account.relationshipStatus = .ready; account.capabilities.followers = .observed; account.capabilities.following = .observed
+            account.transientRetry = nil
             try put(account)
         }
     }

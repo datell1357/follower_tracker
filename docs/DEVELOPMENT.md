@@ -39,6 +39,10 @@ Android 홈의 `1분 빠른 추적` 또는 `더보기 → 수집 설정`에서 I
 
 `RefreshPolicyTest`는 요청 제한 대기, 인증·형식 오류 중단, 기존 계정 JSON 호환성과 Instagram 프로필 경로의 재사용을 검사한다. `InstagramWebProfileTest`는 별도 세션 HTTP 후보 응답의 본인 ID·정확한 정수·실패 분류를 검사한다. 이 응답 검사를 HTTP 후보 경로의 실제 성공으로 취급하지 않는다. `ConnectionStatusDiagnostic.probeNativeCountWithoutLoginScreen`은 `probeNativeCount=true`로 명시적으로 선택해야 실제 요청을 수행하며 계정·쿠키·숫자를 출력하거나 기록을 덮어쓰지 않는다. 실제 사용자 기기에는 전체 instrumentation 검사를 실행하지 않는다.
 
+일시적인 네트워크·서버 오류(`OFFLINE`) 뒤에는 자동 요청의 대기를 1·2·4·8·15분으로 늘리고 이후 15분으로 유지한다. `transientRetry`를 계정 JSON에 저장해 앱을 다시 실행해도 대기를 유지한다. 성공한 수 또는 완료 명단 수집은 이 상태를 초기화하며, 오류는 마지막 정상 기록을 덮어쓰지 않는다. 사용자가 누른 갱신은 로컬 대기 중에도 실행할 수 있지만 SNS의 숫자 `Retry-After`로 설정한 `nextAllowedAt`은 수동 요청에도 적용한다. 두 시각은 다음 실행이 허용되는 경계이며 OS가 정하는 실제 실행 시각을 보장하지 않는다. 일반 예약·빠른 추적·명단 예약은 같은 정책을 사용한다. 새 JSON 필드는 선택형이며 DB 버전 2와 기존 계정 payload를 유지한다.
+
+`SyncTransientRetryRuntimeTest` 6개는 별도 QA 기기의 UUID Room DB와 합성 수집기로 즉시 자동 반복 중단, DB 재개방 후 대기 보존, 명시적 복구·연속 실패·서비스 대기·취소·완료 명단 보존을 검사한다. 위젯 발행도 주입한 함수로 격리하고 실제 앱 DB·세션과 SNS 요청을 사용하지 않는다. 실제 연결 기기에서 전체 검사를 실행하지 않는다.
+
 빈 테스트용 에뮬레이터에서만 다음 실행 검사를 사용한다. Gradle의 기기 검사 수명 주기는 테스트 앱 설치·제거를 포함하므로 실제 SNS를 연결해 사용하는 앱 설치에 실행하지 않는다.
 
 ```sh
@@ -97,6 +101,8 @@ iOS 로그인 창도 인증 쿠키 후보와 공식 페이지 상태를 확인�
 같은 테스트 대상의 `DesignRuntimeTests` 5개는 시간 범위 밖·미래 관측 제외, 당일 경계·최근 14개 기록, 정확하지 않거나 한 개뿐인 기록의 비교 보류, 수집 실패 중 마지막 성공 시각과 0 보존을 검사한다. 실제 UIColor의 밝은/어두운 주요 글자 대비 6쌍을 확인하고, DB에 저장하지 않는 합성 계정 카드와 세 크기의 위젯을 ImageRenderer로 그린다. 카드의 280pt 너비·Dynamic Type accessibility1 캡처를 포함하며 이미지는 QA 앱의 임시 `tracker-ui-qa` 폴더에 남는다. 렌더링 성공은 전체 VoiceOver·다계정 배치·실제 SNS 수집의 성공을 뜻하지 않는다.
 
 iOS의 `RefreshPolicy`는 수동·백그라운드 갱신 모두 `nextAllowedAt` 이전의 수집 요청을 차단한다. 대기가 끝나면 사용자가 명시적으로 재시도할 수 있으며, 인증·확인·형식 오류와 전경 전용 상태의 자동 반복은 계속 중단한다. 앱과 위젯의 수 수집은 같은 `SyncService`를 사용한다. 관계 명단 수집에도 같은 대기 시각을 적용한다.
+
+iOS에도 같은 `transientRetry` 정책을 적용하며 앱 예약과 위젯의 자동 수집·하루 단위 명단 예약에서 로컬 대기를 확인한다. `SyncTransientRetryRuntimeTests` 6개는 UUID 경로의 SQLite DB와 합성 수집기로 실제 `SyncService`를 실행한다. 재개방한 저장소의 대기 복원, 즉시 자동 요청 차단, 수동 복구와 성공 후 초기화, 서비스 대기, 취소 및 이전 완료 명단 보존을 확인한다. 명단 암호화에는 QA 앱의 Keychain을 사용하지만 세션 Vault와 기본 App Group DB를 사용하지 않는다. 이 결과를 앱·위젯의 실제 세션 공유 검증으로 확대하지 않는다.
 
 `RefreshPolicyTests`는 대기 시각의 직전·일치·이후 경계와 다른 상태에서의 대기 보존을 검사한다. `SyncCooldownRuntimeTests` 4개는 UUID 임시 SQLite DB와 주입한 합성 수집기로 실제 `SyncService`를 실행한다. 수동·백그라운드·명단 요청 중 대기 유지, 요청 횟수 0, 마지막 정상 기록 보존, 임대 잠금 미점유와 대기 종료 후 재시도를 확인한다. 시험 DB는 명시적인 경로에만 생성하며 사용자의 App Group DB와 세션 Vault를 사용하지 않는다. 실제 SNS에 요청하는 검사가 아니다.
 

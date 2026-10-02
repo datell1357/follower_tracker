@@ -43,17 +43,18 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
             // A request must belong to the same connection, including after disconnect/reconnect.
             if (requireExisting && previous?.connectedAt != account.connectedAt) return@withTransaction
             val preserved = account.copy(connectedAt = previous?.connectedAt ?: account.connectedAt,
-                relationshipStatus = previous?.relationshipStatus)
+                relationshipStatus = previous?.relationshipStatus, transientRetry = null)
             dao.putAccount(AccountEntity(preserved.key, preserved.provider.name, preserved.connectedAt, json.encodeToString(preserved)))
             dao.putMetric(MetricEntity(metric.accountKey, metric.observedAt, metric.followers, metric.following,
                 metric.precision.name, metric.source, metric.adapterVersion))
         }
     }
-    suspend fun updateStatus(key: String, status: SyncStatus, now: Long, nextAllowedAt: Long? = null, expectedConnectedAt: Long? = null) = withContext(Dispatchers.IO) {
+    suspend fun updateStatus(key: String, status: SyncStatus, now: Long, nextAllowedAt: Long? = null,
+        expectedConnectedAt: Long? = null, transientRetry: TransientRetryState? = null) = withContext(Dispatchers.IO) {
         database.withTransaction {
             val previous = account(key) ?: return@withTransaction
             if (expectedConnectedAt != null && previous.connectedAt != expectedConnectedAt) return@withTransaction
-            val updated = previous.copy(status = status, lastAttemptAt = now, nextAllowedAt = nextAllowedAt)
+            val updated = previous.copy(status = status, lastAttemptAt = now, nextAllowedAt = nextAllowedAt, transientRetry = transientRetry)
             dao.putAccount(AccountEntity(updated.key, updated.provider.name, updated.connectedAt, json.encodeToString(updated)))
         }
     }
@@ -70,7 +71,7 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
                     cipher.seal(json.encodeToString(scan).toByteArray(Charsets.UTF_8))))
             }
             val updated = previous.copy(relationshipStatus = SyncStatus.READY,
-                capabilities = previous.capabilities.copy(followers = Capability.OBSERVED, following = Capability.OBSERVED))
+                capabilities = previous.capabilities.copy(followers = Capability.OBSERVED, following = Capability.OBSERVED), transientRetry = null)
             dao.putAccount(AccountEntity(updated.key, updated.provider.name, updated.connectedAt, json.encodeToString(updated)))
         }
     }

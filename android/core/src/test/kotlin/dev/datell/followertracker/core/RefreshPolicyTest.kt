@@ -1,6 +1,7 @@
 package dev.datell.followertracker.core
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -42,5 +43,45 @@ class RefreshPolicyTest {
     @Test fun olderStoredAccountWithoutTransportStillDecodes() {
         val oldJson = """{"provider":"INSTAGRAM","stableId":"42","username":"fixture_owner","profileUrl":"https://www.instagram.com/fixture_owner/","connectedAt":1}"""
         assertEquals(CountTransport.SESSION_HTTP, Json.decodeFromString<Account>(oldJson).countTransport)
+        assertNull(Json.decodeFromString<Account>(oldJson).transientRetry)
+    }
+
+    @Test fun transientRetriesGrowFromOneMinuteToFifteenMinutesAndStayBounded() {
+        var previous = owner
+        for (delay in listOf(60_000L, 120_000L, 240_000L, 480_000L, 900_000L, 900_000L)) {
+            val next = RefreshPolicy.nextTransientRetry(previous, 1_000)
+            assertEquals(1_000 + delay, next.nextAttemptAt)
+            previous = previous.copy(transientRetry = next)
+        }
+        assertEquals(5, previous.transientRetry?.failureCount)
+    }
+
+    @Test fun localBackoffOnlyBlocksAutomaticRequestsButServiceCooldownBlocksBoth() {
+        val waiting = owner.copy(status = SyncStatus.OFFLINE, transientRetry = TransientRetryState(1, 60_001))
+        assertFalse(RefreshPolicy.canRefresh(waiting, 60_000, background = true))
+        assertTrue(RefreshPolicy.canRefresh(waiting, 60_001, background = true))
+        assertTrue(RefreshPolicy.canRefresh(waiting, 1, background = false))
+        for (background in listOf(false, true))
+            assertFalse(RefreshPolicy.canRefresh(waiting.copy(nextAllowedAt = 60_002), 60_001, background))
+    }
+
+    @Test fun failureResponseTimeStartsTheNewDelayAndStoredStateRoundTrips() {
+        val first = owner.copy(lastAttemptAt = 1_000, transientRetry = TransientRetryState(1, 61_000))
+        val second = RefreshPolicy.nextTransientRetry(first, 30_000)
+        assertEquals(150_000L, second.nextAttemptAt)
+        val saved = first.copy(transientRetry = second)
+        assertEquals(second, Json.decodeFromString<Account>(Json.encodeToString(saved)).transientRetry)
+    }
+
+    @Test fun serverRetryAfterAlsoAppliesToTemporaryServerFailures() {
+        assertEquals(121_000L, RefreshPolicy.serviceRetryAt(CollectionFailure(SyncStatus.OFFLINE, 120), 1_000))
+        assertEquals(901_000L, RefreshPolicy.serviceRetryAt(CollectionFailure(SyncStatus.RATE_LIMITED), 1_000))
+        assertNull(RefreshPolicy.serviceRetryAt(CollectionFailure(SyncStatus.OFFLINE), 1_000))
+        assertNull(RefreshPolicy.serviceRetryAt(CollectionFailure(SyncStatus.CHECK_REQUIRED, 120), 1_000))
+    }
+
+    @Test fun extremeRetryValuesCannotOverflowIntoAnAlreadyElapsedDeadline() {
+        assertEquals(Long.MAX_VALUE, RefreshPolicy.nextTransientRetry(owner, Long.MAX_VALUE - 1).nextAttemptAt)
+        assertEquals(Long.MAX_VALUE, RefreshPolicy.serviceRetryAt(CollectionFailure(SyncStatus.RATE_LIMITED, Long.MAX_VALUE), 1_000))
     }
 }

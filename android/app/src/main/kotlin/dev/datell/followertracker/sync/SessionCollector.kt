@@ -8,11 +8,16 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.*
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
-class SessionCollector(private val sessions: SessionStore, private val context: Context? = null) {
+interface SessionCollecting {
+    suspend fun native(provider: Provider, expected: Account? = null): Pair<Account, MetricSnapshot>
+    suspend fun relationships(account: Account): Pair<RelationshipSnapshot, RelationshipSnapshot>
+}
+
+class SessionCollector(private val sessions: SessionStore, private val context: Context? = null) : SessionCollecting {
     private val http = SessionHttpClient(sessions)
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun native(provider: Provider, expected: Account? = null): Pair<Account, MetricSnapshot> {
+    override suspend fun native(provider: Provider, expected: Account?): Pair<Account, MetricSnapshot> {
         val metadata = sessions.metadata(provider) ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
         if (!sessions.hasAuthentication(provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
         val now = System.currentTimeMillis()
@@ -80,7 +85,7 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
         return account to metric
     }
 
-    suspend fun relationships(account: Account): Pair<RelationshipSnapshot, RelationshipSnapshot> {
+    override suspend fun relationships(account: Account): Pair<RelationshipSnapshot, RelationshipSnapshot> {
         if (account.provider != Provider.INSTAGRAM) throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
         val startedAt = System.currentTimeMillis()
         val startElapsed = SystemClock.elapsedRealtime()

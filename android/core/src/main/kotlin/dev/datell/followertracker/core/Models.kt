@@ -40,6 +40,9 @@ enum class Capability { UNVERIFIED, OBSERVED, FOREGROUND_ONLY, UNAVAILABLE }
 enum class CountTransport { SESSION_HTTP, PROFILE_BROWSER }
 
 @Serializable
+data class TransientRetryState(val failureCount: Int, val nextAttemptAt: Long)
+
+@Serializable
 data class Capabilities(
     val count: Capability = Capability.UNVERIFIED,
     val followers: Capability = Capability.UNVERIFIED,
@@ -61,6 +64,7 @@ data class Account(
     val nextAllowedAt: Long? = null,
     val relationshipStatus: SyncStatus? = null,
     val countTransport: CountTransport = CountTransport.SESSION_HTTP,
+    val transientRetry: TransientRetryState? = null,
 ) {
     val key: String get() = "${provider.name}:$stableId"
     init {

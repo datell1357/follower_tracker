@@ -42,7 +42,7 @@ class RelationshipsWorker(context: Context, parameters: WorkerParameters) : Coro
         val graph = applicationContext.appGraph
         val requested = inputData.getString("accountKey")
         for (account in graph.repository.accounts().filter { it.provider == dev.datell.followertracker.core.Provider.INSTAGRAM && (requested == null || it.key == requested) })
-            graph.coordinator.relationships(account.key)
+            graph.coordinator.relationships(account.key, background = true)
         Result.success()
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { Result.retry() }

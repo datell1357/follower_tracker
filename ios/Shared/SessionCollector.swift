@@ -138,21 +138,26 @@ actor SyncService {
     }
     private func performRefresh(_ account: Account, background: Bool, timeout: TimeInterval) async throws {
         let key = account.id
-        try await repository.updateStatus(key, .refreshing, expectedConnectedAt: account.connectedAt)
+        try await repository.updateStatus(key, .refreshing, nextAllowedAt: account.nextAllowedAt,
+            expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry)
         do {
             var (updated, metric) = try await collector.native(account.provider, expected: account, timeout: timeout)
             if background { updated.capabilities.background = .observed }
             try Task.checkCancellation()
             try await repository.saveObservation(updated, metric, requireExisting: true)
         } catch is CancellationError {
-            try await repository.updateStatus(key, account.status, expectedConnectedAt: account.connectedAt); throw CancellationError()
+            try await repository.updateStatus(key, account.status, nextAllowedAt: account.nextAllowedAt,
+                expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry); throw CancellationError()
         } catch let failure as CollectionFailure {
-            try await repository.updateStatus(key, failure.status, nextAllowedAt: failure.status == .rateLimited ? nowMillis() + (failure.retryAfterSeconds ?? 900) * 1_000 : nil, expectedConnectedAt: account.connectedAt)
+            let failedAt = nowMillis()
+            try await repository.updateStatus(key, failure.status, nextAllowedAt: RefreshPolicy.serviceRetryAt(failure, failedAt: failedAt),
+                expectedConnectedAt: account.connectedAt,
+                transientRetry: failure.status == .offline ? RefreshPolicy.nextTransientRetry(account, failedAt: failedAt) : nil)
         }
     }
-    func relationships(_ key: String) async throws {
+    func relationships(_ key: String, background: Bool = false) async throws {
         guard !active.contains(key), let account = try await repository.account(key), !account.status.blocksAutomaticRetry,
-              (account.nextAllowedAt ?? 0) <= nowMillis() else { return }
+              RefreshPolicy.canRefresh(account, now: nowMillis(), background: background) else { return }
         let token = UUID().uuidString
         guard try await repository.claimSync(key, token: token) else { return }
         active.insert(key); defer { active.remove(key) }
@@ -167,8 +172,11 @@ actor SyncService {
         catch is CancellationError { try await repository.listStatus(key, .listIncomplete, expectedConnectedAt: account.connectedAt); throw CancellationError() }
         catch let failure as CollectionFailure {
             try await repository.listStatus(key, failure.status, expectedConnectedAt: account.connectedAt)
-            if failure.status.blocksAutomaticRetry || failure.status == .rateLimited {
-                try await repository.updateStatus(key, failure.status, nextAllowedAt: failure.status == .rateLimited ? nowMillis() + (failure.retryAfterSeconds ?? 900) * 1_000 : nil, expectedConnectedAt: account.connectedAt)
+            if failure.status.blocksAutomaticRetry || [.rateLimited, .offline].contains(failure.status) {
+                let failedAt = nowMillis()
+                try await repository.updateStatus(key, failure.status, nextAllowedAt: RefreshPolicy.serviceRetryAt(failure, failedAt: failedAt),
+                    expectedConnectedAt: account.connectedAt,
+                    transientRetry: failure.status == .offline ? RefreshPolicy.nextTransientRetry(account, failedAt: failedAt) : nil)
             }
         }
     }

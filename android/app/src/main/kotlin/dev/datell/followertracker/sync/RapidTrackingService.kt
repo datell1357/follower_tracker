@@ -81,7 +81,7 @@ class RapidTrackingService : Service() {
                     val message = when {
                         after.all { it.account.status.blocksAutomaticRetry } -> "연결 상태를 확인한 뒤 다시 시작해주세요."
                         after.any { it.account.status == SyncStatus.RATE_LIMITED } -> "SNS 요청 제한 · 대기 후 다시 확인해요"
-                        after.any { it.account.status == SyncStatus.OFFLINE } -> "인터넷 연결을 기다리고 있어요"
+                        after.any { it.account.status == SyncStatus.OFFLINE } -> "일시 오류 · 잠시 후 다시 확인해요"
                         freshAt != null -> "수집 완료 · 1분 간격으로 확인해요"
                         else -> "마지막 기록을 유지하고 있어요"
                     }
@@ -90,7 +90,9 @@ class RapidTrackingService : Service() {
                     }
                     RapidTracking.update(this@RapidTrackingService, true, message, freshAt ?: RapidTracking.state.value.lastSuccessAt)
                     notifications.notify(NOTIFICATION, notification(message))
-                    val cooldown = after.minOfOrNull { (it.account.nextAllowedAt ?: 0) - System.currentTimeMillis() } ?: 0
+                    val now = System.currentTimeMillis()
+                    val cooldown = after.minOfOrNull { maxOf(it.account.nextAllowedAt ?: 0,
+                        it.account.transientRetry?.nextAttemptAt ?: 0) - now } ?: 0
                     val delayMs = maxOf(1_000L, INTERVAL - (SystemClock.elapsedRealtime() - cycleStarted), cooldown)
                     val remaining = MAX_DURATION - (SystemClock.elapsedRealtime() - started)
                     delay(minOf(delayMs, remaining.coerceAtLeast(1)))

@@ -77,6 +77,14 @@ public struct Capabilities: Codable, Equatable, Sendable {
     public init() {}
 }
 
+public struct TransientRetryState: Codable, Equatable, Sendable {
+    public let failureCount: Int
+    public let nextAttemptAt: Int64
+    public init(failureCount: Int, nextAttemptAt: Int64) {
+        self.failureCount = failureCount; self.nextAttemptAt = nextAttemptAt
+    }
+}
+
 public struct Account: Codable, Identifiable, Equatable, Sendable {
     public let provider: Provider
     public let stableID: String
@@ -88,6 +96,7 @@ public struct Account: Codable, Identifiable, Equatable, Sendable {
     public let connectedAt: Int64
     public var lastAttemptAt: Int64?
     public var nextAllowedAt: Int64?
+    public var transientRetry: TransientRetryState?
     public var relationshipStatus: SyncStatus?
     public var id: String { "\(provider.rawValue):\(stableID)" }
     public init(provider: Provider, stableID: String, username: String, displayName: String,

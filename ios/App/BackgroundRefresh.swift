@@ -26,7 +26,7 @@ enum BackgroundRefresh {
                 let repository = try TrackerRepository(), sync = SyncService(repository: repository)
                 for account in try await repository.accounts() {
                     try Task.checkCancellation()
-                    if lists && account.provider == .instagram { try await sync.relationships(account.id) }
+                    if lists && account.provider == .instagram { try await sync.relationships(account.id, background: true) }
                     else if !lists { try await sync.refresh(account.id, background: true, timeout: 12) }
                 }
                 if lists { TrackerSettings.lastLists = nowMillis() }
