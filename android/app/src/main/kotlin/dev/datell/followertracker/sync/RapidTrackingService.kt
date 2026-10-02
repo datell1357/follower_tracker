@@ -21,14 +21,32 @@ data class RapidTrackingState(val running: Boolean = false, val message: String 
 object RapidTracking {
     private val mutableState = MutableStateFlow(RapidTrackingState())
     val state = mutableState.asStateFlow()
-    internal fun update(context: Context, running: Boolean, message: String, successAt: Long? = state.value.lastSuccessAt) {
-        mutableState.value = RapidTrackingState(running, message, successAt)
+    internal fun restore(context: Context) {
         val prefs = context.getSharedPreferences("rapid_tracking_runtime", Context.MODE_PRIVATE)
-        prefs.edit { putString("status", message) }
-        if (successAt != null && successAt > prefs.getLong("lastSuccessAt", 0)) {
-            val reads = prefs.getInt("successfulReads", 0) + 1
-            prefs.edit { putLong("lastSuccessAt", successAt); putInt("successfulReads", reads) }
+        val message = prefs.getString("status", "중지됨") ?: "중지됨"
+        val legacyRunning = !prefs.contains("running") && message in setOf(
+            "첫 수집을 확인하고 있어요", "수집 완료 · 1분 간격으로 확인해요",
+            "SNS 요청 제한 · 대기 후 다시 확인해요", "일시 오류 · 잠시 후 다시 확인해요",
+            "마지막 기록을 유지하고 있어요"
+        )
+        // A new process has no running service. Restore its record, never restart it.
+        val restoredMessage = if (prefs.getBoolean("running", false) || legacyRunning)
+            "빠른 추적이 중단됐어요. 앱에서 다시 시작해주세요." else message
+        update(context, false, restoredMessage, prefs.getLong("lastSuccessAt", 0).takeIf { it > 0 })
+    }
+    internal fun update(context: Context, running: Boolean, message: String, successAt: Long? = state.value.lastSuccessAt) {
+        val prefs = context.getSharedPreferences("rapid_tracking_runtime", Context.MODE_PRIVATE)
+        val freshAt = successAt?.takeIf { it > prefs.getLong("lastSuccessAt", 0) }
+        val reads = prefs.getInt("successfulReads", 0)
+        prefs.edit {
+            putBoolean("running", running)
+            putString("status", message)
+            if (freshAt != null) {
+                putLong("lastSuccessAt", freshAt)
+                putInt("successfulReads", reads + 1)
+            }
         }
+        mutableState.value = RapidTrackingState(running, message, successAt)
     }
     fun start(context: Context) {
         context.startForegroundService(Intent(context, RapidTrackingService::class.java))

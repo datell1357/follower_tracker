@@ -10,6 +10,7 @@ class TrackerApplication : Application() {
     val graph by lazy { AppGraph(this) }
     override fun onCreate() {
         super.onCreate()
+        RapidTracking.restore(this)
         SyncScheduler.schedule(this)
     }
 }
