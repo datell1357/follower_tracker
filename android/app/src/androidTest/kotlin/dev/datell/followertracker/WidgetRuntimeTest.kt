@@ -29,7 +29,7 @@ import kotlin.math.roundToInt
 @RunWith(AndroidJUnit4::class)
 class WidgetRuntimeTest {
     private val context: Context get() = InstrumentationRegistry.getInstrumentation().targetContext
-    private val sizes = listOf(DpSize(160.dp, 160.dp), DpSize(300.dp, 180.dp), DpSize(300.dp, 300.dp))
+    private val sizes = listOf(DpSize(160.dp, 160.dp), DpSize(300.dp, 180.dp), DpSize(300.dp, 300.dp), DpSize(160.dp, 300.dp))
 
     @Test fun emptyWidgetsShowConnectionGuidanceAtEverySize() = runBlocking {
         sizes.forEachIndexed { index, size ->
@@ -87,6 +87,21 @@ class WidgetRuntimeTest {
         }
     }
 
+    @Test fun tallSingleAccountWidgetsUseTheAvailableSpaceForTheCount(): Unit = runBlocking {
+        val owner = row(Provider.INSTAGRAM, followers = 1_234)
+        var compactCountSize = 0f
+        render(listOf(owner), sizes.first(), "widget-compact-count.png") { view, _, _ ->
+            compactCountSize = countView(view).first.textSize
+        }
+        render(listOf(owner), sizes.last(), "widget-tall-count.png") { view, _, height ->
+            val (count, top) = countView(view)
+            val center = top + count.height / 2f
+            assertTrue("Tall widget count remains crowded at the top", center >= height * .35f)
+            assertTrue("Tall widget count is too close to the status", center <= height * .65f)
+            assertTrue("Tall widget count should be easier to read", count.textSize > compactCountSize * 1.15f)
+        }
+    }
+
     @Test fun comparisonDatesUseEachAccountsActualPreviousObservation() = runBlocking {
         val rows = listOf(Provider.INSTAGRAM, Provider.TIKTOK, Provider.REDDIT).mapIndexed { index, provider ->
             val original = row(provider)
@@ -94,7 +109,7 @@ class WidgetRuntimeTest {
         }
         val small = render(listOf(rows.first()), sizes[0], "widget-comparison-small.png")
         assertTrue(small.contains("비교 ${compactObservationTime(rows.first().comparisonAt!!)}"))
-        for ((index, size) in sizes.drop(1).withIndex()) {
+        for ((index, size) in listOf(sizes[1], sizes[2]).withIndex()) {
             val labels = render(rows, size, "widget-comparison-multiple-$index.png")
             rows.forEach { owner -> assertTrue(labels.any { it.contains("${compactObservationTime(owner.comparisonAt!!)} 대비") }) }
         }
@@ -109,7 +124,20 @@ class WidgetRuntimeTest {
             MetricSnapshot(account.key, now - 60_000, followers, following = null, source = "synthetic-widget-fixture")))
     }
 
-    private suspend fun render(rows: List<AccountOverview>?, size: DpSize, name: String): List<String> {
+    private fun countView(view: View): Pair<TextView, Int> {
+        fun find(node: View, parentTop: Int): Pair<TextView, Int>? {
+            val top = parentTop + node.top
+            if (node is TextView && node.text.toString() == "1,234") return node to top
+            if (node is ViewGroup) for (index in 0 until node.childCount) {
+                find(node.getChildAt(index), top)?.let { return it }
+            }
+            return null
+        }
+        return checkNotNull(find(view, 0)) { "Count is missing from the rendered widget" }
+    }
+
+    private suspend fun render(rows: List<AccountOverview>?, size: DpSize, name: String,
+        verifyView: ((View, Int, Int) -> Unit)? = null): List<String> {
         val composition = GlanceRemoteViews().compose(context, size = size) { TrackerWidgetContent(rows) }
         var text = emptyList<String>()
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
@@ -146,6 +174,7 @@ class WidgetRuntimeTest {
             val directory = File(context.getExternalFilesDir(null), "qa").apply { mkdirs() }
             File(directory, name).outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
             bitmap.recycle()
+            verifyView?.invoke(view, width, height)
         }
         return text
     }

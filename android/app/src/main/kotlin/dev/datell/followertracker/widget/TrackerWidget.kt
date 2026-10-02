@@ -34,7 +34,8 @@ private val WidgetColors = ColorProviders(trackerColorScheme(false), trackerColo
 
 class TrackerWidget : GlanceAppWidget() {
     override val stateDefinition = PreferencesGlanceStateDefinition
-    override val sizeMode = SizeMode.Responsive(setOf(DpSize(160.dp, 160.dp), DpSize(300.dp, 180.dp), DpSize(300.dp, 300.dp)))
+    override val sizeMode = SizeMode.Responsive(setOf(DpSize(160.dp, 160.dp), DpSize(160.dp, 300.dp),
+        DpSize(300.dp, 180.dp), DpSize(300.dp, 300.dp)))
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val repository = context.appGraph.repository
         val initial = runCatching { repository.overviews() }.getOrNull()
@@ -81,9 +82,12 @@ internal fun TrackerWidgetContent(rows: List<AccountOverview>?, singleAccount: B
 @Composable
 private fun ColumnScope.SingleAccount(row: AccountOverview) {
     val count = row.latest?.let { formatCount(it.followers) } ?: "—"
-    val countSize = fittedCountSize(LocalContext.current, count, LocalSize.current.width.value - 36)
+    val tall = LocalSize.current.height >= 250.dp
+    val countSize = fittedCountSize(LocalContext.current, count, LocalSize.current.width.value - 36,
+        if (tall) 52f else 30f)
     Text(row.account.provider.title + " · @" + row.account.username, style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp), maxLines = 1)
     Spacer(GlanceModifier.height(6.dp))
+    if (tall) Spacer(GlanceModifier.defaultWeight())
     Text(count, style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = countSize, fontWeight = FontWeight.Bold), maxLines = 1)
     Text("팔로워 · ${formatChange(row)}", style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 12.sp), maxLines = 1)
     row.comparisonAt?.let { Text("비교 ${compactObservationTime(it)}", style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 10.sp), maxLines = 1) }
