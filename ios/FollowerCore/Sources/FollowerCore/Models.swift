@@ -57,7 +57,7 @@ public enum SyncStatus: String, Codable, Sendable {
         case .reauthRequired: "다시 로그인 필요"
         case .checkRequired: "연결 확인 필요"
         case .rateLimited: "갱신 대기"
-        case .offline: "연결이 끊겼어요"
+        case .offline: "일시 오류"
         case .formatChanged: "수집 경로 확인 필요"
         case .foregroundOnly: "앱에서 갱신"
         case .listIncomplete: "명단 갱신 미완료"

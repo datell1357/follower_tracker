@@ -45,11 +45,15 @@ class WidgetRuntimeTest {
         assertFalse(text.contains("SNS 연결하기"))
         assertFalse(text.contains("0"))
     }
-    @Test fun reauthenticationKeepsTheLastCountAndChange() = runBlocking {
-        val text = render(listOf(row(Provider.INSTAGRAM, SyncStatus.REAUTH_REQUIRED)), sizes.first(), "widget-reauth.png")
-        assertTrue(text.contains("123,456"))
-        assertTrue(text.any { it.contains("+3") })
-        assertTrue(text.any { it.startsWith("다시 로그인 필요") })
+    @Test fun failedRefreshKeepsTheLastCountAndChangeAtEverySize() = runBlocking {
+        for (status in listOf(SyncStatus.REAUTH_REQUIRED, SyncStatus.OFFLINE)) {
+            for ((index, size) in sizes.withIndex()) {
+                val text = render(listOf(row(Provider.INSTAGRAM, status)), size, "widget-${status.name.lowercase()}-$index.png")
+                assertTrue(text.contains("123,456"))
+                assertTrue(text.any { it.contains("+3") })
+                assertTrue(text.any { it.startsWith(status.label) })
+            }
+        }
     }
 
     @Test fun widgetsShowTheLastSuccessfulObservationTimeAfterTrackingStops() = runBlocking {

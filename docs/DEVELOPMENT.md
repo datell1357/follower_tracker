@@ -53,6 +53,8 @@ Android 홈의 `1분 빠른 추적` 또는 `더보기 → 수집 설정`에서 I
 
 화면 검사는 SNS 선택·탭 이동·설정, 저장 검사는 Android Keystore의 암호화와 변조 거부 및 Room 트랜잭션 경계를 확인한다. 위젯 검사는 실제 Glance `RemoteViews`를 크기별로 생성·적용·레이아웃하고 부모 영역에 가려지거나 숫자·비교 시각이 말줄임 처리되지 않는지 검사한다. 합성 위젯 계정은 검사 안에만 존재하며 앱 DB에 저장하지 않는다. 홈 화면 런처의 위젯 추가·클릭·자동 갱신은 [기기 검증](DEVICE_VALIDATION.md)에서 별도로 확인한다.
 
+`WidgetRuntimeTest.failedRefreshKeepsTheLastCountAndChangeAtEverySize`는 재로그인 필요와 일시 오류의 두 상태를 작은·넓은·큰 위젯에 각각 적용한다. 실제 `RemoteViews`의 마지막 수치·변화·오류 표시와 가시 영역을 확인하며, 정상 기록의 수집 시각 보존은 같은 검사의 별도 시나리오에서 확인한다. 오류 안내만 바뀌어도 기록을 0이나 새 관측으로 바꾸지 않아야 한다.
+
 `AppFlowRuntimeTest`는 네 탭, 앱 지원·도움말의 뒤로 가기, 스크롤·화면 재생성 후 상태 유지와 반복 위젯 진입을 검사한다. `DesignRuntimeTest`는 DB에 저장하지 않는 합성 화면으로 수집 지연·빠른 추적 중지 사유 표시, 위젯 계정 선택, 검색 초기화, 미지원 명단 요청 차단, 320dp·글자 1.5배의 간격 선택 및 주요 밝은/어두운 텍스트 대비를 검사한다. 중지 사유 검사는 개인 세션 없는 QA 기기의 실행 상태만 임시 변경하고 복원한다. 화면 캡처는 기기 내부의 `qa` 폴더에 저장하며 실제 사용자 기기에서 이 검사를 실행하지 않는다. 디자인과 BM 안내의 범위는 [UI/UX](UI_UX.md)에 정리한다.
 
 `LoginNavigationPolicyTest`는 로그인 호스트와 수집 쿠키 호스트의 분리, 공식 로그인 이동과 유사 도메인 거부를 검사한다. `LoginRuntimeTest.eachProviderOpensAProtectedLoginWindowAndCanBeClosed`는 SDK 29 이상에서 다섯 SNS 창 진입·닫기와 실제 `FLAG_SECURE` 적용을 확인한다. `recordOfficialLoginPageAvailability`는 네트워크가 있는 시험 기기에 명시적으로 실행하는 진단이며, 입력 요소 개수·화면 높이·입력란 중심점의 터치 가능 여부와 페이지 상태만 기록한다. 수집하는 입력값은 없고 로그인 성공을 주장하는 검사가 아니다. 기본 CI는 테스트 APK를 컴파일하며 실제 SNS 페이지 진단을 실행하지 않는다.
