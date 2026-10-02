@@ -112,7 +112,7 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
             if (error) Text("추가 요청을 열지 못했어요. 아래 방법으로 홈 화면에서 직접 추가해주세요.", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
         item { InfoPanel("홈 화면에서 직접 추가하기", "빈 곳 길게 누르기 → 위젯 → 팔로워 트래커를 선택하세요. 추가 화면에서 표시할 계정을 확정하고, 추가 후 가장자리를 드래그해 크기를 조절할 수 있어요.", icon = Icons.Outlined.TouchApp) }
-        item { InfoPanel("마지막 수집 시각을 함께 확인하세요", "수집에 성공하면 위젯도 갱신을 요청해요. 요청 제한이나 절전으로 갱신이 멈추면 마지막 기록이 남아요. 숫자와 함께 표시된 수집 시각을 확인해주세요.", icon = Icons.Outlined.Schedule) }
+        item { InfoPanel("마지막 수집 시각을 함께 확인하세요", "수집에 성공하면 위젯도 갱신을 요청해요. 요청 제한이나 절전으로 갱신이 멈추면 마지막 기록이 남아요. 숫자와 함께 표시된 수집 시각을 확인해주세요. 앱을 강제 중지했다면 앱 아이콘으로 한 번 다시 열어주세요.", icon = Icons.Outlined.Schedule) }
     }
 }
 
