@@ -19,6 +19,36 @@ import org.junit.runner.RunWith
 /** Read-only opt-in diagnostic. Emits booleans/statuses only, never IDs, names, counts, cookies, or DOM. */
 @RunWith(AndroidJUnit4::class)
 class ConnectionStatusDiagnostic {
+    /** Reads a completed report locally; never starts a scan or emits private members/counts. */
+    @Test fun recordStoredRelationshipStatus() = runBlocking {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("probeStoredRelationships") == "true")
+        val graph = InstrumentationRegistry.getInstrumentation().targetContext.appGraph
+        val account = graph.repository.accounts().firstOrNull { it.provider == Provider.INSTAGRAM }
+        assumeTrue(account != null)
+        val connected = checkNotNull(account)
+        val report = graph.repository.report(connected.key)
+        val result = JSONObject().put("provider", connected.provider.name)
+            .put("status", connected.relationshipStatus?.name ?: "NONE")
+            .put("followersCapability", connected.capabilities.followers.name)
+            .put("followingCapability", connected.capabilities.following.name)
+            .put("reportStored", report != null)
+        if (report != null) {
+            val partitions = listOf(report.notFollowingBack, report.youDoNotFollowBack, report.mutual)
+                .map { members -> members.map { it.id }.toSet() }
+            val disjoint = partitions.indices.all { i -> (i + 1 until partitions.size).all { j ->
+                partitions[i].intersect(partitions[j]).isEmpty()
+            } }
+            result.put("baseline", report.baseline).put("comparedAt", report.comparedAt)
+                .put("partitionsDisjoint", disjoint)
+        }
+        println("RELATIONSHIP_DIAGNOSTIC=$result")
+        assertTrue("No completed relationship report is stored; see the redacted diagnostic status.",
+            report != null && connected.relationshipStatus == SyncStatus.READY &&
+                connected.capabilities.followers == Capability.OBSERVED &&
+                connected.capabilities.following == Capability.OBSERVED &&
+                result.optBoolean("partitionsDisjoint"))
+    }
+
     /** One authorized live request, only when explicitly opted in. Does not change stored observations. */
     @Test fun probeNativeCountWithoutLoginScreen() = runBlocking {
         assumeTrue(InstrumentationRegistry.getArguments().getString("probeNativeCount") == "true")

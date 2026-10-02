@@ -57,6 +57,25 @@ Instagram은 쿠키의 본인 ID와 JSON의 사용자 ID를 먼저 맞춘다. �
 
 `ConnectionStatusDiagnostic`은 명시적으로 실행하는 읽기 전용 진단이다. SNS별 세션 후보·계정 존재·수치 존재와 상태·수집 경로만 출력하며, 식별자·사용자명·수치·원시 쿠키·DOM은 출력하지 않는다. 실제 세션 기기에는 전체 `connectedDebugAndroidTest`를 실행하지 않는다.
 
+`recordStoredRelationshipStatus`는 `probeStoredRelationships=true`로 선택한 경우에만 저장된 Instagram 관계 결과를 읽는다. 전체 명단의 저장 상태·두 방향의 관측 여부·첫 기준 기록 여부·비교 시각과 세 분류의 중복 여부만 출력한다. 새 명단을 수집하거나 개인 명단·계정 식별자·인원수를 출력하지 않는다. 완료된 결과가 저장되고 분류가 서로 겹치지 않는지 확인하는 진단이며, 실제 관계 변경·장시간 갱신 검사를 대신하지 않는다.
+
+`StartupExitDiagnostic`은 SDK 30 이상에서 `probeStartupExit=true`로 선택해야 앱 자신의 종료 이력을 읽는다. 종료 사유·시각·중요도·종료 상태와 본인 프로세스 메인 스레드의 Java 메서드만 출력하며, 종료 설명·원시 trace·다른 스레드·계정 정보는 출력하지 않는다. 합성 trace 검사는 URL·쿠키 형태의 행과 다른 스레드·프로세스가 출력되지 않는지 확인한다. 상세 trace는 OS의 저장 범위에 따라 없을 수 있으며, 진단 실행 성공을 ANR 해결이나 안정성 통과로 기록하지 않는다. [Android ApplicationExitInfo](https://developer.android.com/reference/android/app/ApplicationExitInfo)
+
+이 두 진단은 실제 앱 데이터를 지우지 않고 테스트 APK만 갱신해 명시적인 메서드를 실행한다. Instrumentation은 대상 앱 프로세스를 다시 시작하므로 사용자가 로그인하거나 빠른 추적 서비스가 실행 중일 때에는 실행하지 않는다. 아래 기기 ID는 확인한 기기로 바꾼다. `System.out`의 진단 표식에 해당하는 출력만 보존한다.
+
+```sh
+./gradlew :app:assembleDebugAndroidTest --no-daemon
+adb -s TEST_DEVICE_SERIAL install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s TEST_DEVICE_SERIAL shell am instrument -w -r \
+  -e class dev.datell.followertracker.StartupExitDiagnostic -e probeStartupExit true \
+  dev.datell.followertracker.test/androidx.test.runner.AndroidJUnitRunner
+adb -s TEST_DEVICE_SERIAL shell am instrument -w -r \
+  -e class 'dev.datell.followertracker.ConnectionStatusDiagnostic#recordStoredRelationshipStatus' \
+  -e probeStoredRelationships true \
+  dev.datell.followertracker.test/androidx.test.runner.AndroidJUnitRunner
+adb -s TEST_DEVICE_SERIAL logcat -d -s System.out:I | rg 'STARTUP_EXIT_DIAGNOSTIC=|RELATIONSHIP_DIAGNOSTIC='
+```
+
 `percentageHeightLoginFormIsVisibleAndAcceptsTouch`는 `height:100%`와 `overflow:hidden`으로 구성한 로컬 로그인 폼의 높이·실제 픽셀·터치 후 입력 포커스를 검사한다. WebView가 Compose의 기본 `WRAP_CONTENT` 레이아웃 파라미터를 사용하면 폼 높이가 0이 되는 실패를 재현했다. 로그인 WebView에는 `MATCH_PARENT`를 명시해 페이지의 백분율 높이가 주어진 화면 영역을 기준으로 계산되도록 한다. [Chromium의 WebView 높이 처리](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/android_webview/java/src/org/chromium/android_webview/AwLayoutSizer.java)
 
 Apple Silicon 에뮬레이터에서 웹 화면 또는 시스템 프로세스가 불안정하면 공식 안내에 따라 테스트 AVD 실행 인자에 `-feature -Vulkan`을 적용할 수 있다. 이번 API 36 시험에서 같은 AVD의 기본 Vulkan 실행은 시스템 프로세스 종료를 동반했고, Vulkan을 끈 실행에서는 로그인·화면 검사가 정상 종료했다. 앱 설정이나 실제 기기의 보안 설정을 바꾸는 인자는 아니다. 사용자가 사용하는 AVD를 초기화하지 않고 별도 시험 AVD로 확인한다. [Android 에뮬레이터 문제 해결](https://developer.android.com/studio/run/emulator-troubleshooting)
