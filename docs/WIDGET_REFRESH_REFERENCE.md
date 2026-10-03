@@ -8,13 +8,13 @@
 | --- | --- | --- |
 | 상시 실행 | `AndroidManifest.xml`, `providers/ProviderBackgroundRefreshService.kt` | `specialUse` 전경 서비스와 `usage_monitor` 하위 용도, 실행 알림, `START_STICKY` 사용 |
 | 수집 주기 | `providers/ProviderRefreshPlan.kt` | 기본 60,000ms에서 수집에 걸린 시간을 뺀 다음 지연을 사용하며 최소 지연은 5,000ms |
-| 수집기 | `providers/ProviderBackgroundRefreshService.kt` | 계정·SNS에 대응하는 API 또는 웹 수집기를 실행하고 중복 주기를 차단 |
+| 수집기 | `providers/ProviderBackgroundRefreshService.kt` | 각 AI 서비스의 API 또는 웹 수집기를 실행하고 중복 주기를 차단 |
 | 위젯 반영 | `providers/UsageSurfaceRefresher.kt` | 저장된 표시용 캐시를 갱신하고 위젯·알림 갱신을 2초 동안 모아서 처리 |
 | 사용자 선택 | `sync/ForegroundRefreshController.kt` | 상시 모니터링 선택을 저장하고 서비스 시작·중지와 보조 점검 예약을 제어 |
 | 복구 보조 | `sync/ForegroundRefreshHealthScheduler.kt`, `ForegroundRefreshHealthWorker.kt` | 15분 주기의 상태 점검과 최초 1분 후 점검으로 오래된 하트비트를 찾아 재시작을 시도 |
 | 네트워크 복귀 | `providers/ProviderBackgroundRefreshService.kt` | 마지막 성공 데이터가 오래됐다면 다음 틱을 기다리지 않고 수집을 시도 |
 
-경로는 AI Quota의 `android/app/src/main/java/com/aiquota/mobile/` 아래이며 manifest는 `android/app/src/main/AndroidManifest.xml`이다. 위젯 자체가 매분 SNS에 요청하는 구조가 아니다. 서비스가 계정별 데이터를 수집하고 저장한 뒤 그 결과를 위젯에 전달한다. 15분 WorkManager 점검은 1분 수집을 대신하는 타이머가 아니며 서비스 재시작 시도도 OS의 실행 허용을 보장하지 않는다.
+경로는 AI Quota의 `android/app/src/main/java/com/aiquota/mobile/` 아래이며 manifest는 `android/app/src/main/AndroidManifest.xml`이다. 위젯 자체가 매분 AI 서비스에 요청하는 구조가 아니다. 서비스가 계정별 사용량을 수집하고 저장한 뒤 그 결과를 위젯에 전달한다. 팔로워 트래커에 참고할 부분도 수집과 위젯 표시를 나누는 이 구조다. 15분 WorkManager 점검은 1분 수집을 대신하는 타이머가 아니며 서비스 재시작 시도도 OS의 실행 허용을 보장하지 않는다.
 
 ## 현재 팔로워 트래커와의 차이
 
