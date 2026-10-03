@@ -30,7 +30,9 @@ enum BackgroundRefresh {
                     else if !lists { try await sync.refresh(account.id, background: true, timeout: 12) }
                 }
                 if lists { TrackerSettings.lastLists = nowMillis() }
-                success = true; WidgetCenter.shared.reloadAllTimelines()
+                success = true
+                await WidgetUpdates.shared.request()
+                await WidgetUpdates.shared.flush()
             } catch { }
             task.setTaskCompleted(success: success); schedule()
         }

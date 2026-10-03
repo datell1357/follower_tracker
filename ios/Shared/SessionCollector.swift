@@ -9,12 +9,22 @@ private final class NoRedirect: NSObject, URLSessionTaskDelegate {
 
 struct SessionHTTPClient {
     let vault: SessionVault
+    // Reuse TLS/connections across all providers. Cookies still come from the current Vault session.
+    private static let pooledSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false; configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = 25; configuration.timeoutIntervalForResource = 35
+        return URLSession(configuration: configuration, delegate: NoRedirect(), delegateQueue: nil)
+    }()
+    let transport: URLSession = SessionHTTPClient.pooledSession
     func read(_ provider: Provider, _ url: URL, expectedID: String?, timeout: TimeInterval = 25) async throws -> String {
         guard provider.allows(url) else { throw CollectionFailure(.checkRequired) }
         guard let saved = try await vault.load(provider), saved.authenticated(provider) else { throw CollectionFailure(.reauthRequired) }
         if [.instagram, .x, .facebook].contains(provider), let expectedID, saved.identity(provider) != expectedID { throw CollectionFailure(.checkRequired) }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.httpMethod = "GET"; request.timeoutInterval = timeout
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue(saved.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json,text/html;q=0.9", forHTTPHeaderField: "Accept")
         request.setValue(saved.cookies.filter { $0.matches(url) }.sorted { $0.path.count > $1.path.count }.map { "\($0.name)=\($0.value)" }.joined(separator: "; "), forHTTPHeaderField: "Cookie")
@@ -23,13 +33,15 @@ struct SessionHTTPClient {
             request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
             if let csrf = saved.cookies.first(where: { $0.name == "csrftoken" && $0.matches(url) }) { request.setValue(csrf.value, forHTTPHeaderField: "X-CSRFToken") }
         }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false; configuration.urlCache = nil
-        configuration.timeoutIntervalForRequest = timeout; configuration.timeoutIntervalForResource = timeout
-        let session = URLSession(configuration: configuration, delegate: NoRedirect(), delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
+        #if DEBUG
+        let started = ContinuousClock.now
+        var receivedBodyBytes = 0
+        defer {
+            print("collectionMetrics provider=\(provider.rawValue) elapsed=\(ContinuousClock.now - started) receivedBodyBytes=\(receivedBodyBytes)")
+        }
+        #endif
         do {
-            let (bytes, response) = try await session.bytes(for: request)
+            let (bytes, response) = try await transport.bytes(for: request)
             guard let response = response as? HTTPURLResponse else { throw CollectionFailure(.formatChanged) }
             if (300..<400).contains(response.statusCode) { throw CollectionFailure(.reauthRequired) }
             if let status = statusForHTTP(response.statusCode) {
@@ -42,6 +54,9 @@ struct SessionHTTPClient {
             for try await byte in bytes {
                 if data.count >= limit { throw CollectionFailure(.formatChanged) }
                 data.append(byte)
+                #if DEBUG
+                receivedBodyBytes += 1
+                #endif
             }
             try Task.checkCancellation()
             var headers: [String: String] = [:]
@@ -123,12 +138,15 @@ actor SyncService {
     private var active: Set<String> = []
     let repository: TrackerRepository
     let collector: any SessionCollecting
-    init(repository: TrackerRepository, collector: any SessionCollecting = SessionCollector(vault: .shared)) {
-        self.repository = repository; self.collector = collector
+    private let isDefinitelyOffline: @Sendable () -> Bool
+    init(repository: TrackerRepository, collector: any SessionCollecting = SessionCollector(vault: .shared),
+         isDefinitelyOffline: @escaping @Sendable () -> Bool = { NetworkAvailability.shared.isDefinitelyOffline }) {
+        self.repository = repository; self.collector = collector; self.isDefinitelyOffline = isDefinitelyOffline
     }
     func refresh(_ key: String, background: Bool = false, timeout: TimeInterval = 25) async throws {
         guard !active.contains(key), let account = try await repository.account(key) else { return }
         guard RefreshPolicy.canRefresh(account, now: nowMillis(), background: background) else { return }
+        if background && isDefinitelyOffline() { return }
         let token = UUID().uuidString
         guard try await repository.claimSync(key, token: token) else { return }
         active.insert(key); defer { active.remove(key) }
@@ -161,6 +179,7 @@ actor SyncService {
     func relationships(_ key: String, background: Bool = false) async throws {
         guard !active.contains(key), let account = try await repository.account(key), !account.status.blocksAutomaticRetry,
               RefreshPolicy.canRefresh(account, now: nowMillis(), background: background) else { return }
+        if background && isDefinitelyOffline() { return }
         let token = UUID().uuidString
         guard try await repository.claimSync(key, token: token) else { return }
         active.insert(key); defer { active.remove(key) }

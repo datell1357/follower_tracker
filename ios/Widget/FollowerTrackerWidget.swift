@@ -25,7 +25,7 @@ struct TrackerTimeline: AppIntentTimelineProvider {
     func timeline(for configuration: TrackerConfiguration, in context: Context) async -> Timeline<TrackerEntry> {
         do {
             let repository = try TrackerRepository(), sync = SyncService(repository: repository)
-            let rows = try await repository.overviews().filter { configuration.account.provider == nil || $0.account.provider == configuration.account.provider }
+            let rows = try await repository.widgetOverviews(provider: configuration.account.provider)
             // A bounded native attempt. WidgetKit decides when this code is scheduled.
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
@@ -43,7 +43,7 @@ struct TrackerTimeline: AppIntentTimelineProvider {
     private func entry(_ configuration: TrackerConfiguration) async -> TrackerEntry {
         do {
             let repository = try TrackerRepository()
-            let rows = try await repository.overviews().filter { configuration.account.provider == nil || $0.account.provider == configuration.account.provider }
+            let rows = try await repository.widgetOverviews(provider: configuration.account.provider)
             return TrackerEntry(date: Date(), rows: rows)
         } catch { return TrackerEntry(date: Date(), rows: [], storageError: true) }
     }

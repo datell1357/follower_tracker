@@ -16,8 +16,14 @@ interface SessionCollecting {
 class SessionCollector(private val sessions: SessionStore, private val context: Context? = null) : SessionCollecting {
     private val http = SessionHttpClient(sessions)
     private val json = Json { ignoreUnknownKeys = true }
+    private val profileBrowser by lazy { context?.let { ProfilePageCollector(it, sessions) } }
 
-    override suspend fun native(provider: Provider, expected: Account?): Pair<Account, MetricSnapshot> {
+    fun releaseProfileResources(provider: Provider? = null) { profileBrowser?.release(provider) }
+
+    override suspend fun native(provider: Provider, expected: Account?): Pair<Account, MetricSnapshot> =
+        CollectionMeter.measure(provider, "count") { collectNative(provider, expected) }
+
+    private suspend fun collectNative(provider: Provider, expected: Account?): Pair<Account, MetricSnapshot> {
         val metadata = sessions.metadata(provider) ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
         if (!sessions.hasAuthentication(provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
         val now = System.currentTimeMillis()
@@ -26,8 +32,9 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
                 val id = sessions.identity(provider) ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
                 if (expected != null && id != expected.stableId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
                 if (expected != null && RefreshPolicy.usesProfileBrowser(expected)) {
-                    val browser = ProfilePageCollector(context ?: throw CollectionFailure(SyncStatus.FOREGROUND_ONLY), sessions)
-                    val captured = captured(provider, browser.read(expected, metadata.userAgent), expected)
+                    val browser = profileBrowser ?: throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
+                    val captured = captured(provider, browser.read(expected, metadata.userAgent,
+                        retain = RapidTracking.state.value.running), expected)
                     captured.first.copy(countTransport = CountTransport.PROFILE_BROWSER) to
                         captured.second.copy(source = "instagram-profile-browser")
                 } else if (expected != null) {
@@ -85,7 +92,10 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
         return account to metric
     }
 
-    override suspend fun relationships(account: Account): Pair<RelationshipSnapshot, RelationshipSnapshot> {
+    override suspend fun relationships(account: Account): Pair<RelationshipSnapshot, RelationshipSnapshot> =
+        CollectionMeter.measure(account.provider, "relationships") { collectRelationships(account) }
+
+    private suspend fun collectRelationships(account: Account): Pair<RelationshipSnapshot, RelationshipSnapshot> {
         if (account.provider != Provider.INSTAGRAM) throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
         val startedAt = System.currentTimeMillis()
         val startElapsed = SystemClock.elapsedRealtime()

@@ -38,12 +38,10 @@ class TrackerWidget : GlanceAppWidget() {
         DpSize(300.dp, 180.dp), DpSize(300.dp, 300.dp)))
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val repository = context.appGraph.repository
-        val initial = runCatching { repository.overviews() }.getOrNull()
+        val snapshot = runCatching { repository.widgetOverviews() }.getOrNull()
         provideContent {
             val selected = currentState<Preferences>()[stringPreferencesKey("accountKey")]
-            val accounts by repository.accounts.collectAsState(initial = emptyList())
-            val records by produceState(initialValue = initial, accounts) { value = runCatching { repository.overviews() }.getOrNull() }
-            val rows = records?.filter { selected == null || it.account.key == selected }
+            val rows = snapshot?.filter { selected == null || it.account.key == selected }
             TrackerWidgetContent(rows, selected != null)
         }
     }

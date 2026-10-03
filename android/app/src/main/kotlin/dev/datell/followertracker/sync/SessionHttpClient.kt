@@ -18,6 +18,7 @@ class SessionHttpClient(private val sessions: SessionAccess, private val transpo
         if (!sessions.hasAuthentication(provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
         val cookie = sessions.header(provider, url.toString())
         val request = Request.Builder().url(url).get().header("Cookie", cookie)
+            .header("Cache-Control", "no-cache")
             .header("User-Agent", userAgent).header("Accept", "application/json,text/html")
         if (provider == Provider.INSTAGRAM) {
             // Public first-party web client identifier, not a user/developer API credential.

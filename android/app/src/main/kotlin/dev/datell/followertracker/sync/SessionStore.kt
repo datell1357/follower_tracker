@@ -14,17 +14,25 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class SessionMetadata(val userAgent: String, val expectedId: String?, val savedAt: Long)
 
-class SessionStore(context: Context, private val cipher: DataCipher) : SessionAccess {
-    private val preferences = context.getSharedPreferences("session_metadata", Context.MODE_PRIVATE)
+class SessionStore(context: Context, private val cipher: DataCipher, preferencesName: String = "session_metadata") : SessionAccess {
+    private val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
+    private val metadataCache = mutableMapOf<Provider, Pair<String, SessionMetadata>>()
     @Synchronized
     fun save(provider: Provider, metadata: SessionMetadata) {
         val encrypted = cipher.seal(json.encodeToString(metadata).toByteArray(Charsets.UTF_8))
-        check(preferences.edit().putString(provider.name, Base64.encodeToString(encrypted, Base64.NO_WRAP)).commit())
+        val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
+        check(preferences.edit().putString(provider.name, encoded).commit())
+        metadataCache[provider] = encoded to metadata
         CookieManager.getInstance().flush()
     }
-    fun metadata(provider: Provider): SessionMetadata? = preferences.getString(provider.name, null)?.let {
-        json.decodeFromString(cipher.open(Base64.decode(it, Base64.NO_WRAP)).toString(Charsets.UTF_8))
+    @Synchronized
+    fun metadata(provider: Provider): SessionMetadata? {
+        val encoded = preferences.getString(provider.name, null) ?: run { metadataCache.remove(provider); return null }
+        metadataCache[provider]?.takeIf { it.first == encoded }?.let { return it.second }
+        val value = json.decodeFromString<SessionMetadata>(cipher.open(Base64.decode(encoded, Base64.NO_WRAP)).toString(Charsets.UTF_8))
+        metadataCache[provider] = encoded to value
+        return value
     }
     override fun header(provider: Provider, url: String): String {
         if (!provider.allows(url)) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
@@ -65,6 +73,7 @@ class SessionStore(context: Context, private val cipher: DataCipher) : SessionAc
     @Synchronized
     fun disconnect(provider: Provider) {
         check(preferences.edit().remove(provider.name).commit())
+        metadataCache.remove(provider)
         val manager = CookieManager.getInstance()
         val paths = listOf("/", "/api/", "/api/v1/", "/accounts/", "/login/")
         val known = when (provider) {

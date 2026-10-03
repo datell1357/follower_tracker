@@ -29,8 +29,13 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
     suspend fun overviews(): List<AccountOverview> = withContext(Dispatchers.IO) {
         accounts().map { AccountOverview(it, history(it.key)) }
     }
-    suspend fun history(key: String): List<MetricSnapshot> = withContext(Dispatchers.IO) {
-        dao.metrics(key, 366).asReversed().map {
+    /** Display-only snapshot. History remains intact and is read separately by charts. */
+    suspend fun widgetOverviews(key: String? = null): List<AccountOverview> = withContext(Dispatchers.IO) {
+        accounts().filter { key == null || it.key == key }.map { AccountOverview(it, recentMetrics(it.key, 2)) }
+    }
+    suspend fun history(key: String): List<MetricSnapshot> = recentMetrics(key, 366)
+    private suspend fun recentMetrics(key: String, limit: Int): List<MetricSnapshot> = withContext(Dispatchers.IO) {
+        dao.metrics(key, limit).asReversed().map {
             MetricSnapshot(it.accountKey, it.observedAt, it.followers, it.following, Precision.valueOf(it.precision), it.source, it.adapterVersion)
         }
     }

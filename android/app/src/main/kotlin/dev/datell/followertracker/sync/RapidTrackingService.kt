@@ -4,6 +4,9 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
@@ -12,6 +15,7 @@ import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.ui.MainActivity
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import androidx.core.content.edit
@@ -61,7 +65,23 @@ object RapidTracking {
 class RapidTrackingService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var tracking: Job? = null
+    private val networkAvailable = Channel<Unit>(Channel.CONFLATED)
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var lastNotificationMessage: String? = null
     private val notifications get() = getSystemService(NotificationManager::class.java)
+
+    override fun onCreate() {
+        super.onCreate()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { signalRecovery() }
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) { signalRecovery() }
+            private fun signalRecovery() {
+                if (!NetworkAvailability.isDefinitelyOffline(this@RapidTrackingService)) networkAvailable.trySend(Unit)
+            }
+        }
+        runCatching { getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback) }
+            .onSuccess { networkCallback = callback }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -71,6 +91,7 @@ class RapidTrackingService : Service() {
         notifications.createNotificationChannel(NotificationChannel(CHANNEL, "빠른 팔로워 추적", NotificationManager.IMPORTANCE_LOW))
         try {
             val notification = notification("1분 간격으로 확인해요")
+            lastNotificationMessage = "1분 간격으로 확인해요"
             if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             else startForeground(NOTIFICATION, notification)
         } catch (_: RuntimeException) {
@@ -82,15 +103,25 @@ class RapidTrackingService : Service() {
             val started = SystemClock.elapsedRealtime()
             try {
                 while (isActive && SystemClock.elapsedRealtime() - started < MAX_DURATION) {
+                    if (NetworkAvailability.isDefinitelyOffline(this@RapidTrackingService)) {
+                        val message = "인터넷 연결을 기다리고 있어요 · 마지막 기록 유지"
+                        if (RapidTracking.state.value.message != message) RapidTracking.update(this@RapidTrackingService, true, message)
+                        publishNotification(message)
+                        val remaining = MAX_DURATION - (SystemClock.elapsedRealtime() - started)
+                        // Callback failures use a bounded fallback; successful callbacks need no polling while offline.
+                        val wait = if (networkCallback == null) minOf(INTERVAL, remaining) else remaining
+                        withTimeoutOrNull(wait.coerceAtLeast(1)) { networkAvailable.receive() }
+                        continue
+                    }
                     val cycleStarted = SystemClock.elapsedRealtime()
-                    val rows = appGraph.repository.overviews().filter { it.account.provider == Provider.INSTAGRAM }
+                    val rows = appGraph.repository.widgetOverviews().filter { it.account.provider == Provider.INSTAGRAM }
                     val available = rows.filter { !it.account.status.blocksAutomaticRetry }
                     if (available.isEmpty()) {
                         finish(if (rows.isEmpty()) "Instagram을 연결한 뒤 시작해주세요." else "연결 상태를 확인한 뒤 다시 시작해주세요.")
                         return@launch
                     }
                     for (row in available) appGraph.coordinator.refresh(row.account.key, background = true)
-                    val after = appGraph.repository.overviews().filter { it.account.provider == Provider.INSTAGRAM }
+                    val after = appGraph.repository.widgetOverviews().filter { it.account.provider == Provider.INSTAGRAM }
                     val successful = after.filter { row ->
                         row.account.capabilities.background == Capability.OBSERVED && row.latest != null &&
                             row.latest!!.observedAt > (available.firstOrNull { it.account.key == row.account.key }?.latest?.observedAt ?: Long.MAX_VALUE)
@@ -107,7 +138,7 @@ class RapidTrackingService : Service() {
                         finish(message); return@launch
                     }
                     RapidTracking.update(this@RapidTrackingService, true, message, freshAt ?: RapidTracking.state.value.lastSuccessAt)
-                    notifications.notify(NOTIFICATION, notification(message))
+                    publishNotification(message)
                     val now = System.currentTimeMillis()
                     val cooldown = after.minOfOrNull { maxOf(it.account.nextAllowedAt ?: 0,
                         it.account.transientRetry?.nextAttemptAt ?: 0) - now } ?: 0
@@ -135,8 +166,20 @@ class RapidTrackingService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
+        networkCallback?.let { callback ->
+            runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback) }
+        }
+        networkCallback = null
+        networkAvailable.close()
+        appGraph.collector.releaseProfileResources()
         if (RapidTracking.state.value.running) RapidTracking.update(this, false, "중지됨")
         super.onDestroy()
+    }
+
+    private fun publishNotification(message: String) {
+        if (lastNotificationMessage == message) return
+        notifications.notify(NOTIFICATION, notification(message))
+        lastNotificationMessage = message
     }
 
     private fun notification(message: String): Notification {

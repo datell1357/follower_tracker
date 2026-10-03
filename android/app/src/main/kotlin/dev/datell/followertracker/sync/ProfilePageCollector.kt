@@ -5,24 +5,56 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.http.SslError
 import android.view.View
+import android.util.Log
 import android.webkit.*
+import dev.datell.followertracker.BuildConfig
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.ui.captureWebSession
 import dev.datell.followertracker.ui.webCaptureFailure
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 /** A fresh, bounded official profile page. Never reads login fields or exports cookies. */
-class ProfilePageCollector(private val context: Context, private val sessions: SessionStore) {
+class ProfilePageCollector(private val context: Context, private val sessions: SessionStore,
+    private val createWebView: (Context) -> WebView = { WebView(it) }) {
+    private data class Binding(val provider: Provider, val accountKey: String, val connectedAt: Long,
+        val sessionVersion: Long, val userAgent: String, val profileUrl: String)
+    private data class IdleBrowser(val binding: Binding, val web: WebView)
+    private val idle = mutableMapOf<Provider, IdleBrowser>()
+    private val mutex = Mutex()
+    private var generation = 0L
+    private val script by lazy { context.assets.open("web-session-capture.js").bufferedReader().use { it.readText() } }
+
+    /** Called on Main when tracking stops, a session changes, or an account disconnects. */
+    fun release(provider: Provider? = null) {
+        generation++
+        val keys = idle.keys.filter { provider == null || provider == it }
+        for (key in keys) idle.remove(key)?.web?.destroy()
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
-    suspend fun read(account: Account, userAgent: String): String = withContext(Dispatchers.Main.immediate) {
+    suspend fun read(account: Account, userAgent: String, retain: Boolean = false): String = mutex.withLock {
+      withContext(Dispatchers.Main.immediate) {
         if (account.provider != Provider.INSTAGRAM || !account.provider.allows(account.profileUrl))
             throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
         if (!sessions.hasAuthentication(account.provider) || sessions.identity(account.provider) != account.stableId)
             throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
         val loaded = CompletableDeferred<Unit>()
         var failure: CollectionFailure? = null
-        val web = WebView(context)
+        val binding = Binding(account.provider, account.key, account.connectedAt,
+            sessions.metadata(account.provider)?.savedAt ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED),
+            userAgent, account.profileUrl)
+        val previous = idle.remove(account.provider)
+        if (BuildConfig.DEBUG) Log.d("FollowerCollection", "provider=${account.provider.name} " +
+            "profileBrowser=${if (previous?.binding == binding) "reused" else "created"}")
+        val web = if (previous?.binding == binding) previous.web else {
+            previous?.web?.destroy()
+            createWebView(context)
+        }
+        val acquiredGeneration = generation
+        var succeeded = false
         fun fail(error: CollectionFailure) {
             if (failure != null) return
             failure = error
@@ -37,7 +69,9 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                 userAgentString = userAgent
                 useWideViewPort = true
                 loadWithOverviewMode = true
-                cacheMode = WebSettings.LOAD_NO_CACHE
+                // Revalidate the document below; immutable scripts/fonts can use the HTTP cache.
+                cacheMode = WebSettings.LOAD_DEFAULT
+                blockNetworkImage = true
                 allowFileAccess = false
                 allowContentAccess = false
                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
@@ -92,10 +126,10 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             web.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY))
             web.layout(0, 0, metrics.widthPixels, metrics.heightPixels)
+            web.onResume()
             web.loadUrl(account.profileUrl, mapOf("Cache-Control" to "no-cache"))
             withTimeout(35_000) { loaded.await() }
-            val script = context.assets.open("web-session-capture.js").bufferedReader().use { it.readText() }
-            withTimeout(15_000) {
+            val payload = withTimeout(15_000) {
                 while (true) {
                     failure?.let { throw it }
                     currentCoroutineContext().ensureActive()
@@ -110,12 +144,37 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                 }
                 @Suppress("UNREACHABLE_CODE") error("Unreachable")
             }
+            succeeded = true
+            payload
         } catch (_: TimeoutCancellationException) {
             throw failure ?: CollectionFailure(if (loaded.isCompleted) SyncStatus.FORMAT_CHANGED else SyncStatus.OFFLINE)
         } finally {
             web.stopLoading()
-            web.destroy()
+            val keep = retain && succeeded && currentCoroutineContext().isActive && generation == acquiredGeneration &&
+                runCatching { sessions.metadata(account.provider)?.savedAt == binding.sessionVersion &&
+                    sessions.identity(account.provider) == account.stableId }.getOrDefault(false)
+            if (keep) {
+                // Keep the instance, never an active SNS page or an old count. No global pauseTimers().
+                val blank = CompletableDeferred<Boolean>()
+                web.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, url: String?) {
+                        if (url == "about:blank") blank.complete(true)
+                    }
+                    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                        blank.complete(false); return true
+                    }
+                }
+                web.webChromeClient = WebChromeClient()
+                web.settings.javaScriptEnabled = false
+                web.loadUrl("about:blank")
+                val cleared = withContext(NonCancellable) { withTimeoutOrNull(1_000) { blank.await() } } == true
+                if (cleared && generation == acquiredGeneration) {
+                    web.onPause()
+                    idle[account.provider] = IdleBrowser(binding, web)
+                } else web.destroy()
+            } else web.destroy()
             CookieManager.getInstance().flush()
         }
+      }
     }
 }

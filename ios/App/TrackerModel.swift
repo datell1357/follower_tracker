@@ -44,7 +44,7 @@ final class TrackerModel {
     func refresh(_ key: String? = nil) async {
         guard !busy, let sync else { return }
         busy = true; defer { busy = false }
-        do { for row in accounts where key == nil || row.id == key { try await sync.refresh(row.id) }; await reload(); WidgetCenter.shared.reloadAllTimelines() }
+        do { for row in accounts where key == nil || row.id == key { try await sync.refresh(row.id) }; await reload(); await WidgetUpdates.shared.request() }
         catch is CancellationError { }
         catch { message = "갱신을 마치지 못했어요. 마지막 기록을 유지했어요." }
     }
@@ -72,7 +72,7 @@ final class TrackerModel {
         }
         try Task.checkCancellation()
         try await repository.saveObservation(observation.0, observation.1)
-        WidgetCenter.shared.reloadAllTimelines()
+        await WidgetUpdates.shared.request()
         await reload()
     }
     func disconnect(_ key: String) async {
@@ -82,7 +82,7 @@ final class TrackerModel {
             guard let account = try await repository.account(key) else { return }
             try await SessionVault.shared.remove(account.provider)
             try await repository.disconnect(key)
-            await reload(); WidgetCenter.shared.reloadAllTimelines()
+            await reload(); await WidgetUpdates.shared.request()
         } catch { message = "연결 해제를 마치지 못했어요. 다시 확인해주세요." }
     }
 }

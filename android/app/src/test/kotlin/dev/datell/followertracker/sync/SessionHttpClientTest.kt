@@ -30,6 +30,7 @@ class SessionHttpClientTest {
         val session = SyntheticSession()
         val http = client(session, headers = mapOf("Set-Cookie" to "sessionid=synthetic-rotated; Secure; Path=/")) { request ->
             assertEquals("GET", request.method)
+            assertEquals("no-cache", request.header("Cache-Control"))
             assertEquals("synthetic-csrf", request.header("X-CSRFToken"))
             assertEquals("fixture-agent", request.header("User-Agent"))
             assertEquals("https://www.instagram.com", request.header("Origin"))

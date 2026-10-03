@@ -1,10 +1,9 @@
 package dev.datell.followertracker.sync
 
 import android.content.Context
-import androidx.glance.appwidget.updateAll
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.data.TrackerRepository
-import dev.datell.followertracker.widget.TrackerWidget
+import dev.datell.followertracker.widget.WidgetUpdates
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -12,12 +11,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class SyncCoordinator(context: Context, private val repository: TrackerRepository, private val collector: SessionCollecting,
-    private val publishWidgets: suspend () -> Unit = { TrackerWidget().updateAll(context) }) {
+    private val publishWidgets: suspend () -> Unit = { WidgetUpdates.request(context) },
+    private val isDefinitelyOffline: () -> Boolean = { NetworkAvailability.isDefinitelyOffline(context) }) {
     private val mutex = Mutex()
     suspend fun refresh(key: String, background: Boolean = false) = mutex.withLock {
         val account = repository.account(key) ?: return@withLock
         val now = System.currentTimeMillis()
         if (!RefreshPolicy.canRefresh(account, now, background)) return@withLock
+        if (background && isDefinitelyOffline()) return@withLock
         try {
             repository.updateStatus(key, SyncStatus.REFRESHING, now, account.nextAllowedAt,
                 expectedConnectedAt = account.connectedAt,
@@ -47,6 +48,7 @@ class SyncCoordinator(context: Context, private val repository: TrackerRepositor
         val account = repository.account(key) ?: return@withLock
         val now = System.currentTimeMillis()
         if (account.status.blocksAutomaticRetry || !RefreshPolicy.canRefresh(account, now, background)) return@withLock
+        if (background && isDefinitelyOffline()) return@withLock
         try {
             repository.updateListStatus(key, SyncStatus.REFRESHING, expectedConnectedAt = account.connectedAt)
             try {

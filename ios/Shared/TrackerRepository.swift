@@ -96,9 +96,18 @@ actor TrackerRepository {
         try database.blobs("SELECT payload FROM accounts WHERE key=?", [.text(key)]).first.map { try decoder.decode(Account.self, from: $0) }
     }
     func history(_ key: String) throws -> [MetricSnapshot] {
-        try database.blobs("SELECT payload FROM metrics WHERE owner=? ORDER BY observed DESC LIMIT 366", [.text(key)]).reversed().map { try decoder.decode(MetricSnapshot.self, from: $0) }
+        try recentMetrics(key, limit: 366)
     }
     func overviews() throws -> [AccountOverview] { try accounts().map { try AccountOverview(account: $0, history: history($0.id)) } }
+    func widgetOverviews(provider: Provider? = nil) throws -> [AccountOverview] {
+        try accounts().filter { provider == nil || $0.provider == provider }.map {
+            try AccountOverview(account: $0, history: recentMetrics($0.id, limit: 2))
+        }
+    }
+    private func recentMetrics(_ key: String, limit: Int) throws -> [MetricSnapshot] {
+        try database.blobs("SELECT payload FROM metrics WHERE owner=? ORDER BY observed DESC LIMIT ?", [.text(key), .integer(Int64(limit))])
+            .reversed().map { try decoder.decode(MetricSnapshot.self, from: $0) }
+    }
     private func put(_ account: Account) throws {
         try database.run("INSERT INTO accounts(key,provider,connected,payload) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET payload=excluded.payload",
             [.text(account.id), .text(account.provider.rawValue), .integer(account.connectedAt), .blob(try encoder.encode(account))])

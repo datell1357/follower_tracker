@@ -10,6 +10,7 @@ import dev.datell.followertracker.core.*
 import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.sync.*
 import dev.datell.followertracker.widget.TrackerWidget
+import dev.datell.followertracker.widget.WidgetUpdates
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -64,6 +65,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         reload()
     }
     fun connect(provider: Provider, payload: String?, userAgent: String, completed: () -> Unit): Job = action {
+        graph.collector.releaseProfileResources(provider)
         withContext(Dispatchers.IO) {
             graph.sessions.save(provider, SessionMetadata(userAgent, graph.sessions.identity(provider), System.currentTimeMillis()))
         }
@@ -79,15 +81,16 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         completed()
         if (provider == Provider.INSTAGRAM && observation.first.status != SyncStatus.FOREGROUND_ONLY)
             SyncScheduler.initialLists(getApplication(), observation.first.key)
-        TrackerWidget().updateAll(getApplication())
+        WidgetUpdates.request(getApplication())
         reload()
     }
     fun disconnect(key: String) = action {
         val account = graph.repository.account(key) ?: return@action
+        graph.collector.releaseProfileResources(account.provider)
         WorkManager.getInstance(getApplication()).cancelUniqueWork("initial-list-$key")
         graph.repository.disconnect(key)
         withContext(Dispatchers.IO) { graph.sessions.disconnect(account.provider) }
-        TrackerWidget().updateAll(getApplication())
+        WidgetUpdates.request(getApplication())
         reload()
     }
     private fun action(block: suspend () -> Unit): Job {
