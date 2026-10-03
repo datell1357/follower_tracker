@@ -24,7 +24,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.datell.followertracker.core.Provider
+import dev.datell.followertracker.core.Account
+import dev.datell.followertracker.core.AccountType
 import kotlinx.coroutines.Job
+
+private data class LoginRequest(val provider: Provider, val facebookPage: Boolean = false, val accountKey: String? = null) {
+    companion object {
+        fun forAccount(account: Account) = LoginRequest(account.provider, account.accountType == AccountType.PAGE,
+            account.key.takeIf { account.accountType == AccountType.PAGE })
+    }
+}
 
 class MainActivity : ComponentActivity() {
     private val model: TrackerViewModel by viewModels()
@@ -56,7 +65,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
     var morePage by rememberSaveable { mutableStateOf<String?>(null) }
     var returnPage by rememberSaveable { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
-    var login by remember { mutableStateOf<Provider?>(null) }
+    var login by remember { mutableStateOf<LoginRequest?>(null) }
     var detail by remember { mutableStateOf<String?>(null) }
     var disconnect by remember { mutableStateOf<String?>(null) }
     var loginJob by remember { mutableStateOf<Job?>(null) }
@@ -107,7 +116,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
                 tab == 2 -> WidgetScreen(state, onConnect = { picking = true })
                 else -> when (page) {
                     MorePage.SETTINGS -> SettingsScreen(state)
-                    MorePage.ACCOUNTS -> AccountManagementScreen(state, onReconnect = { login = it }, onDisconnect = { disconnect = it }, onConnect = { picking = true })
+                    MorePage.ACCOUNTS -> AccountManagementScreen(state, onReconnect = { login = LoginRequest.forAccount(it) }, onDisconnect = { disconnect = it }, onConnect = { picking = true })
                     MorePage.SUPPORT -> SupportScreen(onHelp = { returnPage = MorePage.SUPPORT.name; morePage = MorePage.HELP.name }, onPrivacy = { returnPage = MorePage.SUPPORT.name; morePage = MorePage.PRIVACY.name })
                     MorePage.PRIVACY -> PrivacyScreen()
                     MorePage.HELP -> HelpScreen()
@@ -124,27 +133,35 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
             Text("공식 페이지에서 로그인하면 본인 계정을 확인해 자동으로 연결해요. 세션은 이 기기에 보관돼요.", modifier = Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         LazyColumn(Modifier.padding(bottom = 24.dp)) {
-            items(Provider.entries) { provider ->
-                val connected = state.accounts.any { it.account.provider == provider }
+            Provider.entries.forEach { provider -> item(key = provider.name) {
+                val connected = state.accounts.any { it.account.provider == provider && it.account.accountType == AccountType.PROFILE }
                 ListItem(headlineContent = { Text(provider.title) }, supportingContent = { Text(if (connected) "연결됨 · 로그인 확인" else if (provider == Provider.INSTAGRAM) "팔로워 수 · 위젯 · 빠른 추적" else "로그인 후 수집 가능 여부를 확인해요") },
                     leadingContent = { ProviderMark(provider) }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
-                    modifier = Modifier.clickableSafe { picking = false; model.dismissMessage(); login = provider })
+                    modifier = Modifier.clickableSafe { picking = false; model.dismissMessage(); login = LoginRequest(provider) })
+            }
+                if (provider == Provider.FACEBOOK) item(key = "facebook-page") {
+                    ListItem(headlineContent = { Text("Facebook 페이지") }, supportingContent = { Text("페이지로 이동한 뒤 연결 확인") },
+                        leadingContent = { Icon(Icons.Outlined.Flag, null, tint = MaterialTheme.colorScheme.primary) },
+                        trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                        modifier = Modifier.clickableSafe { picking = false; model.dismissMessage(); login = LoginRequest(Provider.FACEBOOK, facebookPage = true) })
+                }
             }
         }
     }
-    login?.let { provider ->
-        SessionLoginDialog(provider, state.busy, state.message,
+    login?.let { request ->
+        SessionLoginDialog(request.provider, state.busy, state.message,
             onDismiss = { loginJob?.cancel(); loginJob = null; login = null; model.dismissMessage() },
-            onConnect = { payload, agent -> loginJob = model.connect(provider, payload, agent) { login = null; loginJob = null } })
+            onConnect = { payload, agent -> loginJob = model.connect(request.provider, payload, agent, request.facebookPage, request.accountKey) { login = null; loginJob = null } },
+            facebookPage = request.facebookPage, expectedPage = state.accounts.firstOrNull { it.account.key == request.accountKey }?.account)
     }
     detail?.let { key -> state.accounts.firstOrNull { it.account.key == key }?.let { row ->
         ModalBottomSheet(onDismissRequest = { detail = null }) {
-            AccountDetail(row, state.busy, onRefresh = { model.refresh(key) }, onReconnect = { detail = null; login = row.account.provider })
+            AccountDetail(row, state.busy, onRefresh = { model.refresh(key) }, onReconnect = { detail = null; login = LoginRequest.forAccount(row.account) })
         }
     } }
     disconnect?.let { key ->
         AlertDialog(onDismissRequest = { disconnect = null }, title = { Text("연결을 해제할까요?") },
-            text = { Text("이 SNS의 로그인 세션과 기기에 저장한 추적·관계 기록을 삭제해요. 다시 연결하면 새 기록부터 시작해요.") },
+            text = { Text("선택한 연결의 추적·관계 기록을 삭제해요. 같은 SNS의 다른 연결이 있으면 로그인 세션은 유지해요. 다시 연결하면 새 기록부터 시작해요.") },
             confirmButton = { TextButton(onClick = { disconnect = null; model.disconnect(key) }) { Text("연결 해제") } },
             dismissButton = { TextButton(onClick = { disconnect = null }) { Text("유지하기") } })
     }

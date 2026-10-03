@@ -64,16 +64,25 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         state.value.selectedKey?.let { graph.coordinator.relationships(it) }
         reload()
     }
-    fun connect(provider: Provider, payload: String?, userAgent: String, completed: () -> Unit): Job = action {
+    fun connect(provider: Provider, payload: String?, userAgent: String,
+        facebookPage: Boolean = false, expectedPageKey: String? = null, completed: () -> Unit): Job = action {
         graph.collector.releaseProfileResources(provider)
         withContext(Dispatchers.IO) {
             graph.sessions.save(provider, SessionMetadata(userAgent, graph.sessions.identity(provider), System.currentTimeMillis()))
         }
-        val expected = graph.repository.accounts().firstOrNull { it.provider == provider }
+        val accounts = graph.repository.accounts()
+        val pageId = if (facebookPage && payload != null)
+            (ResponseParser.objectBody(payload)["stableId"] as? kotlinx.serialization.json.JsonPrimitive)?.content else null
+        val expected = if (facebookPage) accounts.firstOrNull { it.provider == provider && it.accountType == AccountType.PAGE &&
+            (expectedPageKey?.let { key -> it.key == key } ?: (it.stableId == pageId)) }
+        else accounts.firstOrNull { it.provider == provider && it.accountType == AccountType.PROFILE }
+        if (facebookPage && payload == null) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
         val observation = if (payload == null) graph.collector.native(provider, expected)
         else {
-            val captured = graph.collector.captured(provider, payload, expected)
-            withContext(Dispatchers.IO) { graph.sessions.save(provider, SessionMetadata(userAgent, captured.first.stableId, System.currentTimeMillis())) }
+            val captured = graph.collector.captured(provider, payload, expected, facebookPage)
+            if (expectedPageKey != null && captured.first.key != expectedPageKey) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            withContext(Dispatchers.IO) { graph.sessions.save(provider, SessionMetadata(userAgent,
+                captured.first.sessionOwnerId ?: captured.first.stableId, System.currentTimeMillis())) }
             captured
         }
         currentCoroutineContext().ensureActive()
@@ -89,7 +98,8 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         graph.collector.releaseProfileResources(account.provider)
         WorkManager.getInstance(getApplication()).cancelUniqueWork("initial-list-$key")
         graph.repository.disconnect(key)
-        withContext(Dispatchers.IO) { graph.sessions.disconnect(account.provider) }
+        if (graph.repository.accounts().none { it.provider == account.provider })
+            withContext(Dispatchers.IO) { graph.sessions.disconnect(account.provider) }
         WidgetUpdates.request(getApplication())
         reload()
     }

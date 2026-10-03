@@ -34,7 +34,8 @@ fun RelationshipScreen(state: TrackerState, onSelect: (String) -> Unit, onRefres
         } else {
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    state.accounts.forEach { account -> FilterChip(selected = account.account.key == row.account.key, onClick = { onSelect(account.account.key) }, label = { Text(account.account.provider.title) }) }
+                    state.accounts.forEach { account -> FilterChip(selected = account.account.key == row.account.key, onClick = { onSelect(account.account.key) },
+                        label = { Text(if (account.account.accountType == AccountType.PAGE) account.account.identityLabel else account.account.connectionTitle) }) }
                 }
             }
             item {
@@ -43,7 +44,7 @@ fun RelationshipScreen(state: TrackerState, onSelect: (String) -> Unit, onRefres
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             ProviderMark(row.account.provider)
                             Column(Modifier.weight(1f)) {
-                                Text("@${row.account.username}", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(row.account.identityLabel, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(report?.let { "${compactObservationTime(it.comparedAt)} 비교" } ?: "아직 비교 기록 없음", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }

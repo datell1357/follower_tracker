@@ -10,11 +10,14 @@ import org.json.JSONObject
 
 /** Executes only within the bounded provider WebView; no JavaScript bridge or form access. */
 suspend fun captureWebSession(web: WebView, provider: Provider, identity: String?, script: String,
-    allowRequest: Boolean = true): String = withContext(Dispatchers.Main.immediate) {
+    allowRequest: Boolean = true, facebookPage: Boolean = false, expectedPageId: String? = null): String = withContext(Dispatchers.Main.immediate) {
     if (!provider.allows(web.url.orEmpty())) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+    val initialUrl = web.url
     val slot = JSONObject.quote("__followerCapture_" + UUID.randomUUID().toString().replace("-", ""))
     val arguments = JSONObject.quote(provider.name) + "," + (identity?.let(JSONObject::quote) ?: "null")
-    val read = if (allowRequest) "FollowerTrackerCapture.captureAsync($arguments)"
+    val read = if (facebookPage && provider == Provider.FACEBOOK) "Promise.resolve(FollowerTrackerCapture.captureFacebookPage(" +
+        (identity?.let(JSONObject::quote) ?: "null") + "," + (expectedPageId?.let(JSONObject::quote) ?: "null") + "))"
+        else if (allowRequest) "FollowerTrackerCapture.captureAsync($arguments)"
         else "Promise.resolve(FollowerTrackerCapture.capture($arguments))"
     try {
         web.evaluate("""$script;globalThis[$slot]=null;
@@ -26,6 +29,7 @@ suspend fun captureWebSession(web: WebView, provider: Provider, identity: String
             while (true) {
                 currentCoroutineContext().ensureActive()
                 if (!provider.allows(web.url.orEmpty())) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+                if (facebookPage && web.url != initialUrl) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
                 val encoded = web.evaluate("globalThis[$slot]")
                 if (encoded != "null" && encoded != "undefined") return@withTimeout JSONArray("[$encoded]").getString(0)
                 delay(250)
@@ -50,7 +54,7 @@ fun webCaptureFailure(result: JSONObject): CollectionFailure? {
         "rate_limited" -> SyncStatus.RATE_LIMITED
         "offline" -> SyncStatus.OFFLINE
         "reauth_required", "identity_missing" -> SyncStatus.REAUTH_REQUIRED
-        "own_profile_required", "owner_context_missing", "check_required" -> SyncStatus.CHECK_REQUIRED
+        "own_profile_required", "owner_context_missing", "check_required", "page_required", "page_identity_missing", "page_mismatch" -> SyncStatus.CHECK_REQUIRED
         else -> SyncStatus.FORMAT_CHANGED
     }
     val retry = if (result.isNull("retryAfterSeconds")) null else result.optLong("retryAfterSeconds").coerceIn(60, 86_400)

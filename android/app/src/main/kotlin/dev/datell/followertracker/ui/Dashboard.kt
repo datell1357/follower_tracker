@@ -62,8 +62,8 @@ private fun AccountCard(row: AccountOverview, onClick: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProviderMark(row.account.provider)
                 Column(Modifier.weight(1f)) {
-                    Text(row.account.provider.title, style = MaterialTheme.typography.titleMedium)
-                    Text("@${row.account.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(row.account.connectionTitle, style = MaterialTheme.typography.titleMedium)
+                    Text(row.account.identityLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (row.account.status !in setOf(SyncStatus.READY, SyncStatus.REFRESHING)) StatusLine(row.account, observedAt)
                 }
                 Icon(Icons.Outlined.ChevronRight, "계정 상세", tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -106,7 +106,8 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
                 ProviderMark(row.account.provider)
                 Column(Modifier.weight(1f)) {
                     Text(row.account.displayName, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("${row.account.provider.title} · @${row.account.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (row.account.accountType == AccountType.PAGE) row.account.connectionTitle else "${row.account.provider.title} · @${row.account.username}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -148,13 +149,13 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
             StatusLine(row.account, row.latest?.observedAt)
             Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy && row.account.status != SyncStatus.FOREGROUND_ONLY) { Text("지금 갱신") }
-                OutlinedButton(onClick = onReconnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text("공식 로그인 페이지 열기") }
+                OutlinedButton(onClick = onReconnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text(if (row.account.accountType == AccountType.PAGE) "페이지 열고 갱신" else "공식 로그인 페이지 열기") }
             }
         }
         item {
             InfoPanel("자동 갱신", when (row.account.capabilities.background) {
                 Capability.OBSERVED -> "기기에서 백그라운드 수집에 성공했어요. 네트워크·절전·SNS 요청 제한에 따라 갱신 시각이 달라질 수 있어요."
-                Capability.FOREGROUND_ONLY -> "현재는 공식 로그인 페이지에서 본인 프로필을 열어 갱신할 수 있어요."
+                Capability.FOREGROUND_ONLY -> if (row.account.accountType == AccountType.PAGE) "페이지를 열고 연결 확인을 눌러 팔로워 수를 갱신해요." else "현재는 공식 로그인 페이지에서 본인 프로필을 열어 갱신할 수 있어요."
                 Capability.UNAVAILABLE -> "이 계정의 자동 수집 경로를 사용할 수 없어요."
                 Capability.UNVERIFIED -> "연결한 뒤 예약 수집을 시도해요. 백그라운드 수집 성공은 아직 확인되지 않았어요."
             }, icon = Icons.Outlined.Schedule)

@@ -5,6 +5,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LoginNavigationPolicyTest {
+    @Test fun pageLinksNormalizeHttpToHttpsAndRetainOnlyOfficialFacebookOrigins() {
+        assertEquals("https://facebook.com/fixture.page?locale=ko_KR", facebookPageUrl(" http://facebook.com/fixture.page?locale=ko_KR "))
+        assertEquals("https://www.facebook.com/fixture.page", facebookPageUrl("www.facebook.com/fixture.page"))
+        for (url in listOf("https://facebook.com.example.test/page", "http://private@facebook.com/page", "https://facebook.com:8443/page",
+            "javascript:alert(1)", "file:///facebook.com/page", "https://example.test/page", "//facebook.com/page", "invalid uri"))
+            assertNull(facebookPageUrl(url))
+    }
+
     private fun facebookIntent(fallback: String = "https://www.facebook.com/profile.php?id=42", fields: String = "scheme=fb;package=com.facebook.katana") =
         "intent://profile/42#Intent;$fields;S.browser_fallback_url=${java.net.URLEncoder.encode(fallback, "UTF-8")};end"
 

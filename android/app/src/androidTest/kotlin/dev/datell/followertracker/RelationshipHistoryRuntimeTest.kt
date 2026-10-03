@@ -99,7 +99,8 @@ class RelationshipHistoryRuntimeTest {
                     })
                 }
             }
-            val upgraded = Room.databaseBuilder(context, TrackerDatabase::class.java, name).build()
+            val upgraded = Room.databaseBuilder(context, TrackerDatabase::class.java, name)
+                .addMigrations(TrackerDatabase.MIGRATION_2_3).build()
             database = upgraded
             val repository = TrackerRepository(upgraded, cipher)
             assertEquals(owner, repository.account(owner.key))

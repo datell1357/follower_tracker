@@ -16,7 +16,8 @@ class TrackerApplication : Application() {
 }
 
 class AppGraph(context: Context) {
-    val repository = TrackerRepository(Room.databaseBuilder(context, TrackerDatabase::class.java, "tracker.db").build(), DataCipher())
+    val repository = TrackerRepository(Room.databaseBuilder(context, TrackerDatabase::class.java, "tracker.db")
+        .addMigrations(TrackerDatabase.MIGRATION_2_3).build(), DataCipher())
     val sessions = SessionStore(context, DataCipher())
     val collector = SessionCollector(sessions, context.applicationContext)
     val coordinator = SyncCoordinator(context, repository, collector)

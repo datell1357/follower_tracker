@@ -40,6 +40,9 @@ enum class Capability { UNVERIFIED, OBSERVED, FOREGROUND_ONLY, UNAVAILABLE }
 enum class CountTransport { SESSION_HTTP, PROFILE_BROWSER }
 
 @Serializable
+enum class AccountType { PROFILE, PAGE }
+
+@Serializable
 data class TransientRetryState(val failureCount: Int, val nextAttemptAt: Long)
 
 @Serializable
@@ -65,11 +68,19 @@ data class Account(
     val relationshipStatus: SyncStatus? = null,
     val countTransport: CountTransport = CountTransport.SESSION_HTTP,
     val transientRetry: TransientRetryState? = null,
+    val accountType: AccountType = AccountType.PROFILE,
+    val sessionOwnerId: String? = null,
 ) {
-    val key: String get() = "${provider.name}:$stableId"
+    val key: String get() = if (accountType == AccountType.PAGE) "${provider.name}:PAGE:$stableId" else "${provider.name}:$stableId"
+    val connectionTitle: String get() = if (accountType == AccountType.PAGE) "Facebook 페이지" else provider.title
+    val identityLabel: String get() = if (accountType == AccountType.PAGE) displayName else "@$username"
+    fun conflictsWith(other: Account): Boolean = provider == other.provider && accountType == AccountType.PROFILE &&
+        other.accountType == AccountType.PROFILE && key != other.key
     init {
         require(stableId.isNotBlank() && username.isNotBlank())
         require(provider.allows(profileUrl))
+        require(accountType != AccountType.PAGE || provider == Provider.FACEBOOK &&
+            stableId.matches(Regex("[0-9]+")) && sessionOwnerId?.matches(Regex("[0-9]+")) == true)
     }
 }
 

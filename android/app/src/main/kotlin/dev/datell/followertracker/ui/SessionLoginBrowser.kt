@@ -15,10 +15,11 @@ import dev.datell.followertracker.core.Provider
 import java.io.ByteArrayInputStream
 
 /** Interactive login windows share cookies and preserve window.opener for SNS OAuth callbacks. */
-class SessionLoginBrowser(private val provider: Provider) {
+class SessionLoginBrowser(private val provider: Provider, private val initialUrl: String = provider.loginUrl) {
+    init { require(provider.allows(initialUrl)) }
     var active by mutableStateOf<WebView?>(null)
         private set
-    var location by mutableStateOf(provider.loginUrl)
+    var location by mutableStateOf(initialUrl)
         private set
     var loading by mutableStateOf(true)
         private set
@@ -74,7 +75,7 @@ class SessionLoginBrowser(private val provider: Provider) {
             root.addView(web)
             active = web
             loading = true
-            web.loadUrl(provider.loginUrl)
+            web.loadUrl(initialUrl)
         }
     }
 

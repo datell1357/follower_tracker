@@ -75,7 +75,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                         if (!loading && !loadError) {
                             item { ConfigurationOption("모든 계정", "위젯 크기에 맞춰 표시해요", null, selected == null, !saving) { selected = null } }
                             items(accounts, key = { it.key }) { account ->
-                                ConfigurationOption(account.provider.title, "@${account.username}", account, selected == account.key, !saving) { selected = account.key }
+                                ConfigurationOption(account.connectionTitle, account.identityLabel, account, selected == account.key, !saving) { selected = account.key }
                             }
                             if (accounts.isEmpty()) item { Text("아직 연결된 계정이 없어요. 위젯을 추가한 뒤 앱에서 SNS를 연결해주세요.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }

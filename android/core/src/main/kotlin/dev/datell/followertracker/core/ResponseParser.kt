@@ -13,6 +13,36 @@ object ResponseParser {
         throw CollectionFailure(status)
     }
 
+    /** Only an explicit Page connection may use a target ID different from the login owner. */
+    fun facebookPageCapture(body: String, sessionOwnerId: String?, expected: Account?, now: Long): Pair<Account, MetricSnapshot> {
+        val root = objectBody(body)
+        if (root["error"] != null) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+        val id = root.text("stableId") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        if (sessionOwnerId?.matches(Regex("[0-9]+")) != true) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
+        if (root.text("provider") != Provider.FACEBOOK.name || root.text("accountType") != AccountType.PAGE.name ||
+            root.text("sessionOwnerId") != sessionOwnerId || id == sessionOwnerId || !id.matches(Regex("[0-9]+")) ||
+            expected != null && (expected.provider != Provider.FACEBOOK || expected.accountType != AccountType.PAGE || expected.stableId != id))
+            throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+        if (root.text("source") != "facebook-webview-page" || root.text("precision") != Precision.EXACT.name)
+            throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val profile = root.text("profileURL") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val uri = runCatching { java.net.URI(profile) }.getOrNull()
+        if (!Provider.FACEBOOK.allows(profile) || uri?.path != "/profile.php" || uri.rawQuery != "id=$id" || uri.fragment != null)
+            throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+        val name = root.text("username") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val displayName = root.text("displayName") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val followers = root.count("followers").takeIf { it <= 9_007_199_254_740_991L }
+            ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val account = Account(Provider.FACEBOOK, id, name, displayName, profile,
+            status = SyncStatus.FOREGROUND_ONLY,
+            capabilities = Capabilities(count = Capability.FOREGROUND_ONLY, followers = Capability.UNAVAILABLE,
+                following = Capability.UNAVAILABLE, background = Capability.FOREGROUND_ONLY),
+            connectedAt = expected?.connectedAt ?: now, lastAttemptAt = now,
+            countTransport = CountTransport.PROFILE_BROWSER, accountType = AccountType.PAGE, sessionOwnerId = sessionOwnerId)
+        // Page likes, friends and Page follows never substitute for its follower total.
+        return account to MetricSnapshot(account.key, now, followers, null, source = "facebook-webview-page")
+    }
+
     fun instagramProfile(body: String, expectedId: String?, now: Long): Pair<Account, MetricSnapshot> {
         val root = objectBody(body)
         checkServiceStatus(root)

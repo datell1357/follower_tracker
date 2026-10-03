@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { capture, exactCount } = require("../web-session-capture.js");
+const { capture, captureFacebookPage, exactCount } = require("../web-session-capture.js");
 
 function documentWith(data) {
   return { location: { href: "https://www.tiktok.com/@self" },
@@ -152,6 +152,92 @@ test("Facebook rejects foreign or insecure pages and invalid cookie identity", (
     assert.equal(capture("FACEBOOK", "42", doc).error, "own_profile_required");
   }
   assert.equal(capture("FACEBOOK", "not-a-cookie-id", facebookDocument({})).error, "identity_missing");
+});
+
+function facebookPageDocument(data = {}, texts = ["12,345 팔로워"], path = "/fixture.page", pageLabel = true) {
+  const doc = facebookDOMDocument(texts, path);
+  const header = doc.querySelectorAll('h1')[0].parentElement, headerQuery = header.querySelectorAll;
+  const labels = pageLabel ? [{ textContent: "페이지 · 브랜드", closest: () => null }] : [];
+  header.querySelectorAll = selector => selector === 'span,div' ? labels : headerQuery(selector);
+  const previous = doc.querySelectorAll;
+  doc.querySelectorAll = selector => selector.startsWith("script") ? [{ textContent: JSON.stringify(data) }] :
+    selector === "span,div" ? labels : previous(selector);
+  const metadata = { 'link[rel="canonical"]': ["href", "https://www.facebook.com/profile.php?id=99"] };
+  doc.querySelector = selector => metadata[selector] ? { getAttribute: key => key === metadata[selector][0] ? metadata[selector][1] : null } : null;
+  doc.metadata = metadata;
+  return doc;
+}
+test("explicit Facebook Page capture separates the selected target from the login owner", () => {
+  const result = captureFacebookPage("42", null, facebookPageDocument());
+  assert.equal(result.accountType, "PAGE");
+  assert.equal(result.provider, "FACEBOOK");
+  assert.equal(result.stableId, "99");
+  assert.equal(result.sessionOwnerId, "42");
+  assert.equal(result.followers, 12345);
+  assert.equal(result.following, null);
+  assert.equal(result.source, "facebook-webview-page");
+  assert.equal(result.profileURL, "https://www.facebook.com/profile.php?id=99");
+});
+test("Page capture requires a Page context and cannot turn a personal profile into a Page", () => {
+  assert.equal(captureFacebookPage("42", null, facebookPageDocument({}, ["5 팔로워"], "/profile.php?id=99", false)).error, "page_required");
+  assert.equal(captureFacebookPage("42", null, facebookPageDocument({}, ["5 팔로워"], "/profile.php?id=42")).error, "page_identity_missing");
+  const self = facebookPageDocument();
+  self.metadata['link[rel="canonical"]'][1] = "https://www.facebook.com/profile.php?id=42";
+  assert.equal(captureFacebookPage("42", null, self).error, "page_required");
+  assert.equal(captureFacebookPage(null, null, facebookPageDocument()).error, "identity_missing");
+});
+test("Page capture rejects feeds, posts, arbitrary Page records and foreign origins", () => {
+  const other = { __typename: "Page", id: "88", username: "other", name: "Other", followers_count: 999 };
+  for (const path of ["/", "/login/", "/home.php", "/search/", "/groups/99", "/fixture.page/posts/9", "/profile.php?id=99&id=88"])
+    assert.equal(captureFacebookPage("42", null, facebookPageDocument(other, [], path)).error, "page_required");
+  const unrelated = facebookPageDocument(other, [], "/fixture.page", false);
+  assert.equal(captureFacebookPage("42", null, unrelated).error, "page_required");
+  const foreign = facebookPageDocument(); foreign.location.href = "https://facebook.com.example.test/fixture.page";
+  assert.equal(captureFacebookPage("42", null, foreign).error, "page_required");
+});
+test("Page JSON must match the visible target and preserves exact zero without using likes", () => {
+  const target = { __typename: "Page", id: "99", username: "fixture.page", name: "Fixture Page", followers_count: 0, fan_count: 800 };
+  assert.equal(captureFacebookPage("42", null, facebookPageDocument({ records: [
+    { ...target, id: "88", username: "other", followers_count: 999 }, target
+  ] }, [], undefined, false)).followers, 0);
+  assert.equal(captureFacebookPage("42", null, facebookPageDocument({ ...target, followers_count: undefined }, ["친구 500명", "좋아요 800개"])).error, "exact_count_missing");
+});
+test("Page IDs and existing connections never follow conflicting or substituted targets", () => {
+  assert.equal(captureFacebookPage("42", "88", facebookPageDocument()).error, "page_mismatch");
+  const conflict = facebookPageDocument({}, ["5 팔로워"], "/profile.php?id=88");
+  assert.equal(captureFacebookPage("42", null, conflict).error, "page_identity_missing");
+  const missing = facebookPageDocument(); missing.querySelector = () => null;
+  assert.equal(captureFacebookPage("42", null, missing).error, "page_identity_missing");
+  const foreignCanonical = facebookPageDocument(); foreignCanonical.metadata['link[rel="canonical"]'][1] = 'https://example.test/fixture.page';
+  assert.equal(captureFacebookPage("42", null, foreignCanonical).error, "page_identity_missing");
+  assert.equal(captureFacebookPage("42", null, facebookPageDocument({}, ['5 followers'], '/99')).stableId, '99');
+  assert.equal(captureFacebookPage("42", null, facebookPageDocument({ __typename: 'User', id: '99', name: 'Fixture User' })).error, 'page_required');
+});
+test("Page capture does not invent precision for rounded and conflicting follower totals", () => {
+  for (const texts of [["1.2K followers"], ["팔로워 1.2만명"], ["5 followers", "6 followers"], []])
+    assert.equal(captureFacebookPage("42", null, facebookPageDocument({}, texts)).error, "exact_count_missing");
+  const record = { __typename: "Page", id: "99", name: "Fixture Page", followers_count: 5 };
+  assert.equal(captureFacebookPage("42", null, facebookPageDocument({ records: [record, { ...record, followers_count: 6 }] })).error, "exact_count_missing");
+});
+test("Page-specific metadata can identify an exact Page header while owner capture remains unchanged", () => {
+  const page = facebookPageDocument({}, ["0 followers"], "/fixture.page", false);
+  page.metadata['meta[property="fb:page_id"]'] = ["content", "99"];
+  assert.equal(captureFacebookPage("42", null, page).followers, 0);
+  assert.equal(capture("FACEBOOK", "42", page).error, "own_profile_required");
+});
+test("unrelated Page labels and malformed Page metadata cannot classify a personal header", () => {
+  const unrelated = facebookPageDocument({}, ['5 followers'], '/profile.php?id=99', false);
+  const query = unrelated.querySelectorAll;
+  unrelated.querySelectorAll = selector => selector === 'span,div' ? [{ textContent: 'Page · Brand', closest: () => null }] : query(selector);
+  assert.equal(captureFacebookPage('42', null, unrelated).error, 'page_required');
+  const malformed = facebookPageDocument({}, ['5 followers'], '/profile.php?id=99', false);
+  malformed.metadata['meta[property="fb:page_id"]'] = ['content', 'not-a-page-id'];
+  assert.equal(captureFacebookPage('42', null, malformed).error, 'page_required');
+});
+test("conflicting exact JSON and Page header totals require another observation", () => {
+  const record = { __typename: 'Page', id: '99', name: 'Fixture Page', followers_count: 5 };
+  assert.equal(captureFacebookPage('42', null, facebookPageDocument(record, ['6 followers'])).error, 'exact_count_missing');
+  assert.equal(captureFacebookPage('42', null, facebookPageDocument(record, ['5 followers'])).followers, 5);
 });
 
 function instagramDocument(data, path = "/self/") {

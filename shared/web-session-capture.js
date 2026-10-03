@@ -1,4 +1,4 @@
-/* Read-only capture of the signed-in user's profile. No form fields or passwords are read. */
+/* Read-only capture of the signed-in profile or an explicitly confirmed Facebook Page. No form fields or passwords are read. */
 (function () {
   "use strict";
   const MAX_JSON_BYTES = 4 * 1024 * 1024;
@@ -14,10 +14,11 @@
     if (typeof value === "number" && Number.isSafeInteger(value)) return String(value);
     return null;
   }
-  function jsonRoots(doc) {
+  function jsonRoots(doc, facebookPage = false) {
     let remaining = MAX_JSON_BYTES;
     const roots = [];
-    for (const node of doc.querySelectorAll('script[type="application/json"],script#__UNIVERSAL_DATA_FOR_REHYDRATION__,script#SIGI_STATE')) {
+    const selector = 'script[type="application/json"],script#__UNIVERSAL_DATA_FOR_REHYDRATION__,script#SIGI_STATE' + (facebookPage ? ',script[data-sjs]' : '');
+    for (const node of doc.querySelectorAll(selector)) {
       const text = node.textContent || "";
       remaining -= text.length;
       if (remaining < 0) break;
@@ -79,7 +80,7 @@
     }
     return null;
   }
-  function facebookProfileCounts(doc) {
+  function facebookProfileCounts(doc, page = false) {
     const headings = Array.from(doc.querySelectorAll("h1")).filter(node => node.tagName === "H1" && node.textContent?.trim());
     if (!headings.length || headings.length > 32) return null;
     let captured = null;
@@ -90,7 +91,7 @@
       for (let scope = heading.parentElement, depth = 0; scope && depth < 5; scope = scope.parentElement, depth++) {
         if (scope.tagName === "BODY" || scope.tagName === "HTML" || scope.querySelector('article,[role="article"],[role="feed"]')) break;
         if (scope.querySelectorAll("h1").length !== 1) break;
-        const nodes = scope.querySelectorAll('a[href],button,[role="button"]');
+        const nodes = scope.querySelectorAll('a[href],button,[role="button"]' + (page ? ',span' : ''));
         if (nodes.length > 1000) return null;
         const followers = new Set(), following = new Set();
         let followerSeen = false, invalidFollower = false, invalidFollowing = false;
@@ -98,6 +99,7 @@
           if (node.closest('article,[role="article"],[role="feed"]')) continue;
           const text = (node.innerText || node.textContent || "").trim();
           if (text.length > 140) continue;
+          if (page && /^(팔로워|followers|팔로잉|following)$/i.test(text)) continue;
           const followerLabel = /(?:^(?:팔로워|followers)(?:\s|$)|(?:\s|^)(?:팔로워|followers)$)/i.test(text);
           const followingLabel = /(?:^(?:팔로잉|following)(?:\s|$)|(?:\s|^)(?:팔로잉|following)$)/i.test(text);
           if (!followerLabel && !followingLabel) continue;
@@ -113,13 +115,91 @@
         // Do not expand a header with rounded or conflicting values into other parts of the page.
         if (followerSeen) {
           if (captured || invalidFollower || followers.size !== 1) return null;
-          captured = { name, followers: followers.values().next().value,
+          captured = { name, scope, followers: followers.values().next().value,
             following: !invalidFollowing && following.size === 1 ? following.values().next().value : null };
           break;
         }
       }
     }
     return captured;
+  }
+
+  function facebookPageAddress(value, base) {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    let url;
+    try { url = new URL(value, base); } catch (_) { return null; }
+    if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') ||
+        !(url.hostname === 'facebook.com' || url.hostname.endsWith('.facebook.com'))) return null;
+    const path = url.pathname.replace(/\/$/, '');
+    if (path === '/profile.php') {
+      const ids = url.searchParams.getAll('id');
+      return ids.length === 1 && /^[0-9]+$/.test(ids[0]) ? { id: ids[0], path } : null;
+    }
+    const segments = path.split('/').filter(Boolean);
+    if (segments.length === 1 && /^[0-9]+$/.test(segments[0])) return { id: segments[0], path };
+    if (segments[0] === 'pages' && segments.length === 3 && /^[0-9]+$/.test(segments[2]))
+      return { id: segments[2], path };
+    const blocked = /^(login|login\.php|home\.php|checkpoint|challenge|two_factor|two-factor|twofactor|reel|reels|watch|groups|events|marketplace|search|pages|settings|notifications|friends|bookmarks|gaming|help|privacy|policies|photo\.php|photos|story\.php|stories|permalink\.php)$/i;
+    if (segments.length !== 1 || blocked.test(segments[0]) || !/^[A-Za-z0-9.]{1,255}$/.test(segments[0])) return null;
+    return { username: segments[0], path: '/' + segments[0].toLowerCase() };
+  }
+
+  /** The user explicitly confirms this target. Its identity is separate from the authenticated person. */
+  function captureFacebookPage(expectedID, expectedPageID, suppliedDocument) {
+    if (typeof expectedID !== 'string' || !/^[0-9]+$/.test(expectedID)) return { error: 'identity_missing' };
+    const doc = suppliedDocument || document, current = facebookPageAddress(doc.location.href);
+    if (!current) return { error: 'page_required' };
+    const meta = key => doc.querySelector('meta[property="' + key + '"]')?.getAttribute('content');
+    const canonicalText = doc.querySelector('link[rel="canonical"]')?.getAttribute('href') || meta('og:url');
+    const canonical = canonicalText ? facebookPageAddress(canonicalText, doc.location.href) : null;
+    if (canonicalText && !canonical) return { error: 'page_identity_missing' };
+    const native = /^fb:\/\/(page|profile)\/([0-9]+)(?:[/?#]|$)/.exec(meta('al:android:url') || '');
+    const pageMeta = meta('fb:page_id'), pageMetaID = /^[0-9]+$/.test(pageMeta || '') ? pageMeta : null;
+    const ids = new Set([current.id, canonical?.id, native?.[2], pageMetaID].filter(Boolean));
+    if (ids.size > 1 || canonical?.username && current.username && canonical.path !== current.path)
+      return { error: 'page_identity_missing' };
+    const roots = jsonRoots(doc, true), queue = roots.slice(), records = [];
+    for (let i = 0; i < queue.length && i < 100000; i++) {
+      const record = queue[i];
+      if (!record || typeof record !== 'object') continue;
+      if (!Array.isArray(record) && (record.__typename === 'Page' || record.__isPage === 'Page')) {
+        const id = textID(record.id), address = facebookPageAddress(record.url || record.profile_url, doc.location.href);
+        const matches = id && /^[0-9]+$/.test(id) && (ids.has(id) ||
+          current.username && (String(record.username || '').toLowerCase() === current.username.toLowerCase() || address?.path === current.path));
+        if (matches) { records.push(record); ids.add(id); }
+      }
+      for (const child of Object.values(record)) if (child && typeof child === 'object') queue.push(child);
+    }
+    if (ids.size !== 1) return { error: 'page_identity_missing' };
+    const id = ids.values().next().value;
+    if (id === expectedID) return { error: 'page_required' };
+    if (expectedPageID && id !== expectedPageID) return { error: 'page_mismatch' };
+    if (findRecord(roots, r => r.__typename === 'User' && textID(r.id) === id)) return { error: 'page_required' };
+    const header = facebookProfileCounts(doc, true);
+    const pageLabel = Array.from(doc.querySelectorAll('h1')).slice(0,32).some(heading => {
+      for (let scope = heading.parentElement, depth = 0; scope && depth < 5; scope = scope.parentElement, depth++) {
+        if (scope.tagName === 'BODY' || scope.tagName === 'HTML' || scope.querySelector('article,[role="article"],[role="feed"]') ||
+            scope.querySelectorAll('h1').length !== 1) break;
+        const nodes = scope.querySelectorAll('span,div');
+        if (nodes.length > 1000) break;
+        if (Array.from(nodes).some(node => {
+          const text = (node.innerText || node.textContent || '').trim();
+          return text.length <= 256 && /^(페이지|Page)\s*[·•]\s*\S/i.test(text) && !node.closest('article,[role="article"],[role="feed"]');
+        })) return true;
+      }
+      return false;
+    });
+    if (!records.length && !pageMetaID && native?.[1] !== 'page' && !pageLabel) return { error: 'page_required' };
+    const exact = new Set(records.map(r => exactCount(r.followers_count ?? r.follower_count ?? r.followers?.count)).filter(n => n !== null));
+    if (exact.size > 1 || exact.size === 1 && header && !exact.has(header.followers)) return { error: 'exact_count_missing' };
+    const followers = exact.size === 1 ? exact.values().next().value : header?.followers;
+    const record = records.find(r => r.name);
+    const name = record?.name || header?.name;
+    if (!name || typeof name !== 'string' || !name.trim() || name.length > 256 || exactCount(followers) === null)
+      return { error: 'exact_count_missing' };
+    const captured = result('FACEBOOK', id, record?.username || current.username || id, name,
+      'https://www.facebook.com/profile.php?id=' + encodeURIComponent(id), followers, null, 'facebook-webview-page');
+    return { ...captured, accountType: 'PAGE', sessionOwnerId: expectedID };
   }
   function capture(provider, expectedID, suppliedDocument) {
     const doc = suppliedDocument || document;
@@ -298,7 +378,7 @@
       return { error: error instanceof SyntaxError ? 'format_changed' : 'offline' };
     } finally { clearTimeout(timer); }
   }
-  const api = { capture, captureAsync, exactCount };
+  const api = { capture, captureAsync, captureFacebookPage, exactCount };
   globalThis.FollowerTrackerCapture = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

@@ -6,6 +6,17 @@ import java.net.URLDecoder
 
 enum class LoginNavigation { ALLOW, AUTHENTICATE, BLOCK }
 
+fun facebookPageUrl(input: String): String? {
+    val text = input.trim()
+    val url = when {
+        text.startsWith("http://", true) -> "https://" + text.substring(7)
+        text.startsWith("https://", true) -> "https://" + text.substring(8)
+        text.startsWith("facebook.com/", true) || text.startsWith("www.facebook.com/", true) || text.startsWith("m.facebook.com/", true) -> "https://$text"
+        else -> return null
+    }
+    return url.takeIf(Provider.FACEBOOK::allows)
+}
+
 /** In-memory diagnostic metadata. Never retains user info, paths, queries, fragments, or OAuth codes. */
 data class LoginDestination(val scheme: String?, val host: String?)
 

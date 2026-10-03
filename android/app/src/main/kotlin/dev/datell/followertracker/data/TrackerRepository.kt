@@ -43,8 +43,7 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
     suspend fun saveObservation(account: Account, metric: MetricSnapshot, requireExisting: Boolean = false) = withContext(Dispatchers.IO) {
         require(account.key == metric.accountKey)
         database.withTransaction {
-            val occupied = accounts().firstOrNull { it.provider == account.provider }
-            if (occupied != null && occupied.key != account.key) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            if (accounts().any(account::conflictsWith)) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
             val previous = this@TrackerRepository.account(account.key)
             // A request must belong to the same connection, including after disconnect/reconnect.
             if (requireExisting && previous?.connectedAt != account.connectedAt) return@withTransaction

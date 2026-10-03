@@ -1,9 +1,12 @@
 package dev.datell.followertracker.data
 
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import kotlinx.coroutines.flow.Flow
 
-@Entity(tableName = "accounts", indices = [Index(value = ["provider"], unique = true)])
+@Entity(tableName = "accounts", indices = [Index(value = ["provider"])])
 data class AccountEntity(@PrimaryKey val key: String, val provider: String, val connectedAt: Long, val json: String)
 
 @Entity(tableName = "metrics", primaryKeys = ["accountKey", "observedAt"],
@@ -46,6 +49,17 @@ interface TrackerDao {
 }
 
 @Database(entities = [AccountEntity::class, MetricEntity::class, ScanEntity::class,
-    RelationshipChangeEntity::class, RelationshipHistoryCursorEntity::class], version = 2,
+    RelationshipChangeEntity::class, RelationshipHistoryCursorEntity::class], version = 3,
     autoMigrations = [AutoMigration(from = 1, to = 2)], exportSchema = true)
-abstract class TrackerDatabase : RoomDatabase() { abstract fun dao(): TrackerDao }
+abstract class TrackerDatabase : RoomDatabase() {
+    abstract fun dao(): TrackerDao
+    companion object {
+        // Rebuilding the parent table would cascade-delete history. Only the index changes.
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("DROP INDEX IF EXISTS `index_accounts_provider`")
+                connection.execSQL("CREATE INDEX `index_accounts_provider` ON `accounts` (`provider`)")
+            }
+        }
+    }
+}

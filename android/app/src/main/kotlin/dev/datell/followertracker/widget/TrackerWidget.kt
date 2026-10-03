@@ -22,6 +22,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.SyncStatus
+import dev.datell.followertracker.core.AccountType
 import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.ui.MainActivity
 import dev.datell.followertracker.ui.formatChange
@@ -90,7 +91,7 @@ private fun ColumnScope.SingleAccount(row: AccountOverview) {
     val tall = LocalSize.current.height >= 250.dp
     val countSize = fittedCountSize(LocalContext.current, count, LocalSize.current.width.value - 36,
         if (tall) 52f else 30f)
-    Text(row.account.provider.title + " · @" + row.account.username, style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp), maxLines = 1)
+    Text(row.account.connectionTitle + " · " + row.account.identityLabel, style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp), maxLines = 1)
     Spacer(GlanceModifier.height(6.dp))
     if (tall) Spacer(GlanceModifier.defaultWeight())
     Text(count, style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = countSize, fontWeight = FontWeight.Bold), maxLines = 1)
@@ -112,7 +113,8 @@ private fun fittedCountSize(context: Context, value: String, widthDp: Float, max
 private fun WidgetRow(row: AccountOverview) {
     Column(GlanceModifier.fillMaxWidth()) {
         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(row.account.provider.title, modifier = GlanceModifier.defaultWeight(), style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+            Text(if (row.account.accountType == AccountType.PAGE) row.account.identityLabel else row.account.connectionTitle,
+                modifier = GlanceModifier.defaultWeight(), style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold), maxLines = 1)
             val count = row.latest?.let { formatCount(it.followers) } ?: "—"
             Text(count, style = TextStyle(color = GlanceTheme.colors.onSurface,
                 fontSize = fittedCountSize(LocalContext.current, count, LocalSize.current.width.value - 126,

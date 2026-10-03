@@ -64,9 +64,16 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
         return account to observation.second.copy(observedAt = System.currentTimeMillis())
     }
 
-    fun captured(provider: Provider, payload: String, expected: Account?): Pair<Account, MetricSnapshot> {
+    fun captured(provider: Provider, payload: String, expected: Account?, facebookPage: Boolean = false): Pair<Account, MetricSnapshot> {
+        if (facebookPage) {
+            if (provider != Provider.FACEBOOK) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            if (!sessions.hasAuthentication(provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
+            return ResponseParser.facebookPageCapture(payload, sessions.identity(provider), expected, System.currentTimeMillis())
+        }
         val root = ResponseParser.objectBody(payload)
         if (root["error"] != null) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+        if (root["accountType"]?.jsonPrimitive?.contentOrNull == AccountType.PAGE.name || expected?.accountType == AccountType.PAGE)
+            throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
         fun text(key: String) = (root[key] as? JsonPrimitive)?.contentOrNull
         val id = text("stableId") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
         if (expected != null && id != expected.stableId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)

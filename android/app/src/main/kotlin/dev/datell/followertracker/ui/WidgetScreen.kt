@@ -63,8 +63,8 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
                                 Text("연결 후 실제 수치가 표시돼요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             } else rows.take(if (wide) 3 else 1).forEachIndexed { index, row ->
                                 if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                                Text(row.account.provider.title, style = MaterialTheme.typography.labelLarge)
-                                Text("@${row.account.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(row.account.connectionTitle, style = MaterialTheme.typography.labelLarge)
+                                Text(row.account.identityLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text(row.latest?.let { formatCount(it.followers) } ?: "—", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                                     Text(formatChange(row), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -84,7 +84,7 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
                     WidgetAccountOption("모든 계정", "위젯 크기에 맞춰 표시해요", selected == null) { selected = null }
                     state.accounts.forEach { row ->
                         HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                        WidgetAccountOption(row.account.provider.title, "@${row.account.username}", selected == row.account.key) { selected = row.account.key }
+                        WidgetAccountOption(row.account.connectionTitle, row.account.identityLabel, selected == row.account.key) { selected = row.account.key }
                     }
                 }
             }
