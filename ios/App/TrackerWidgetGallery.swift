@@ -36,7 +36,7 @@ struct TrackerWidgetGallery: View {
                     step("2", "편집 또는 + 버튼에서 위젯 추가를 열고 ‘팔로워 트래커’를 찾아요.")
                     step("3", "원하는 크기를 추가한 뒤 위젯을 길게 눌러 표시할 계정을 선택해요.")
                 }.trackerPanel()
-                TrackerInfoPanel(title: "위젯을 누르면 홈으로", detail: "iOS가 갱신 시각을 정해요. 숫자가 같을 때도 수집 시각을 확인하세요. 위젯을 누르면 앱 홈에서 계정 상태를 볼 수 있어요.", icon: "hand.tap")
+                TrackerInfoPanel(title: "위젯을 누르면 계정으로", detail: "iOS가 갱신 시각을 정해요. 숫자가 같을 때도 수집 시각을 확인하세요. 위젯을 누르면 앱의 계정 탭에서 수집 상태를 볼 수 있어요.", icon: "hand.tap")
                 if accounts.isEmpty && !storageError { Button("SNS 연결하기", systemImage: "plus", action: onConnect).buttonStyle(TrackerPrimaryButtonStyle()).disabled(busy) }
             }.foregroundStyle(TrackerStyle.ink).padding(20)
         }.background(TrackerStyle.background)

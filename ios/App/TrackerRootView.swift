@@ -19,21 +19,21 @@ struct TrackerRootView: View {
             NavigationStack(path: $homePath) {
                 TrackerHomeView(accounts: model.accounts, loading: model.loading, storageError: model.storageError, busy: model.busy,
                     onConnect: { sheet = .picker }, onAccount: { homePath.append(.account($0)) },
-                    onRefresh: { Task { await model.refresh() } }, onWidget: { selectedTab = "widgets" })
-                    .navigationTitle("홈").navigationBarTitleDisplayMode(.inline)
+                    onRefresh: { Task { await model.refresh() } })
+                    .navigationTitle("계정").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("SNS 연결", systemImage: "plus") { sheet = .picker }.disabled(model.busy) } }
                     .navigationDestination(for: HomeDestination.self) { destination in
                         switch destination {
                         case .account(let key): AccountDetailScreen(model: model, key: key, onReconnect: { sheet = .login($0) })
                         }
                     }
-            }.tabItem { Label("홈", systemImage: "house") }.tag("home")
-            NavigationStack { RelationshipsView(model: model, onConnect: { sheet = .picker }).navigationTitle("관계").navigationBarTitleDisplayMode(.inline) }
-                .tabItem { Label("관계", systemImage: "person.2") }.tag("relationships")
+            }.tabItem { Label("계정", systemImage: "person.crop.circle") }.tag("home")
+            NavigationStack { RelationshipsView(model: model, onConnect: { sheet = .picker }).navigationTitle("분석").navigationBarTitleDisplayMode(.inline) }
+                .tabItem { Label("분석", systemImage: "chart.xyaxis.line") }.tag("relationships")
             NavigationStack { TrackerWidgetGallery(accounts: model.accounts, storageError: model.storageError, busy: model.busy, onConnect: { sheet = .picker }).navigationTitle("위젯").navigationBarTitleDisplayMode(.inline) }
                 .tabItem { Label("위젯", systemImage: "square.grid.2x2") }.tag("widgets")
             NavigationStack(path: $morePath) {
-                TrackerMoreView(accountCount: model.accounts.count).navigationTitle("더보기").navigationBarTitleDisplayMode(.inline)
+                TrackerMoreView(accountCount: model.accounts.count).navigationTitle("설정").navigationBarTitleDisplayMode(.inline)
                     .navigationDestination(for: TrackerMorePage.self) { page in
                         switch page {
                         case .accounts: TrackerAccountsView(accounts: model.accounts, busy: model.busy, onConnect: { sheet = .picker }, onReconnect: { sheet = .login($0) }, onDisconnect: { disconnectKey = $0 })
@@ -43,7 +43,7 @@ struct TrackerRootView: View {
                         case .privacy: TrackerPrivacyView()
                         }
                     }
-            }.tabItem { Label("더보기", systemImage: "ellipsis") }.tag("more")
+            }.tabItem { Label("설정", systemImage: "gearshape") }.tag("more")
         }.foregroundStyle(TrackerStyle.ink)
         .onOpenURL { url in
             guard url.scheme == "followertracker", url.host == "dashboard" else { return }

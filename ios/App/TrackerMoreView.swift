@@ -71,5 +71,5 @@ struct TrackerAccountsView: View {
     private func disconnect(_ row: AccountOverview) -> some View { Button("연결 해제", role: .destructive) { onDisconnect(row.id) }.font(.subheadline).frame(minHeight: 48) }
 }
 
-#Preview("더보기") { NavigationStack { TrackerMoreView(accountCount: 0) } }
+#Preview("설정") { NavigationStack { TrackerMoreView(accountCount: 0) } }
 #Preview("연결된 계정 · 빈 상태") { NavigationStack { TrackerAccountsView(accounts: [], busy: false, onConnect: {}, onReconnect: { _ in }, onDisconnect: { _ in }) } }

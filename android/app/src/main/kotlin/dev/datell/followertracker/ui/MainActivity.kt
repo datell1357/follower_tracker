@@ -78,7 +78,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
             Column {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-                listOf("홈" to Icons.Outlined.Home, "관계" to Icons.Outlined.PeopleOutline, "위젯" to Icons.Outlined.Widgets, "더보기" to Icons.Outlined.GridView).forEachIndexed { i, item ->
+                listOf("계정" to Icons.Outlined.AccountCircle, "분석" to Icons.Outlined.Insights, "위젯" to Icons.Outlined.Widgets, "설정" to Icons.Outlined.Settings).forEachIndexed { i, item ->
                     NavigationBarItem(selected = tab == i, onClick = { tab = i; morePage = null; returnPage = null }, icon = { Icon(item.second, null) }, label = { Text(item.first) },
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary,
                             indicatorColor = MaterialTheme.colorScheme.primaryContainer, unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant, unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant))
@@ -90,8 +90,8 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (tab == 3 && page != null) IconButton(onClick = ::back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "이전 화면") }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(if (tab == 3 && page != null) page.title else listOf("팔로워 트래커", "관계 분석", "홈 위젯", "더보기")[tab], style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(if (tab == 3 && page != null) page.subtitle else listOf("나의 SNS, 작은 변화까지", "맞팔과 미관측 기록을 한눈에", "보고 싶은 기록을 홈 화면에", "내 계정과 이용 안내")[tab],
+                    Text(if (tab == 3 && page != null) page.title else listOf("계정", "분석", "위젯", "설정")[tab], style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(if (tab == 3 && page != null) page.subtitle else listOf("연결된 SNS의 팔로워 기록", "맞팔과 미관측 기록을 한눈에", "보고 싶은 기록을 홈 화면에", "수집 방식과 연결 관리")[tab],
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (tab == 0) FilledTonalIconButton(onClick = { picking = true }, enabled = !state.busy,
@@ -102,7 +102,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
             when {
                 state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { CircularProgressIndicator() }
                 state.storageError -> Box(Modifier.padding(24.dp)) { EmptyCard("기록을 읽지 못했어요", "저장된 데이터를 보존했어요. 앱을 다시 열어 확인해주세요.") }
-                tab == 0 -> Dashboard(state, onConnect = { picking = true }, onDetail = { detail = it }, onRefresh = { model.refresh() }, onWidgets = { tab = 2 })
+                tab == 0 -> Dashboard(state, onConnect = { picking = true }, onDetail = { detail = it }, onRefresh = { model.refresh() })
                 tab == 1 -> RelationshipScreen(state, onSelect = model::select, onRefresh = model::relationships, onConnect = { picking = true })
                 tab == 2 -> WidgetScreen(state, onConnect = { picking = true })
                 else -> when (page) {

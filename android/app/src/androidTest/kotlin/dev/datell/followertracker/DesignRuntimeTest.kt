@@ -44,7 +44,7 @@ class DesignRuntimeTest {
     @Test fun dashboardShowsRealObservationAndOpensTheSelectedAccount() {
         val row = row()
         var selected: String? = null
-        rule.setContent { Frame("팔로워 트래커") { Dashboard(state(row), {}, { selected = it }, {}) } }
+        rule.setContent { Frame("계정") { Dashboard(state(row), {}, { selected = it }, {}) } }
         rule.onNodeWithText(formatCount(12_480)).assertIsDisplayed()
         rule.onNodeWithText("마지막 수집 ${compactObservationTime(now)}").assertIsDisplayed()
         rule.onNodeWithContentDescription("계정 상세").performClick()
@@ -54,10 +54,29 @@ class DesignRuntimeTest {
 
     @Test fun darkDashboardKeepsDelayedObservationAndShowsTheStatus() {
         val row = row(status = SyncStatus.RATE_LIMITED)
-        rule.setContent { Frame("팔로워 트래커", dark = true) { Dashboard(state(row), {}, {}, {}) } }
+        rule.setContent { Frame("계정", dark = true) { Dashboard(state(row), {}, {}, {}) } }
         rule.onNodeWithText("갱신 대기").assertIsDisplayed()
         rule.onNodeWithText("마지막 수집 ${compactObservationTime(now)}").assertIsDisplayed()
         capture("design-dashboard-dark.png")
+    }
+
+    @Test fun accountsKeepAllFiveProviderRecordsAndDetailTargetsSeparate() {
+        val rows = Provider.entries.mapIndexed { index, provider ->
+            row(provider).let { row -> row.copy(history = row.history.map { it.copy(followers = it.followers + index * 10_000) }) }
+        }
+        var selected: String? = null
+        rule.setContent { Frame("계정") { Dashboard(state(*rows.toTypedArray()), {}, { selected = it }, {}) } }
+        rule.onNodeWithText("연결된 계정 5개").assertIsDisplayed()
+        rule.onNodeWithText("1분 빠른 추적").assertDoesNotExist()
+        rule.onNodeWithText("홈 화면에서 바로 확인").assertDoesNotExist()
+        rule.onNodeWithText("기기에 기록 · 기본 기능 무료").assertDoesNotExist()
+        capture("design-accounts-multiple.png")
+        for (row in rows) {
+            val card = hasText(row.account.provider.title) and hasClickAction()
+            rule.onNode(hasScrollAction()).performScrollToNode(card)
+            rule.onNode(card).assert(hasText(formatCount(row.latest!!.followers))).performClick()
+            assertEquals(row.account.key, selected)
+        }
     }
 
     @Test fun widgetAccountChoiceChangesThePreviewWithoutMixingProviders() {
@@ -97,15 +116,15 @@ class DesignRuntimeTest {
         assertFalse(refreshed)
     }
 
-    @Test fun stoppedRapidTrackingKeepsTheReasonVisible() {
+    @Test fun stoppedRapidTrackingKeepsTheReasonVisibleInCollectionSettings() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val previous = RapidTracking.state.value
         val message = "기기의 실행 시간 제한으로 중지됐어요. 앱에서 다시 시작해주세요."
         try {
             RapidTracking.update(context, false, message)
-            rule.setContent { Frame("팔로워 트래커") { Dashboard(state(row()), {}, {}, {}) } }
+            rule.setContent { Frame("수집 설정") { SettingsScreen(state(row())) } }
             rule.onNodeWithText(message).performScrollTo().assertIsDisplayed()
-            rule.onNodeWithText("시작").assertIsEnabled()
+            rule.onNodeWithText("빠른 추적 시작").assertIsEnabled()
         } finally {
             RapidTracking.update(context, previous.running, previous.message, previous.lastSuccessAt)
         }

@@ -18,7 +18,7 @@ import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.core.*
 
 @Composable
-fun Dashboard(state: TrackerState, onConnect: () -> Unit, onDetail: (String) -> Unit, onRefresh: () -> Unit, onWidgets: () -> Unit = {}) {
+fun Dashboard(state: TrackerState, onConnect: () -> Unit, onDetail: (String) -> Unit, onRefresh: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 4.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (state.accounts.isEmpty()) {
             item {
@@ -26,29 +26,16 @@ fun Dashboard(state: TrackerState, onConnect: () -> Unit, onDetail: (String) -> 
                     Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Icon(Icons.Outlined.Insights, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
                         Text("내 계정부터 연결해보세요", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Text("팔로워의 변화부터 홈 위젯까지. 내 SNS의 기록을 한곳에서 확인하세요.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("연결한 SNS의 팔로워 수와 변화를 한곳에서 확인하세요.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
                         Button(onClick = onConnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                             Icon(Icons.Outlined.Add, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("SNS 연결하기")
                         }
                     }
                 }
             }
-            item { InfoPanel("연결하고, 기록하고, 확인해요", "공식 SNS 로그인 → 내 계정 수치 확인 → 홈 화면 위젯 추가. 로그인 후 확인 가능한 수치를 확보하면 자동으로 연결해요.", icon = Icons.Outlined.VerifiedUser) }
         } else {
-            item { SectionHeading("내 계정 ${state.accounts.size}", "새로고침", !state.busy, onRefresh) }
+            item { SectionHeading("연결된 계정 ${state.accounts.size}개", "새로고침", !state.busy, onRefresh) }
             items(state.accounts, key = { it.account.key }) { row -> AccountCard(row) { onDetail(row.account.key) } }
-            item { RapidTrackingCard(state, compact = true) }
-        }
-        item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                MenuRow("홈 화면에서 바로 확인", "위젯을 미리 보고 홈 화면에 추가하세요", Icons.Outlined.Widgets, onWidgets)
-            }
-        }
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Outlined.Shield, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("기기에 기록 · 기본 기능 무료", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
         }
     }
 }

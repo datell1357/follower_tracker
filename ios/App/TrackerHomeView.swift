@@ -4,20 +4,16 @@ import FollowerCore
 struct TrackerHomeView: View {
     let accounts: [AccountOverview]
     let loading: Bool, storageError: Bool, busy: Bool
-    let onConnect: () -> Void, onAccount: (String) -> Void, onRefresh: () -> Void, onWidget: () -> Void
+    let onConnect: () -> Void, onAccount: (String) -> Void, onRefresh: () -> Void
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("작은 변화도\n한눈에.").font(.largeTitle.weight(.bold)).foregroundStyle(TrackerStyle.ink)
-                    Text("내 SNS의 팔로워 수와 마지막 수집 기록").font(.subheadline).foregroundStyle(TrackerStyle.muted)
-                }.padding(.vertical, 8)
                 if loading {
                     ProgressView("기록을 읽고 있어요").frame(maxWidth: .infinity).padding(40)
                 } else if storageError {
                     EmptyCard("기록을 읽지 못했어요", "저장된 데이터를 보존했어요. 앱을 다시 열어 확인해주세요.")
                 } else if accounts.isEmpty {
-                    EmptyCard("첫 계정을 연결해보세요", "팔로워 수와 변화를 기록하고 홈 화면 위젯에서 확인할 수 있어요.") {
+                    EmptyCard("첫 계정을 연결해보세요", "연결한 SNS의 팔로워 수와 변화를 한곳에서 확인하세요.") {
                         Button("SNS 연결하기", systemImage: "plus", action: onConnect).buttonStyle(TrackerPrimaryButtonStyle()).disabled(busy)
                     }
                 } else {
@@ -35,11 +31,6 @@ struct TrackerHomeView: View {
                             .accessibilityHint("계정의 변화 기록과 수집 상태를 열어요.")
                     }
                 }
-                Button(action: onWidget) {
-                    TrackerMenuLabel(title: "앱을 열지 않고 확인해요", subtitle: "위젯 미리보기와 추가 방법", icon: "square.grid.2x2")
-                        .background(TrackerStyle.blueSurface, in: RoundedRectangle(cornerRadius: 24))
-                }.buttonStyle(.plain)
-                TrackerInfoPanel(title: "숫자와 수집 시각을 함께 봐요", detail: "iOS가 백그라운드 실행 시각을 정해요. SNS 요청 제한이나 절전 상태에 따라 갱신이 늦어질 수 있어요.", icon: "clock")
             }.padding(20)
         }.background(TrackerStyle.background)
     }
@@ -83,9 +74,9 @@ struct AccountCard: View {
     }
 }
 
-#Preview("홈 · 연결 전") {
-    TrackerHomeView(accounts: [], loading: false, storageError: false, busy: false, onConnect: {}, onAccount: { _ in }, onRefresh: {}, onWidget: {})
+#Preview("계정 · 연결 전") {
+    TrackerHomeView(accounts: [], loading: false, storageError: false, busy: false, onConnect: {}, onAccount: { _ in }, onRefresh: {})
 }
-#Preview("홈 · 저장 오류") {
-    TrackerHomeView(accounts: [], loading: false, storageError: true, busy: false, onConnect: {}, onAccount: { _ in }, onRefresh: {}, onWidget: {}).preferredColorScheme(.dark)
+#Preview("계정 · 저장 오류") {
+    TrackerHomeView(accounts: [], loading: false, storageError: true, busy: false, onConnect: {}, onAccount: { _ in }, onRefresh: {}).preferredColorScheme(.dark)
 }
