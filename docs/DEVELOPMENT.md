@@ -57,6 +57,10 @@ OS의 강제 중지는 일반적인 앱 화면 종료와 별도 시험한다. An
 ./gradlew :app:connectedDebugAndroidTest --no-daemon
 ```
 
+`TikTokAppLinkRuntimeTest`는 별도로 선택해 실행하는 로그인 이동 회귀 검사다. HTTPS fixture에서 TikTok의 선택적인 네이티브 앱 링크를 호출해 현재 문서와 오류 없는 상태가 유지되는지 확인하고, 다른 HTTPS 호스트와 위장된 앱 링크는 계속 차단되는지 검사한다. 로그인 쿠키를 설정·삭제하거나 계정 DB에 합성 기록을 저장하지 않는다. 개인 세션을 사용하는 기기에서는 전체 런타임 묶음 대신 이 검사만 선택한다.
+
+`TikTokLoginDiagnostic`는 `probeTikTokLogin` 또는 `probeTikTokStored` 인자를 명시해야 실행된다. 첫 검사는 사용자가 직접 로그인할 때 스킴·호스트와 인증 상태만 관찰하며 연결을 저장하지 않는다. 저장 검사는 실제 앱에서 연결을 완료한 뒤 계정·수집 기록 존재, 세션 메타데이터와 본인 ID 일치, 기존 X 연결 존재를 읽기 전용으로 검사한다. 진단 완료를 실제 계정 연결이나 앱 복귀 성공으로 대신하지 않는다. 비밀번호·인증 코드·쿠키·원시 DOM·계정명·ID·수치는 출력하지 않는다.
+
 화면 검사는 SNS 선택·탭 이동·설정, 저장 검사는 Android Keystore의 암호화와 변조 거부 및 Room 트랜잭션 경계를 확인한다. 위젯 검사는 실제 Glance `RemoteViews`를 크기별로 생성·적용·레이아웃하고 부모 영역에 가려지거나 숫자·비교 시각이 말줄임 처리되지 않는지 검사한다. 합성 위젯 계정은 검사 안에만 존재하며 앱 DB에 저장하지 않는다. 홈 화면 런처의 위젯 추가·클릭·자동 갱신은 [기기 검증](DEVICE_VALIDATION.md)에서 별도로 확인한다.
 
 `WidgetRuntimeTest.failedRefreshKeepsTheLastCountAndChangeAtEverySize`는 재로그인 필요와 일시 오류의 두 상태를 작은·좁고 긴·넓은·큰 위젯에 각각 적용한다. 실제 `RemoteViews`의 마지막 수치·변화·오류 표시와 가시 영역을 확인하며, 정상 기록의 수집 시각 보존은 같은 검사의 별도 시나리오에서 확인한다. 오류 안내만 바뀌어도 기록을 0이나 새 관측으로 바꾸지 않아야 한다.

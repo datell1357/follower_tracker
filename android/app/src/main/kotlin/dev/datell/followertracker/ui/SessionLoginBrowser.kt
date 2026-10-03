@@ -23,6 +23,8 @@ class SessionLoginBrowser(private val provider: Provider) {
     var loading by mutableStateOf(true)
         private set
     var notice by mutableStateOf<String?>(null)
+    var blockedDestination: LoginDestination? = null
+        private set
     private var container: FrameLayout? = null
     private var main: WebView? = null
     private val popups = mutableListOf<WebView>()
@@ -113,8 +115,9 @@ class SessionLoginBrowser(private val provider: Provider) {
         }
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                if (isOptionalTikTokAppLink(provider, view.url.orEmpty(), request.url.toString())) return true
                 if (request.isForMainFrame && !allowsPage(request.url.toString())) {
-                    blocked(view)
+                    blocked(view, request.url.toString())
                     return true
                 }
                 return false
@@ -122,14 +125,17 @@ class SessionLoginBrowser(private val provider: Provider) {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 // A popup's initial request and POST navigation may bypass shouldOverrideUrlLoading.
                 if (request.isForMainFrame && !allowsPage(request.url.toString())) {
-                    view.post { blocked(view) }
+                    view.post {
+                        if (!isOptionalTikTokAppLink(provider, view.url.orEmpty(), request.url.toString()))
+                            blocked(view, request.url.toString())
+                    }
                     return WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", mapOf("Cache-Control" to "no-store"),
                         ByteArrayInputStream(byteArrayOf()))
                 }
                 return null
             }
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-                if (!allowsPage(url.orEmpty())) { view.stopLoading(); blocked(view); return }
+                if (!allowsPage(url.orEmpty())) { view.stopLoading(); blocked(view, url.orEmpty()); return }
                 if (!disposed && view === active) { loading = true; notice = null; location = url.orEmpty() }
             }
             override fun onPageFinished(view: WebView, url: String?) {
@@ -166,7 +172,10 @@ class SessionLoginBrowser(private val provider: Provider) {
 
     private fun allowsPage(url: String) = url == "about:blank" || loginNavigation(provider, url) != LoginNavigation.BLOCK
 
-    private fun blocked(view: WebView) = showError(view, "공식 SNS·인증 서비스 주소가 아닌 페이지로의 이동을 중단했어요.")
+    private fun blocked(view: WebView, url: String) {
+        if (!disposed) blockedDestination = loginDestination(url)
+        showError(view, "공식 SNS·인증 서비스 주소가 아닌 페이지로의 이동을 중단했어요.")
+    }
 
     private fun showError(view: WebView, text: String) {
         if (!disposed && view === active) { loading = false; notice = text }
