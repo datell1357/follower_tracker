@@ -75,6 +75,8 @@ Instagram은 쿠키의 본인 ID와 JSON의 사용자 ID를 먼저 맞춘다. �
 
 `ConnectionStatusDiagnostic`은 명시적으로 실행하는 읽기 전용 진단이다. SNS별 세션 후보·계정 존재·수치 존재와 상태·수집 경로만 출력하며, 식별자·사용자명·수치·원시 쿠키·DOM은 출력하지 않는다. 실제 세션 기기에는 전체 `connectedDebugAndroidTest`를 실행하지 않는다.
 
+`XLoginStatusDiagnostic.inspectSignedInXCapture`는 `probeXCapture=true`로 선택했을 때 기존 X 세션으로 공식 로그인 창을 열어 계정 문맥·본인 ID 일치·정확한 정수 수치·자동 연결 콜백의 상태만 확인한다. 연결 콜백에서 앱 기록을 저장하지 않는다. `verifyStoredXConnection`은 `probeXStored=true`로 선택해야 실제 앱 흐름으로 저장된 X 계정·수집 기록·쿠키 본인 ID 일치를 검사한다. 두 메서드는 계정명·ID·수치·쿠키·원시 DOM을 출력하거나 삭제하지 않는다. Instrumentation은 앱 프로세스를 재시작하므로 사용자의 인증 입력이 끝나고 빠른 추적이 꺼진 상태에서 선택한 메서드만 실행한다. 공통 캡처 검사에는 X 모바일 초기 JSON·전역 객체 제거 후 복구·정확한 0·축약 수치 거부·본인 ID와 출처 분리·기존 GraphQL 및 데스크톱 경로의 회귀 시나리오가 포함된다.
+
 `recordStoredRelationshipStatus`는 `probeStoredRelationships=true`로 선택한 경우에만 저장된 Instagram 관계 결과를 읽는다. 전체 명단의 저장 상태·두 방향의 관측 여부·첫 기준 기록 여부·비교 시각과 세 분류의 중복 여부만 출력한다. 새 명단을 수집하거나 개인 명단·계정 식별자·인원수를 출력하지 않는다. 완료된 결과가 저장되고 분류가 서로 겹치지 않는지 확인하는 진단이며, 실제 관계 변경·장시간 갱신 검사를 대신하지 않는다.
 
 `StartupExitDiagnostic`은 SDK 30 이상에서 `probeStartupExit=true`로 선택해야 앱 자신의 종료 이력을 읽는다. 종료 사유·시각·중요도·종료 상태와 본인 프로세스 메인 스레드의 Java 메서드만 출력하며, 종료 설명·원시 trace·다른 스레드·계정 정보는 출력하지 않는다. 합성 trace 검사는 URL·쿠키 형태의 행과 다른 스레드·프로세스가 출력되지 않는지 확인한다. 상세 trace는 OS의 저장 범위에 따라 없을 수 있으며, 진단 실행 성공을 ANR 해결이나 안정성 통과로 기록하지 않는다. [Android ApplicationExitInfo](https://developer.android.com/reference/android/app/ApplicationExitInfo)

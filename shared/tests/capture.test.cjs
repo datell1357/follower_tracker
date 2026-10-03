@@ -49,6 +49,98 @@ function instagramDocument(data, path = "/self/") {
 function countLink(href, title, text) {
   return { getAttribute: name => ({ href, title })[name] ?? null, textContent: text, querySelectorAll: () => [] };
 }
+function xDocument(users, path = "/home", links = []) {
+  return {
+    location: { href: "https://x.com" + path },
+    defaultView: { __INITIAL_STATE__: { entities: { users: { entities: users } } } },
+    querySelectorAll: selector => selector === "a[href]" ? links : [],
+    querySelector: () => null
+  };
+}
+test("X mobile home connects the cookie owner from bootstrap state without a desktop profile link", () => {
+  const doc = xDocument({
+    "99": { id_str: "99", screen_name: "other", followers_count: 999 },
+    "42": { id_str: "42", screen_name: "self", name: "Self", followers_count: 0, friends_count: 4 }
+  });
+  const result = capture("X", "42", doc);
+  assert.equal(result.stableId, "42");
+  assert.equal(result.followers, 0);
+  assert.equal(result.following, 4);
+  assert.equal(result.profileURL, "https://x.com/self");
+  assert.equal(capture("X", null, doc).error, "identity_missing");
+});
+test("X bootstrap records for other accounts cannot identify the signed-in owner", () => {
+  const doc = xDocument({ "42": { id_str: "99", screen_name: "other", followers_count: 999 } });
+  const result = capture("X", "42", doc);
+  assert.equal(result.error, "owner_context_missing");
+  assert.equal(result.stableId, undefined);
+});
+test("X owner metadata leads to the own profile when home lacks exact counts", () => {
+  const result = capture("X", "42", xDocument({ "42": { id_str: "42", screen_name: "self" } }));
+  assert.deepEqual(result, { error: "own_profile_required", profileURL: "https://x.com/self" });
+});
+test("X mobile own profile reads exact links without the desktop navigation and rejects foreign origins", () => {
+  const doc = xDocument({ "42": { id_str: "42", screen_name: "self" } }, "/self", [
+    countLink("https://example.test/self/followers", "999", "999 followers"),
+    countLink("/other/followers", "888", "888 followers"),
+    countLink("/self/verified_followers", "12,345", "12.3K Followers"),
+    countLink("/self/following", null, "0 Following")
+  ]);
+  const result = capture("X", "42", doc);
+  assert.equal(result.followers, 12345);
+  assert.equal(result.following, 0);
+  assert.equal(result.source, "x-webview-dom");
+});
+test("X rounded counts and foreign profile metadata are never captured as exact owner counts", () => {
+  const doc = xDocument({ "42": { id_str: "42", screen_name: "self", followers_count: "1.2K" } }, "/self", [
+    countLink("/self/followers", null, "1.2K Followers")
+  ]);
+  assert.equal(capture("X", "42", doc).error, "exact_count_missing");
+  doc.location.href = "https://x.com.example.test/self";
+  assert.equal(capture("X", "42", doc).error, "own_profile_required");
+});
+test("X retains owner capture when hydration removes the global bootstrap object", () => {
+  const doc = xDocument({});
+  doc.defaultView = {};
+  const state = { entities: { users: { entities: { "42": {
+    id_str: "42", screen_name: "self", name: 'Self } with "quotes"', followers_count: 7, friends_count: 0
+  } } } } };
+  const scripts = [{ textContent: "window.__INITIAL_STATE__ = " + JSON.stringify(state) + ";throw new Error('Never execute bootstrap scripts');" }];
+  doc.querySelectorAll = selector => selector === 'script:not([src])' ? scripts : [];
+  const result = capture("X", "42", doc);
+  assert.equal(result.followers, 7);
+  assert.equal(result.following, 0);
+  assert.equal(result.displayName, 'Self } with "quotes"');
+});
+test("X malformed, executable, and oversized bootstrap assignments cannot connect an account", () => {
+  for (const text of [
+    'window.__INITIAL_STATE__={broken JSON};',
+    'window.__INITIAL_STATE__=(function(){throw new Error("Do not execute")})();',
+    'window.__INITIAL_STATE__={"unterminated":"value}',
+    'window.__INITIAL_STATE__=' + ' '.repeat(4 * 1024 * 1024) + '{}'
+  ]) {
+    const doc = xDocument({}); doc.defaultView = {};
+    doc.querySelectorAll = selector => selector === 'script:not([src])' ? [{ textContent: text }] : [];
+    assert.equal(capture("X", "42", doc).error, "owner_context_missing");
+  }
+});
+test("X GraphQL owner records still prefer the record with an exact count", () => {
+  const doc = xDocument({});
+  const records = [{ rest_id: "99", legacy: { screen_name: "other", followers_count: 999 } },
+    { rest_id: "42", legacy: { screen_name: "self" } },
+    { rest_id: "42", legacy: { screen_name: "self", followers_count: 0, friends_count: 3 } }];
+  doc.querySelectorAll = selector => selector === 'script:not([src])' || selector === 'a[href]' ? [] : [{ textContent: JSON.stringify(records) }];
+  assert.equal(capture("X", "42", doc).followers, 0);
+});
+test("X desktop profile links retain the own-profile fallback and reject foreign profile URLs", () => {
+  const doc = xDocument({}, "/self");
+  let href = "/self/";
+  doc.querySelector = () => countLink(href, null, "Profile");
+  doc.querySelectorAll = selector => selector === 'a[href]' ? [countLink('/self/followers', null, '8 Followers')] : [];
+  assert.equal(capture("X", "42", doc).followers, 8);
+  href = "https://example.test/self";
+  assert.equal(capture("X", "42", doc).error, "owner_context_missing");
+});
 test("Instagram own profile exact links connect without an API request", async () => {
   const { captureAsync } = require("../web-session-capture.js");
   const doc = instagramDocument({ viewer: { id: "42", username: "self" } });

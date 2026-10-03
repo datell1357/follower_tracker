@@ -57,4 +57,13 @@ class AutoConnectionPolicyTest {
         assertFalse(message.contains("계정을 확인해주세요"))
         assertFalse(message.contains("다시 로그인"))
     }
+    @Test fun signedInOwnerContextFailureDoesNotAskForAnotherLogin() {
+        val message = webCaptureFailureMessage("owner_context_missing", CollectionFailure(SyncStatus.CHECK_REQUIRED))
+        assertTrue(message.contains("로그인은 확인"))
+        assertTrue(message.contains("계정 정보를 읽지 못"))
+        assertFalse(message.contains("로그인을 완료"))
+        assertFalse(message.contains("추가 인증"))
+        assertEquals(connectionFailureMessage(CollectionFailure(SyncStatus.REAUTH_REQUIRED)),
+            webCaptureFailureMessage("reauth_required", CollectionFailure(SyncStatus.REAUTH_REQUIRED)))
+    }
 }

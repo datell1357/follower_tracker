@@ -50,7 +50,7 @@ fun webCaptureFailure(result: JSONObject): CollectionFailure? {
         "rate_limited" -> SyncStatus.RATE_LIMITED
         "offline" -> SyncStatus.OFFLINE
         "reauth_required", "identity_missing" -> SyncStatus.REAUTH_REQUIRED
-        "own_profile_required", "check_required" -> SyncStatus.CHECK_REQUIRED
+        "own_profile_required", "owner_context_missing", "check_required" -> SyncStatus.CHECK_REQUIRED
         else -> SyncStatus.FORMAT_CHANGED
     }
     val retry = if (result.isNull("retryAfterSeconds")) null else result.optLong("retryAfterSeconds").coerceIn(60, 86_400)

@@ -65,7 +65,7 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                             web.loadUrl(profile)
                         } else if (allowRequest) {
                             policy.failed(failure, System.currentTimeMillis())
-                            loginBrowser.notice = connectionFailureMessage(failure)
+                            loginBrowser.notice = webCaptureFailureMessage(result.optString("error"), failure)
                         }
                     }
                 } catch (cancelled: CancellationException) {

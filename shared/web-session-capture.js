@@ -36,6 +36,34 @@
     }
     return null;
   }
+  function xBootstrap(doc) {
+    const live = doc.defaultView?.__INITIAL_STATE__;
+    if (live && typeof live === "object") return live;
+    // X deletes the global after hydration. Read the original JSON assignment without executing scripts.
+    let remaining = MAX_JSON_BYTES;
+    for (const node of doc.querySelectorAll('script:not([src])')) {
+      const text = node.textContent || "";
+      remaining -= text.length;
+      if (remaining < 0) break;
+      const match = /(?:^|[;\s])window\.__INITIAL_STATE__\s*=\s*(\{)/.exec(text);
+      if (!match) continue;
+      const start = match.index + match[0].length - 1;
+      let depth = 0, quoted = false, escaped = false;
+      for (let i = start; i < text.length; i++) {
+        const char = text[i];
+        if (quoted) {
+          if (escaped) escaped = false;
+          else if (char === "\\") escaped = true;
+          else if (char === '"') quoted = false;
+        } else if (char === '"') quoted = true;
+        else if (char === "{") depth++;
+        else if (char === "}" && --depth === 0) {
+          try { return JSON.parse(text.slice(start, i + 1)); } catch (_) { break; }
+        }
+      }
+    }
+    return null;
+  }
   function result(provider, id, username, displayName, profileURL, followers, following, source) {
     if (!id || !username || exactCount(followers) === null) return { error: "exact_count_missing" };
     return { provider, stableId: id, username, displayName: displayName || username, profileURL,
@@ -104,24 +132,42 @@
     }
     if (!expectedID) return { error: "identity_missing" };
     if (provider === "X") {
-      const record = findRecord(roots, value => textID(value.rest_id) === expectedID && value.legacy?.screen_name);
-      if (record) {
-        const user = record.legacy;
-        return result(provider, expectedID, user.screen_name, user.name,
-          "https://x.com/" + encodeURIComponent(user.screen_name), user.followers_count, user.friends_count, "x-webview-profile");
-      }
-      const profileLink = doc.querySelector('[data-testid="AppTabBar_Profile_Link"]');
-      if (!profileLink) return { error: "identity_missing" };
-      const ownURL = new URL(profileLink.getAttribute("href"), doc.location.href);
       const currentURL = new URL(doc.location.href);
-      if (ownURL.pathname.replace(/\/$/, "") !== currentURL.pathname.replace(/\/$/, "")) {
+      if (!/^[0-9]+$/.test(expectedID)) return { error: "identity_missing" };
+      if (currentURL.protocol !== "https:" || currentURL.username || currentURL.password ||
+          (currentURL.port && currentURL.port !== "443") ||
+          !(currentURL.hostname === "x.com" || currentURL.hostname.endsWith(".x.com"))) return { error: "own_profile_required" };
+      const bootstrap = xBootstrap(doc);
+      const xRoots = bootstrap ? [bootstrap, ...roots] : roots;
+      const ownRecord = value => textID(value.rest_id ?? value.id_str ?? value.id) === expectedID &&
+        /^[A-Za-z0-9_]{1,15}$/.test((value.legacy || value).screen_name || "");
+      const record = findRecord(xRoots, value => ownRecord(value) && exactCount((value.legacy || value).followers_count) !== null) ||
+        findRecord(xRoots, ownRecord);
+      let ownURL;
+      if (record) {
+        const user = record.legacy || record;
+        ownURL = new URL("https://x.com/" + user.screen_name);
+        const captured = result(provider, expectedID, user.screen_name, user.name,
+          ownURL.href, user.followers_count, user.friends_count, "x-webview-profile");
+        if (!captured.error) return captured;
+      } else {
+        const profileLink = doc.querySelector('[data-testid="AppTabBar_Profile_Link"]');
+        if (!profileLink) return { error: "owner_context_missing" };
+        ownURL = new URL(profileLink.getAttribute("href"), currentURL);
+        if (ownURL.origin !== currentURL.origin || !/^\/[A-Za-z0-9_]{1,15}\/?$/.test(ownURL.pathname))
+          return { error: "owner_context_missing" };
+      }
+      const ownPath = ownURL.pathname.replace(/\/$/, "");
+      if (ownPath !== currentURL.pathname.replace(/\/$/, "")) {
         return { error: "own_profile_required", profileURL: ownURL.href };
       }
       let followers = null, following = null;
       for (const link of doc.querySelectorAll("a[href]")) {
-        const path = new URL(link.getAttribute("href"), ownURL).pathname;
-        if (path === ownURL.pathname + "/followers" || path === ownURL.pathname + "/verified_followers") followers ??= countInLink(link);
-        if (path === ownURL.pathname + "/following") following ??= countInLink(link);
+        const target = new URL(link.getAttribute("href"), currentURL);
+        if (target.origin !== currentURL.origin) continue;
+        const path = target.pathname.replace(/\/$/, "");
+        if (path === ownPath + "/followers" || path === ownPath + "/verified_followers") followers ??= countInLink(link);
+        if (path === ownPath + "/following") following ??= countInLink(link);
       }
       const name = ownURL.pathname.split("/").filter(Boolean)[0];
       return result(provider, expectedID, name, name, ownURL.href, followers, following, "x-webview-dom");

@@ -44,3 +44,7 @@ fun connectionFailureMessage(failure: CollectionFailure): String = when (failure
     SyncStatus.LIST_INCOMPLETE -> "명단을 끝까지 읽지 못했어요. 기존 명단을 유지했어요."
     else -> failure.status.label
 }
+
+fun webCaptureFailureMessage(error: String, failure: CollectionFailure): String =
+    if (error == "owner_context_missing") "로그인은 확인했지만 X 계정 정보를 읽지 못했어요. 내 프로필에서 다시 확인해주세요."
+    else connectionFailureMessage(failure)
