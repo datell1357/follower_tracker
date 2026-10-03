@@ -28,6 +28,7 @@ import dev.datell.followertracker.ui.formatChange
 import dev.datell.followertracker.ui.formatCount
 import dev.datell.followertracker.ui.compactObservationTime
 import dev.datell.followertracker.ui.trackerColorScheme
+import kotlinx.coroutines.CancellationException
 import kotlin.math.min
 
 private val WidgetColors = ColorProviders(trackerColorScheme(false), trackerColorScheme(true))
@@ -41,7 +42,13 @@ class TrackerWidget : GlanceAppWidget() {
         val snapshot = runCatching { repository.widgetOverviews() }.getOrNull()
         provideContent {
             val selected = currentState<Preferences>()[stringPreferencesKey("accountKey")]
-            val rows = snapshot?.filter { selected == null || it.account.key == selected }
+            // Glance may reuse a live composition for updates; keep its compact data reactive.
+            val records by produceState(initialValue = snapshot) {
+                try { repository.widgetOverviewsFlow().collect { value = it } }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { value = null }
+            }
+            val rows = records?.filter { selected == null || it.account.key == selected }
             TrackerWidgetContent(rows, selected != null)
         }
     }

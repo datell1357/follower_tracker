@@ -9,6 +9,8 @@ import dev.datell.followertracker.core.*
 import dev.datell.followertracker.data.*
 import dev.datell.followertracker.sync.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collect
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -96,6 +98,29 @@ class ResourceEfficiencyRuntimeTest {
         }
     }
 
+    @Test fun widgetFlowReadsANewMetricWithinTheSameSubscription() = runBlocking {
+        val database = Room.databaseBuilder(context, TrackerDatabase::class.java, "resource-widget-flow-${UUID.randomUUID()}.db").build()
+        try {
+            val repository = TrackerRepository(database, DataCipher())
+            val account = account(Provider.INSTAGRAM)
+            repository.saveObservation(account, MetricSnapshot(account.key, 1_000, 7, 2, source = "synthetic-flow"))
+            val updates = Channel<List<AccountOverview>>(Channel.UNLIMITED)
+            val watching = launch { repository.widgetOverviewsFlow().collect { updates.send(it) } }
+            try {
+                assertEquals(1_000L, withTimeout(5_000) { updates.receive() }.single().latest!!.observedAt)
+                // Account JSON is identical. A new observation must still reach a live widget.
+                repository.saveObservation(account, MetricSnapshot(account.key, 5_000, 0, 2, source = "synthetic-flow"))
+                val fresh = withTimeout(5_000) {
+                    var rows = updates.receive()
+                    while (rows.single().latest!!.observedAt != 5_000L) rows = updates.receive()
+                    rows.single()
+                }
+                assertEquals(0L, fresh.latest!!.followers); assertEquals(-7L, fresh.change)
+                assertEquals(2, fresh.history.size)
+            } finally { watching.cancelAndJoin() }
+        } finally { database.close() }
+    }
+
     @Test fun serverCooldownCannotBeBypassedByManualCollectionForAnyProvider() = runBlocking {
         val database = Room.databaseBuilder(context, TrackerDatabase::class.java, "resource-cooldown-${UUID.randomUUID()}.db").build()
         try {
@@ -146,12 +171,21 @@ class ResourceEfficiencyRuntimeTest {
             }
             assertEquals(0L, JSONObject(browser.read(account, "synthetic-agent", retain = true)).getLong("followers"))
             assertEquals(1, views.size); assertEquals(2, documentLoads)
-            sessions.save(provider, SessionMetadata("synthetic-agent", "42", 2))
+            withContext(Dispatchers.Main) {
+                val web = views.single()
+                assertTrue(web.webViewClient.onRenderProcessGone(web, object : RenderProcessGoneDetail() {
+                    override fun didCrash() = false
+                    override fun rendererPriorityAtExit() = WebView.RENDERER_PRIORITY_BOUND
+                }))
+            }
             browser.read(account, "synthetic-agent", retain = true)
             assertEquals(2, views.size)
-            withContext(Dispatchers.Main) { browser.release() }
+            sessions.save(provider, SessionMetadata("synthetic-agent", "42", 2))
             browser.read(account, "synthetic-agent", retain = true)
             assertEquals(3, views.size)
+            withContext(Dispatchers.Main) { browser.release() }
+            browser.read(account, "synthetic-agent", retain = true)
+            assertEquals(4, views.size)
         } finally {
             withContext(Dispatchers.Main) { browser.release() }
             sessions.disconnect(provider)

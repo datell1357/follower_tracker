@@ -161,7 +161,12 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                         if (url == "about:blank") blank.complete(true)
                     }
                     override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                        blank.complete(false); return true
+                        blank.complete(false)
+                        if (idle[account.provider]?.web === view) {
+                            idle.remove(account.provider)
+                            view.destroy()
+                        }
+                        return true
                     }
                 }
                 web.webChromeClient = WebChromeClient()

@@ -11,7 +11,7 @@ Instagram·TikTok·X·Facebook·Reddit 모두 같은 갱신 정책과 표시 경
 | 자동 수집의 오프라인 사전 확인 | 공통 SyncCoordinator에서 활성 네트워크가 아예 없을 때 수·명단 요청 생략 | 공통 SyncService에서 NWPath가 확실히 unsatisfied일 때 생략, 처음의 알 수 없는 상태는 시도 |
 | 최신 수치 요청 | 공통 HTTP 요청에 Cache-Control: no-cache. 매번 현재 쿠키를 읽고 본인 ID 검증 | 같은 요청 헤더와 reloadIgnoringLocalCacheData, 현재 Vault 세션 검증 |
 | 연결·준비 재사용 | 기존 OkHttp 연결 풀 유지, 저장값이 바뀌면 무효화되는 세션 메타데이터 캐시 | ephemeral URLSession을 프로세스 안에서 재사용, 자동 쿠키 저장·응답 캐시·리디렉션은 계속 차단 |
-| 위젯 조회 | 최신 두 수 기록만 조회. 전체 이력과 명단은 유지 | 같은 방식, 선택한 SNS만 조회 |
+| 위젯 조회 | 최신 두 수 기록만 조회. 기존 위젯 세션에도 새 관측을 전달하며 전체 이력과 명단은 유지 | 같은 방식, 선택한 SNS만 조회 |
 | 위젯 갱신 | 2초 범위의 연속 요청을 병합. 갱신 중 새 요청도 다음 갱신에 반영 | 프로세스별 2초 병합, BGTask는 작업 종료 전에 갱신 요청을 flush |
 | 반복 실패 | 기존 인증·확인·형식 오류 중단, 서버 Retry-After와 일시 오류 1·2·4·8·15분 대기 유지 | 같은 기존 정책 유지 |
 | 디버그 계측 | 수·명단 수집의 앱 UID 송수신 바이트 차이와 경과 시간 | HTTP 요청의 수신 본문 바이트와 경과 시간 |
@@ -39,8 +39,8 @@ Android 빠른 추적의 1분 간격과 약 6시간 실행 범위는 유지한�
 ## 2026-10-03 검증
 
 - Android 코어 36개·앱 단위 검사 21개, Debug·Release 빌드와 lint, 테스트 APK 컴파일을 통과했다. 공통 웹 캡처 검사 15개도 통과했다.
-- 개인 계정이 없는 별도 API 36 QA 에뮬레이터에서 `ResourceEfficiencyRuntimeTest` 5개와 기존 일시 오류·저장 실패·위젯 실행 검사를 합쳐 24개가 통과했다. 다섯 SNS의 오프라인 보존·수동 갱신·서버 대기, 최신 두 기록과 정확한 0·선택·전체 이력 보존, 세션 캐시 무효화, WebView 재사용 후 새 수치와 빈 페이지 전환을 확인했다.
+- 개인 계정이 없는 별도 API 36 QA 에뮬레이터에서 `ResourceEfficiencyRuntimeTest` 6개와 기존 일시 오류·저장 실패·위젯 실행 검사를 합쳐 25개가 통과했다. 다섯 SNS의 오프라인 보존·수동 갱신·서버 대기, 최신 두 기록과 정확한 0·선택·전체 이력 보존, 세션 캐시 무효화, WebView 재사용 후 새 수치와 빈 페이지 전환을 확인했다. 같은 위젯 데이터 구독에서 계정 JSON이 같아도 새 관측이 전달되는 경우와 대기 WebView의 렌더러 종료 후 재생성도 검사했다.
 - 사용자가 연결한 에뮬레이터에는 일반 Debug APK만 업데이트했다. 연결 ID·연결 시각을 보존했고 기존 Instagram 세션으로 새 관측 3회와 WebView 재사용 로그를 확인했다. 관측 완료 간격은 약 56.9초·60.1초였으며 홈 위젯 수집 시각이 20:10에서 20:11로 바뀌었다. 관측된 실제 팔로워 증감이나 배터리 절감률을 주장하지 않는다.
-- 로컬 iOS 검사와 실행 검사는 Xcode 라이선스 상태로 미실행이다. iOS의 공통 정책·표시·연결 풀 회귀 검사 3개를 작성했고 프로젝트에 포함했다. CI의 Swift 코어·Debug 테스트 묶음 컴파일·Release 앱과 위젯 빌드 결과는 별도로 확인한다. CI의 컴파일을 iOS 런타임 검사 실행으로 표시하지 않는다.
+- 로컬 iOS 검사와 실행 검사는 Xcode 라이선스 상태로 미실행이다. iOS의 공통 정책·표시·연결 풀 회귀 검사 3개를 작성했고 프로젝트에 포함했다. CI의 Swift 코어·Debug 테스트 묶음 컴파일·Release 앱과 위젯 빌드는 통과했다. CI의 컴파일을 iOS 런타임 검사 실행으로 표시하지 않는다.
 
 참고 API: [Android WebSettings](https://developer.android.com/reference/android/webkit/WebSettings#setCacheMode(int)), [WebView pauseTimers](https://developer.android.com/reference/android/webkit/WebView#pauseTimers()), [TrafficStats](https://developer.android.com/reference/android/net/TrafficStats), [Apple ephemeral URLSession](https://developer.apple.com/documentation/foundation/urlsessionconfiguration/ephemeral), [NWPath.Status](https://developer.apple.com/documentation/network/nwpath/status-swift.enum).

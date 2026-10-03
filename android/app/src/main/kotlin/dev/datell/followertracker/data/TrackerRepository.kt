@@ -33,6 +33,7 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
     suspend fun widgetOverviews(key: String? = null): List<AccountOverview> = withContext(Dispatchers.IO) {
         accounts().filter { key == null || it.key == key }.map { AccountOverview(it, recentMetrics(it.key, 2)) }
     }
+    fun widgetOverviewsFlow() = accounts.map { widgetOverviews() }
     suspend fun history(key: String): List<MetricSnapshot> = recentMetrics(key, 366)
     private suspend fun recentMetrics(key: String, limit: Int): List<MetricSnapshot> = withContext(Dispatchers.IO) {
         dao.metrics(key, limit).asReversed().map {
