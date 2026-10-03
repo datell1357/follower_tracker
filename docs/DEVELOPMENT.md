@@ -61,6 +61,8 @@ OS의 강제 중지는 일반적인 앱 화면 종료와 별도 시험한다. An
 
 `TikTokLoginDiagnostic`는 `probeTikTokLogin` 또는 `probeTikTokStored` 인자를 명시해야 실행된다. 첫 검사는 사용자가 직접 로그인할 때 스킴·호스트와 인증 상태만 관찰하며 연결을 저장하지 않는다. 저장 검사는 실제 앱에서 연결을 완료한 뒤 계정·수집 기록 존재, 세션 메타데이터와 본인 ID 일치, 기존 X 연결 존재를 읽기 전용으로 검사한다. 진단 완료를 실제 계정 연결이나 앱 복귀 성공으로 대신하지 않는다. 비밀번호·인증 코드·쿠키·원시 DOM·계정명·ID·수치는 출력하지 않는다.
 
+`FacebookAppLinkRuntimeTest`는 같은 HTTPS fixture 경계에서 Facebook의 공식 프로필 대체 주소를 WebView 안에서 여는지, 반복 이동은 중단되는지, 다른 출처의 대체 주소는 차단되는지 검사한다. 외부 앱을 실행하거나 개인 쿠키·계정 DB를 변경하지 않는다. `FacebookLoginDiagnostic`의 `probeFacebookCapture=true`는 기존 인증 세션으로 홈·본인 프로필의 캡처 상태와 고정된 화면 구조 플래그만 검사한다. 이 진단은 연결을 저장하지 않으므로 실제 앱에서 Facebook을 연결한 뒤 `probeFacebookStored=true`로 저장 검사도 실행해야 한다. 저장 검사는 계정·정확한 수 기록 존재와 쿠키의 본인 ID 일치, 기존 X·TikTok 기록 보존을 확인하며 개인 값을 출력하지 않는다. 개인 세션 기기에서 전체 instrumentation 묶음을 실행하지 않는다.
+
 화면 검사는 SNS 선택·탭 이동·설정, 저장 검사는 Android Keystore의 암호화와 변조 거부 및 Room 트랜잭션 경계를 확인한다. 위젯 검사는 실제 Glance `RemoteViews`를 크기별로 생성·적용·레이아웃하고 부모 영역에 가려지거나 숫자·비교 시각이 말줄임 처리되지 않는지 검사한다. 합성 위젯 계정은 검사 안에만 존재하며 앱 DB에 저장하지 않는다. 홈 화면 런처의 위젯 추가·클릭·자동 갱신은 [기기 검증](DEVICE_VALIDATION.md)에서 별도로 확인한다.
 
 `WidgetRuntimeTest.failedRefreshKeepsTheLastCountAndChangeAtEverySize`는 재로그인 필요와 일시 오류의 두 상태를 작은·좁고 긴·넓은·큰 위젯에 각각 적용한다. 실제 `RemoteViews`의 마지막 수치·변화·오류 표시와 가시 영역을 확인하며, 정상 기록의 수집 시각 보존은 같은 검사의 별도 시나리오에서 확인한다. 오류 안내만 바뀌어도 기록을 0이나 새 관측으로 바꾸지 않아야 한다.

@@ -28,16 +28,130 @@ test("no logged-in TikTok context does not connect an arbitrary public profile",
   } } } };
   assert.equal(capture("TIKTOK", null, documentWith(data)).error, "identity_missing");
 });
+function facebookDocument(data, path = "/profile.php?id=42", links = []) {
+  return { location: { href: "https://www.facebook.com" + path },
+    querySelectorAll: selector => selector === "a[href]" ? links : [{ textContent: JSON.stringify(data) }],
+    querySelector: () => null };
+}
+function facebookDOMDocument(texts, path = "/profile.php?id=42", outsideTexts = []) {
+  const heading = { tagName: "H1", textContent: "Self" };
+  const button = text => ({ tagName: "DIV", textContent: text, innerText: text, closest: () => null });
+  const buttons = texts.map(button);
+  const header = { tagName: "DIV", parentElement: { tagName: "BODY" }, querySelector: () => null,
+    querySelectorAll: selector => selector === "h1" ? [heading] : selector.includes("button") ? buttons : [] };
+  heading.parentElement = header;
+  buttons.forEach(node => { node.parentElement = header; });
+  const doc = facebookDocument({}, path);
+  const scripts = doc.querySelectorAll;
+  doc.querySelectorAll = selector => selector === "h1" ? [heading] : selector.includes("button") ? [...buttons, ...outsideTexts.map(button)] : scripts(selector);
+  return doc;
+}
+test("Facebook's own profile header reads its exact mobile follower button without JSON", () => {
+  const result = capture("FACEBOOK", "42", facebookDOMDocument(["5 팔로워", "친구 800명", "2 팔로잉"], undefined, ["999 팔로워"]));
+  assert.equal(result.followers, 5);
+  assert.equal(result.following, 2);
+  assert.equal(result.displayName, "Self");
+  assert.equal(result.stableId, "42");
+  assert.equal(result.source, "facebook-webview-profile");
+});
+test("Facebook's own profile DOM preserves exact zero and supports grouped counts", () => {
+  assert.equal(capture("FACEBOOK", "42", facebookDOMDocument(["0 팔로워"])).followers, 0);
+  assert.equal(capture("FACEBOOK", "42", facebookDOMDocument(["12,345 followers", "Following 0"])).followers, 12345);
+  assert.equal(capture("FACEBOOK", "42", facebookDOMDocument(["팔로워 5명"])).followers, 5);
+});
+test("Facebook profile section headings do not obscure its own header", () => {
+  const doc = facebookDOMDocument(["5 팔로워"]);
+  const query = doc.querySelectorAll;
+  doc.querySelectorAll = selector => selector === "h1" ? [...query(selector),
+    { tagName: "H1", textContent: "Friends" }, { tagName: "H1", textContent: "Posts" }] : query(selector);
+  assert.equal(capture("FACEBOOK", "42", doc).followers, 5);
+});
+test("Facebook's navigation heading before the profile is not mistaken for its account header", () => {
+  const doc = facebookDOMDocument(["5 팔로워"]);
+  const navigation = { tagName: "H1", textContent: "Facebook" };
+  navigation.parentElement = { tagName: "DIV", parentElement: { tagName: "BODY" }, querySelector: () => null,
+    querySelectorAll: selector => selector === "h1" ? [navigation] : [] };
+  const query = doc.querySelectorAll;
+  doc.querySelectorAll = selector => selector === "h1" ? [navigation, ...query(selector)] : query(selector);
+  assert.equal(capture("FACEBOOK", "42", doc).followers, 5);
+  assert.equal(capture("FACEBOOK", "42", doc).displayName, "Self");
+});
+test("Facebook does not guess between different heading and follower count regions", () => {
+  const doc = facebookDOMDocument(["5 팔로워"]);
+  const query = doc.querySelectorAll;
+  const otherHeading = facebookDOMDocument(["999 팔로워"]).querySelectorAll("h1")[0];
+  doc.querySelectorAll = selector => selector === "h1" ? [...query(selector), otherHeading] : query(selector);
+  assert.equal(capture("FACEBOOK", "42", doc).error, "exact_count_missing");
+});
+test("Facebook DOM counts require the cookie owner's profile and its heading", () => {
+  assert.equal(capture("FACEBOOK", "42", facebookDOMDocument(["5 팔로워"], "/profile.php?id=99")).error, "own_profile_required");
+  assert.equal(capture("FACEBOOK", "42", facebookDOMDocument(["5 팔로워"], "/")).error, "own_profile_required");
+  const doc = facebookDOMDocument(["5 팔로워"]);
+  const query = doc.querySelectorAll;
+  doc.querySelectorAll = selector => selector === "h1" ? [] : query(selector);
+  assert.equal(capture("FACEBOOK", "42", doc).error, "exact_count_missing");
+  assert.equal(capture("FACEBOOK", "42", facebookDOMDocument(["5 팔로워"], "/profile.php?id=42&id=99")).error, "own_profile_required");
+});
+test("Facebook does not expand the profile header into a feed or another heading", () => {
+  for (const boundary of ["feed", "otherHeading"]) {
+    const doc = facebookDOMDocument(["5 팔로워"]);
+    const heading = doc.querySelectorAll("h1")[0], header = heading.parentElement;
+    if (boundary === "feed") header.querySelector = () => ({ tagName: "ARTICLE" });
+    else {
+      const query = header.querySelectorAll;
+      header.querySelectorAll = selector => selector === "h1" ? [heading, { tagName: "H1", textContent: "Other" }] : query(selector);
+    }
+    assert.equal(capture("FACEBOOK", "42", doc).error, "exact_count_missing");
+  }
+});
+test("Facebook ignores rounded, conflicting and unrelated profile DOM counters", () => {
+  for (const texts of [["1.2K followers"], ["팔로워 1.2만명"], ["5 팔로워", "6 팔로워"], ["친구 500명"], ["팔로워"], ["1.2K followers", "5 followers"]])
+    assert.equal(capture("FACEBOOK", "42", facebookDOMDocument(texts, undefined, ["999 followers"])).error, "exact_count_missing");
+});
+test("Facebook signed-in home leads to the session owner's profile without requiring home counts", () => {
+  assert.deepEqual(capture("FACEBOOK", "42", facebookDocument({}, "/")),
+    { error: "own_profile_required", profileURL: "https://www.facebook.com/profile.php?id=42" });
+});
 test("Facebook record is tied to owner ID and does not use friend count", () => {
-  const doc = documentWith({ records: [{ id: "other", name: "Other", followers_count: 999 }, { id: "42", name: "Self", friends: { count: 800 }, followers: { count: 5 } }] });
+  const doc = facebookDocument({ records: [{ id: "other", name: "Other", followers_count: 999 }, { id: "42", name: "Self", friends: { count: 800 }, followers: { count: 5 } }] });
   const result = capture("FACEBOOK", "42", doc);
   assert.equal(result.followers, 5);
   assert.equal(result.following, null);
   assert.equal(capture("FACEBOOK", null, doc).error, "identity_missing");
 });
 test("missing exact count produces an error rather than zero", () => {
-  const result = capture("FACEBOOK", "42", documentWith({ id: "42", name: "Self", follower_count: "1.2K" }));
+  const result = capture("FACEBOOK", "42", facebookDocument({ id: "42", name: "Self", follower_count: "1.2K" }));
   assert.equal(result.error, "exact_count_missing");
+});
+test("Facebook prefers the exact owner record and preserves a confirmed zero", () => {
+  const doc = facebookDocument({ records: [
+    { id: "42", name: "Self", follower_count: "1.2K" },
+    { id: "99", name: "Other", followers_count: 999 },
+    { id: "42", name: "Self", followers_count: 0, following_count: 4 }
+  ] });
+  const result = capture("FACEBOOK", "42", doc);
+  assert.equal(result.followers, 0);
+  assert.equal(result.following, 4);
+});
+test("Facebook friend counts and other users never substitute for a missing owner follower count", () => {
+  const doc = facebookDocument({ records: [
+    { id: "42", name: "Self", friends: { count: 500 } },
+    { id: "99", name: "Other", followers_count: 999 }
+  ] });
+  assert.deepEqual(capture("FACEBOOK", "42", doc), { error: "exact_count_missing" });
+});
+test("Facebook recognizes an owner username profile but does not repeatedly navigate without exact counts", () => {
+  assert.deepEqual(capture("FACEBOOK", "42", facebookDocument({ id: "42", name: "Self", username: "self" }, "/self/")),
+    { error: "exact_count_missing" });
+});
+test("Facebook rejects foreign or insecure pages and invalid cookie identity", () => {
+  for (const url of ["http://www.facebook.com/profile.php?id=42", "https://facebook.com.example.test/profile.php?id=42",
+    "https://user@www.facebook.com/profile.php?id=42", "https://www.facebook.com:8443/profile.php?id=42"]) {
+    const doc = facebookDocument({ id: "42", name: "Self", followers_count: 5 });
+    doc.location.href = url;
+    assert.equal(capture("FACEBOOK", "42", doc).error, "own_profile_required");
+  }
+  assert.equal(capture("FACEBOOK", "not-a-cookie-id", facebookDocument({})).error, "identity_missing");
 });
 
 function instagramDocument(data, path = "/self/") {

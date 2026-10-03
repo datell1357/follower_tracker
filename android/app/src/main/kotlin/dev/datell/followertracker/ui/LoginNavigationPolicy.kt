@@ -2,6 +2,7 @@ package dev.datell.followertracker.ui
 
 import dev.datell.followertracker.core.Provider
 import java.net.URI
+import java.net.URLDecoder
 
 enum class LoginNavigation { ALLOW, AUTHENTICATE, BLOCK }
 
@@ -19,6 +20,23 @@ fun isOptionalTikTokAppLink(provider: Provider, sourceUrl: String, targetUrl: St
     val uri = runCatching { URI(targetUrl) }.getOrNull() ?: return false
     return uri.scheme in setOf("snssdk1340", "snssdk1233", "snssdk1180") &&
         uri.host in setOf("aweme", "user") && uri.userInfo == null && uri.port == -1
+}
+
+/** Facebook supplies an HTTPS profile fallback when its website attempts a native-app handoff. */
+fun facebookBrowserFallback(provider: Provider, sourceUrl: String, targetUrl: String): String? {
+    if (provider != Provider.FACEBOOK || !provider.allows(sourceUrl)) return null
+    val intent = runCatching { URI(targetUrl) }.getOrNull() ?: return null
+    if (intent.scheme != "intent" || intent.host != "profile" || intent.userInfo != null || intent.port != -1) return null
+    val parts = intent.rawFragment?.split(';') ?: return null
+    if (parts.firstOrNull() != "Intent" || parts.lastOrNull() != "end") return null
+    fun singleValue(key: String) = parts.filter { it.startsWith("$key=") }.singleOrNull()?.substringAfter('=')
+    if (singleValue("scheme") != "fb" || singleValue("package") !in setOf("com.facebook.katana", "com.facebook.lite")) return null
+    val encoded = singleValue("S.browser_fallback_url") ?: return null
+    // Intent extras use URI decoding, where a literal plus is not a space.
+    val fallback = runCatching { URLDecoder.decode(encoded.replace("+", "%2B"), "UTF-8") }.getOrNull() ?: return null
+    if (!provider.allows(fallback)) return null
+    val page = runCatching { URI(fallback) }.getOrNull() ?: return null
+    return fallback.takeIf { page.path == "/profile.php" }
 }
 
 /** Login redirects have a separate boundary from the hosts receiving collection cookies. */

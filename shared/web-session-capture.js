@@ -79,6 +79,48 @@
     }
     return null;
   }
+  function facebookProfileCounts(doc) {
+    const headings = Array.from(doc.querySelectorAll("h1")).filter(node => node.tagName === "H1" && node.textContent?.trim());
+    if (!headings.length || headings.length > 32) return null;
+    let captured = null;
+    // Facebook's navigation also has an H1. Only one small heading/count header may identify the profile.
+    for (const heading of headings) {
+      const name = heading.textContent.trim();
+      if (name.length > 256) continue;
+      for (let scope = heading.parentElement, depth = 0; scope && depth < 5; scope = scope.parentElement, depth++) {
+        if (scope.tagName === "BODY" || scope.tagName === "HTML" || scope.querySelector('article,[role="article"],[role="feed"]')) break;
+        if (scope.querySelectorAll("h1").length !== 1) break;
+        const nodes = scope.querySelectorAll('a[href],button,[role="button"]');
+        if (nodes.length > 1000) return null;
+        const followers = new Set(), following = new Set();
+        let followerSeen = false, invalidFollower = false, invalidFollowing = false;
+        for (const node of nodes) {
+          if (node.closest('article,[role="article"],[role="feed"]')) continue;
+          const text = (node.innerText || node.textContent || "").trim();
+          if (text.length > 140) continue;
+          const followerLabel = /(?:^(?:팔로워|followers)(?:\s|$)|(?:\s|^)(?:팔로워|followers)$)/i.test(text);
+          const followingLabel = /(?:^(?:팔로잉|following)(?:\s|$)|(?:\s|^)(?:팔로잉|following)$)/i.test(text);
+          if (!followerLabel && !followingLabel) continue;
+          followerSeen ||= followerLabel;
+          const match = /^(?:([0-9][0-9,\s\u00a0\u202f]*)\s*(?:명의?\s*)?(팔로워|followers|팔로잉|following)|(팔로워|followers|팔로잉|following)\s*([0-9][0-9,\s\u00a0\u202f]*)(?:명)?)$/i.exec(text);
+          const count = match ? exactCount(match[1] ?? match[4]) : null;
+          if (count === null) {
+            invalidFollower ||= followerLabel;
+            invalidFollowing ||= followingLabel;
+          } else if (followerLabel) followers.add(count);
+          else following.add(count);
+        }
+        // Do not expand a header with rounded or conflicting values into other parts of the page.
+        if (followerSeen) {
+          if (captured || invalidFollower || followers.size !== 1) return null;
+          captured = { name, followers: followers.values().next().value,
+            following: !invalidFollowing && following.size === 1 ? following.values().next().value : null };
+          break;
+        }
+      }
+    }
+    return captured;
+  }
   function capture(provider, expectedID, suppliedDocument) {
     const doc = suppliedDocument || document;
     const roots = jsonRoots(doc);
@@ -173,13 +215,28 @@
       return result(provider, expectedID, name, name, ownURL.href, followers, following, "x-webview-dom");
     }
     if (provider === "FACEBOOK") {
-      const record = findRecord(roots, value => textID(value.id) === expectedID && value.name &&
-        (value.followers_count !== undefined || value.follower_count !== undefined || value.followers?.count !== undefined));
-      if (!record) return { error: "exact_count_missing" };
-      return result(provider, expectedID, record.username || expectedID, record.name,
-        "https://www.facebook.com/profile.php?id=" + encodeURIComponent(expectedID),
-        record.followers_count ?? record.follower_count ?? record.followers?.count,
-        record.following_count ?? record.following?.count, "facebook-webview-profile");
+      if (typeof expectedID !== "string" || !/^[0-9]+$/.test(expectedID)) return { error: "identity_missing" };
+      let currentURL;
+      try { currentURL = new URL(doc.location.href); } catch (_) { return { error: "own_profile_required" }; }
+      if (currentURL.protocol !== "https:" || currentURL.username || currentURL.password ||
+          (currentURL.port && currentURL.port !== "443") ||
+          !(currentURL.hostname === "facebook.com" || currentURL.hostname.endsWith(".facebook.com")))
+        return { error: "own_profile_required" };
+      const profileURL = "https://www.facebook.com/profile.php?id=" + encodeURIComponent(expectedID);
+      const isOwner = value => textID(value.id) === expectedID && value.name;
+      const followerCount = value => value.followers_count ?? value.follower_count ?? value.followers?.count;
+      const record = findRecord(roots, value => isOwner(value) && exactCount(followerCount(value)) !== null);
+      if (record) return result(provider, expectedID, record.username || expectedID, record.name, profileURL,
+        followerCount(record), record.following_count ?? record.following?.count, "facebook-webview-profile");
+      const owner = findRecord(roots, isOwner);
+      const profileIDs = currentURL.searchParams.getAll("id");
+      const ownProfile = currentURL.pathname === "/profile.php" && profileIDs.length === 1 && profileIDs[0] === expectedID ||
+        owner?.username && currentURL.pathname.replace(/\/$/, "") === "/" + encodeURIComponent(owner.username);
+      if (!ownProfile) return { error: "own_profile_required", profileURL };
+      const counts = facebookProfileCounts(doc);
+      if (counts) return result(provider, expectedID, owner?.username || expectedID, owner?.name || counts.name,
+        profileURL, counts.followers, counts.following, "facebook-webview-profile");
+      return { error: "exact_count_missing" };
     }
     return { error: "native_collection_required" };
   }

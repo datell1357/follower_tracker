@@ -104,7 +104,7 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                     color = MaterialTheme.colorScheme.primary)
                 (loginBrowser.notice ?: message)?.let {
                     Text(it, Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { loginBrowser.notice = null; capturedPages.clear(); policy.requestRetry() },
+                    TextButton(onClick = { loginBrowser.notice = null; capturedPages.clear(); navigatedProfiles.clear(); policy.requestRetry() },
                         enabled = !busy && !checking && now >= policy.nextAllowedAt,
                         modifier = Modifier.padding(horizontal = 12.dp)) { Text("다시 시도") }
                 }

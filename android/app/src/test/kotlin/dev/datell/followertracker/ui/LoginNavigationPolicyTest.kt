@@ -5,6 +5,45 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LoginNavigationPolicyTest {
+    private fun facebookIntent(fallback: String = "https://www.facebook.com/profile.php?id=42", fields: String = "scheme=fb;package=com.facebook.katana") =
+        "intent://profile/42#Intent;$fields;S.browser_fallback_url=${java.net.URLEncoder.encode(fallback, "UTF-8")};end"
+
+    @Test fun facebookNativeHandoffOpensOnlyItsOfficialHttpsProfileFallback() {
+        for (host in listOf("www.facebook.com", "m.facebook.com")) {
+            for (pkg in listOf("com.facebook.katana", "com.facebook.lite")) {
+                val fallback = "https://$host/profile.php?id=42&ref=fixture+web"
+                val target = facebookIntent(fallback, "scheme=fb;package=$pkg")
+                assertEquals(fallback, facebookBrowserFallback(Provider.FACEBOOK, "https://www.facebook.com/", target))
+                assertEquals(LoginNavigation.BLOCK, loginNavigation(Provider.FACEBOOK, target))
+                assertFalse(Provider.FACEBOOK.allows(target))
+                assertFalse(canAutoConnect(Provider.FACEBOOK, target, true, false, false))
+            }
+        }
+    }
+    @Test fun facebookFallbackRejectsUntrustedOriginsAndDifferentProviders() {
+        Provider.entries.filter { it != Provider.FACEBOOK }.forEach {
+            assertNull(facebookBrowserFallback(it, it.loginUrl, facebookIntent()))
+        }
+        for (source in listOf("about:blank", "https://accounts.google.com/", "http://www.facebook.com/",
+            "https://facebook.com.example.test/", "https://user@www.facebook.com/", "https://www.facebook.com:8443/"))
+            assertNull(facebookBrowserFallback(Provider.FACEBOOK, source, facebookIntent()))
+        for (fallback in listOf("http://www.facebook.com/profile.php?id=42", "https://facebook.com.example.test/profile.php?id=42",
+            "https://user@www.facebook.com/profile.php?id=42", "https://www.facebook.com:8443/profile.php?id=42",
+            "https://example.test/profile.php?id=42", "https://www.facebook.com/login/", "javascript:alert(1)"))
+            assertNull(facebookBrowserFallback(Provider.FACEBOOK, Provider.FACEBOOK.loginUrl, facebookIntent(fallback)))
+    }
+    @Test fun malformedAndAmbiguousFacebookIntentsRemainBlocked() {
+        val valid = facebookIntent()
+        for (target in listOf(valid.replace("intent:", "fb:"), valid.replace("//profile/", "//profile.example.test/"),
+            valid.replace("//profile/", "//user@profile/"), valid.replace("//profile/", "//profile:443/"),
+            facebookIntent(fields = "scheme=unknown;package=com.facebook.katana"),
+            facebookIntent(fields = "scheme=fb;package=com.other.app"),
+            facebookIntent(fields = "scheme=fb;scheme=fb;package=com.facebook.katana"),
+            valid.replace(";end", ";S.browser_fallback_url=https%3A%2F%2Fwww.facebook.com%2Fprofile.php;end"),
+            valid.replace(";end", ";end;"), "intent://profile/42#Intent;scheme=fb;package=com.facebook.katana;end", "invalid uri"))
+            assertNull(facebookBrowserFallback(Provider.FACEBOOK, Provider.FACEBOOK.loginUrl, target))
+    }
+
     @Test fun optionalTikTokAppLinksStayOutsideTheWebAndCollectionBoundaries() {
         for (scheme in listOf("snssdk1340", "snssdk1233", "snssdk1180")) {
             for (host in listOf("aweme", "user")) {

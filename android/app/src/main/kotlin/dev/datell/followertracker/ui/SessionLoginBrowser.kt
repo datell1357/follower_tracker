@@ -28,6 +28,7 @@ class SessionLoginBrowser(private val provider: Provider) {
     private var container: FrameLayout? = null
     private var main: WebView? = null
     private val popups = mutableListOf<WebView>()
+    private val facebookFallbacks = mutableMapOf<WebView, MutableSet<String>>()
     private var disposed = false
 
     fun createView(context: Context): FrameLayout = FrameLayout(context).apply {
@@ -40,6 +41,7 @@ class SessionLoginBrowser(private val provider: Provider) {
 
     fun reload() {
         notice = null
+        active?.let { facebookFallbacks.remove(it) }
         if (active == null) openMain() else active?.reload()
     }
 
@@ -116,6 +118,7 @@ class SessionLoginBrowser(private val provider: Provider) {
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 if (isOptionalTikTokAppLink(provider, view.url.orEmpty(), request.url.toString())) return true
+                if (request.isForMainFrame && followFacebookFallback(view, request.url.toString())) return true
                 if (request.isForMainFrame && !allowsPage(request.url.toString())) {
                     blocked(view, request.url.toString())
                     return true
@@ -126,7 +129,8 @@ class SessionLoginBrowser(private val provider: Provider) {
                 // A popup's initial request and POST navigation may bypass shouldOverrideUrlLoading.
                 if (request.isForMainFrame && !allowsPage(request.url.toString())) {
                     view.post {
-                        if (!isOptionalTikTokAppLink(provider, view.url.orEmpty(), request.url.toString()))
+                        if (!isOptionalTikTokAppLink(provider, view.url.orEmpty(), request.url.toString()) &&
+                            !followFacebookFallback(view, request.url.toString()))
                             blocked(view, request.url.toString())
                     }
                     return WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", mapOf("Cache-Control" to "no-store"),
@@ -172,6 +176,20 @@ class SessionLoginBrowser(private val provider: Provider) {
 
     private fun allowsPage(url: String) = url == "about:blank" || loginNavigation(provider, url) != LoginNavigation.BLOCK
 
+    private fun followFacebookFallback(view: WebView, target: String): Boolean {
+        if (disposed) return false
+        val fallback = facebookBrowserFallback(provider, view.url.orEmpty(), target) ?: return false
+        val visited = facebookFallbacks.getOrPut(view) { mutableSetOf() }
+        if (fallback in visited || visited.size >= 2) {
+            showError(view, "페이스북이 프로필을 웹페이지로 열지 못했어요. 잠시 뒤 새로고침해주세요.")
+        } else {
+            visited.add(fallback)
+            notice = null
+            view.loadUrl(fallback)
+        }
+        return true
+    }
+
     private fun blocked(view: WebView, url: String) {
         if (!disposed) blockedDestination = loginDestination(url)
         showError(view, "공식 SNS·인증 서비스 주소가 아닌 페이지로의 이동을 중단했어요.")
@@ -196,6 +214,7 @@ class SessionLoginBrowser(private val provider: Provider) {
     }
 
     private fun destroy(web: WebView) {
+        facebookFallbacks.remove(web)
         (web.parent as? ViewGroup)?.removeView(web)
         web.stopLoading()
         web.webViewClient = WebViewClient()
