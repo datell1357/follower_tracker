@@ -50,10 +50,26 @@ struct AccountCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(row.account.provider.title).font(.headline)
                     Text("@" + row.account.username).font(.caption).foregroundStyle(TrackerStyle.muted).lineLimit(1)
+                    if row.account.status != .ready && row.account.status != .refreshing {
+                        Text(row.account.status.label).font(.caption.weight(.semibold)).foregroundStyle(TrackerStyle.muted)
+                        if row.account.status == .rateLimited, let until = row.account.nextAllowedAt {
+                            Text(TrackerStyle.observationTime(until) + " 이후 다시 시도").font(.caption).foregroundStyle(TrackerStyle.muted)
+                        }
+                    }
                 }
                 Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(TrackerStyle.muted).accessibilityHidden(true)
             }
-            Text("팔로워").font(.caption).foregroundStyle(TrackerStyle.muted)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("팔로워")
+                Spacer(minLength: 8)
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(row.latest.map { snapshot in
+                        let minutes = max(0, Int((context.date.timeIntervalSince1970 - Double(snapshot.observedAt) / 1_000) / 60))
+                        return "갱신 \(minutes)분 전"
+                    } ?? "수집 대기")
+                        .lineLimit(1).minimumScaleFactor(0.75)
+                }
+            }.font(.caption).foregroundStyle(TrackerStyle.muted)
             Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—")
                 .font(.system(size: countSize, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.5)
             VStack(alignment: .leading, spacing: 6) {
@@ -62,14 +78,6 @@ struct AccountCard: View {
                     .font(.caption).foregroundStyle(TrackerStyle.muted)
             }
             if row.history.count > 1 { GrowthChart(history: row.history).frame(height: 56).accessibilityHidden(true) }
-            Divider().overlay(TrackerStyle.outline)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(row.account.status.label).font(.caption.weight(.semibold)).foregroundStyle(TrackerStyle.muted)
-                Text(TrackerStyle.collectedAt(row.latest?.observedAt)).font(.caption).foregroundStyle(TrackerStyle.muted)
-                if row.account.status == .rateLimited, let until = row.account.nextAllowedAt {
-                    Text(TrackerStyle.observationTime(until) + " 이후 다시 시도").font(.caption).foregroundStyle(TrackerStyle.muted)
-                }
-            }
         }.foregroundStyle(TrackerStyle.ink).trackerPanel(padding: 22).accessibilityElement(children: .combine)
     }
 }

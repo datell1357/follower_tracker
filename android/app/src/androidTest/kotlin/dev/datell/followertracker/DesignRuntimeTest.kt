@@ -46,17 +46,32 @@ class DesignRuntimeTest {
         var selected: String? = null
         rule.setContent { Frame("계정") { Dashboard(state(row), {}, { selected = it }, {}) } }
         rule.onNodeWithText(formatCount(12_480)).assertIsDisplayed()
-        rule.onNodeWithText("마지막 수집 ${compactObservationTime(now)}").assertIsDisplayed()
+        rule.onNodeWithText("갱신 0분 전").assertIsDisplayed()
+        rule.onNodeWithText("마지막 수집", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("방금 갱신").assertDoesNotExist()
+        val followers = rule.onNodeWithText("팔로워", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val recency = rule.onNodeWithText("갱신 0분 전", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("Recency must sit to the right of the follower heading", recency.left > followers.right)
+        assertTrue("Recency must share the follower heading row", recency.center.y in followers.top..followers.bottom)
         rule.onNodeWithContentDescription("계정 상세").performClick()
         assertEquals(row.account.key, selected)
         capture("design-dashboard-light.png")
+        capture("design-account-card.png", card = true)
     }
 
     @Test fun darkDashboardKeepsDelayedObservationAndShowsTheStatus() {
-        val row = row(status = SyncStatus.RATE_LIMITED)
+        val row = row(status = SyncStatus.RATE_LIMITED).let { row ->
+            row.copy(history = row.history.map { it.copy(observedAt = it.observedAt - 7 * 60_000) })
+        }
         rule.setContent { Frame("계정", dark = true) { Dashboard(state(row), {}, {}, {}) } }
         rule.onNodeWithText("갱신 대기").assertIsDisplayed()
-        rule.onNodeWithText("마지막 수집 ${compactObservationTime(now)}").assertIsDisplayed()
+        rule.onNodeWithText("갱신 7분 전").assertIsDisplayed()
+        rule.onNodeWithText("갱신 0분 전").assertDoesNotExist()
+        rule.onNodeWithText("마지막 수집", substring = true).assertDoesNotExist()
+        rule.waitUntil(timeoutMillis = 70_000) {
+            rule.onAllNodesWithText("갱신 8분 전").fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithText("갱신 대기").assertIsDisplayed()
         capture("design-dashboard-dark.png")
     }
 
@@ -181,10 +196,11 @@ class DesignRuntimeTest {
         }
     }
 
-    private fun capture(name: String) {
+    private fun capture(name: String, card: Boolean = false) {
         rule.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val screenshot = rule.onRoot().captureToImage().asAndroidBitmap()
+        val node = if (card) rule.onNode(hasText("Instagram") and hasClickAction()) else rule.onRoot()
+        val screenshot = node.captureToImage().asAndroidBitmap()
         val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "qa").apply { mkdirs() }
         File(directory, name).outputStream().use { check(screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         screenshot.recycle()

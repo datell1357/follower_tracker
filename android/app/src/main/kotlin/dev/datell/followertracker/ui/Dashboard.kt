@@ -13,9 +13,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.core.*
+import kotlinx.coroutines.delay
 
 @Composable
 fun Dashboard(state: TrackerState, onConnect: () -> Unit, onDetail: (String) -> Unit, onRefresh: () -> Unit) {
@@ -42,6 +47,16 @@ fun Dashboard(state: TrackerState, onConnect: () -> Unit, onDetail: (String) -> 
 
 @Composable
 private fun AccountCard(row: AccountOverview, onClick: () -> Unit) {
+    val observedAt = row.latest?.observedAt
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val now by produceState(System.currentTimeMillis(), observedAt, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                value = System.currentTimeMillis()
+                delay(60_000)
+            }
+        }
+    }
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -49,25 +64,26 @@ private fun AccountCard(row: AccountOverview, onClick: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text(row.account.provider.title, style = MaterialTheme.typography.titleMedium)
                     Text("@${row.account.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (row.account.status !in setOf(SyncStatus.READY, SyncStatus.REFRESHING)) StatusLine(row.account, observedAt)
                 }
                 Icon(Icons.Outlined.ChevronRight, "계정 상세", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("팔로워", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(row.latest?.let { formatCount(it.followers) } ?: "—", style = MaterialTheme.typography.displaySmall)
+                    Text(observedAt?.let { "갱신 ${(now - it).coerceAtLeast(0) / 60_000}분 전" } ?: "수집 대기",
+                        modifier = Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    ToneBadge(formatChange(row), positive = row.change?.let { it >= 0 } == true)
-                    Text(if (row.comparisonAt != null) "직전 기록 대비" else "기록을 시작해요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(row.latest?.let { formatCount(it.followers) } ?: "—", modifier = Modifier.weight(1f), style = MaterialTheme.typography.displaySmall)
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        ToneBadge(formatChange(row), positive = row.change?.let { it >= 0 } == true)
+                        Text(if (row.comparisonAt != null) "직전 기록 대비" else "기록을 시작해요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             if (row.history.size > 1) GrowthChart(row.history, Modifier.fillMaxWidth().height(56.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                StatusLine(row.account, row.latest?.observedAt)
-                Text(row.latest?.let { "마지막 수집 ${compactObservationTime(it.observedAt)}" } ?: "첫 수집을 기다리고 있어요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
         }
     }
 }
