@@ -55,8 +55,8 @@ class AutoConnectionRuntimeTest {
         rule.runOnUiThread { CookieManager.getInstance().setCookie(provider.loginUrl, "$name=$value; Path=/; Secure") { ready = it } }
         rule.waitUntil(5_000) { ready }
     }
-    private fun document(web: WebView, base: String, html: String) = rule.runOnUiThread {
-        web.loadDataWithBaseURL(base, "<!doctype html><html><body>$html</body></html>", "text/html", "UTF-8", base)
+    private fun document(web: WebView, base: String, html: String, scriptNavigation: Boolean = false) = rule.runOnUiThread {
+        loadLoginFixture(web, base, "<!doctype html><html><body>$html</body></html>", scriptNavigation)
     }
     private fun waitForPolls() {
         val started = android.os.SystemClock.elapsedRealtime()
@@ -144,6 +144,49 @@ class AutoConnectionRuntimeTest {
             catch (failure: CollectionFailure) { assertEquals(SyncStatus.CHECK_REQUIRED, failure.status) }
         }
     }
+    @Test fun googlePopupConnectsOnlyAfterReturningToTheSnsOwnerAndPreservesItsOpener() {
+        val main = show(Provider.TIKTOK)
+        cookie(Provider.TIKTOK, "sessionid", "synthetic-popup-session")
+        document(main, Provider.TIKTOK.loginUrl, """
+            <p>Login fixture</p><script>window.fixtureMessages=0;
+            addEventListener('message',function(event){if(event.data==='fixture-complete')window.fixtureMessages++});</script>
+        """.trimIndent())
+        var ready = false
+        rule.waitUntil(10_000) {
+            if (!ready) rule.runOnUiThread { main.evaluateJavascript("document.readyState==='complete'&&typeof fixtureMessages==='number'") { ready = it == "true" } }
+            ready
+        }
+        rule.runOnUiThread { main.evaluateJavascript("window.open('about:blank','oauth-fixture');null;", null) }
+        rule.waitUntil(10_000) { browsers().size == 2 }
+        val popup = rule.runOnIdle { browsers().last().apply { settings.blockNetworkLoads = true } }
+        val profile = """
+            <script type="application/json">{"__DEFAULT_SCOPE__":{
+              "webapp.app-context":{"user":{"id":"42","uniqueId":"self"}},
+              "webapp.user-detail":{"userInfo":{"user":{"id":"42","uniqueId":"self"},"stats":{"followerCount":0,"followingCount":4}}}
+            }}</script><input name="password"><script>
+              Object.defineProperty(document.querySelector('input'),'value',{get:function(){throw new Error('Never read form fields')}});
+            </script>
+        """.trimIndent()
+        document(popup, "https://accounts.google.com/ServiceLogin", profile, scriptNavigation = true)
+        waitForPolls()
+        assertEquals("Google pages cannot produce an SNS connection", 0, connections.get())
+        var state: String? = null
+        rule.runOnUiThread { popup.evaluateJavascript("JSON.stringify({opener:!!window.opener,capture:typeof FollowerTrackerCapture})") { state = it } }
+        rule.waitUntil(5_000) { state != null }
+        val googleState = JSONObject(org.json.JSONArray("[$state]").getString(0))
+        assertTrue(googleState.getBoolean("opener"))
+        assertEquals("undefined", googleState.getString("capture"))
+        document(popup, "https://www.tiktok.com/@self", profile, scriptNavigation = true)
+        waitWithMetadata(popup) { connections.get() == 1 }
+        assertEquals(0, JSONObject(payload!!).getInt("followers"))
+        rule.runOnUiThread { popup.evaluateJavascript("window.opener.postMessage('fixture-complete','https://www.tiktok.com');window.close();", null) }
+        rule.waitUntil(10_000) { browsers().size == 1 }
+        assertSame(main, rule.runOnIdle { browser() })
+        state = null
+        rule.runOnUiThread { main.evaluateJavascript("window.fixtureMessages") { state = it } }
+        rule.waitUntil(5_000) { state != null }
+        assertEquals("1", state)
+    }
     private fun waitWithMetadata(web: WebView, condition: () -> Boolean) {
         try { rule.waitUntil(10_000, condition) }
         catch (failure: Throwable) {
@@ -156,7 +199,8 @@ class AutoConnectionRuntimeTest {
             throw failure
         }
     }
-    private fun browser(): WebView = WindowInspector.getGlobalWindowViews().asSequence().flatMap { descendants(it) }.filterIsInstance<WebView>().first()
+    private fun browsers(): List<WebView> = WindowInspector.getGlobalWindowViews().asSequence().flatMap { descendants(it) }.filterIsInstance<WebView>().toList()
+    private fun browser(): WebView = browsers().first()
     private fun descendants(view: View): Sequence<View> = sequence {
         yield(view)
         if (view is ViewGroup) for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))

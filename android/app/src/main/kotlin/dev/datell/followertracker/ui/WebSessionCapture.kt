@@ -35,7 +35,7 @@ suspend fun captureWebSession(web: WebView, provider: Provider, identity: String
     } catch (_: TimeoutCancellationException) {
         throw CollectionFailure(SyncStatus.OFFLINE)
     } finally {
-        web.evaluateJavascript("delete globalThis[$slot]", null)
+        if (provider.allows(web.url.orEmpty())) web.evaluateJavascript("delete globalThis[$slot]", null)
     }
 }
 

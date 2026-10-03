@@ -3,7 +3,7 @@ package dev.datell.followertracker.ui
 import dev.datell.followertracker.core.Provider
 import java.net.URI
 
-enum class LoginNavigation { ALLOW, EXTERNAL_SIGN_IN, BLOCK }
+enum class LoginNavigation { ALLOW, AUTHENTICATE, BLOCK }
 
 /** Login redirects have a separate boundary from the hosts receiving collection cookies. */
 fun loginNavigation(provider: Provider, url: String): LoginNavigation {
@@ -14,6 +14,6 @@ fun loginNavigation(provider: Provider, url: String): LoginNavigation {
     fun belongsTo(domain: String) = host == domain || host.endsWith(".$domain")
     if (provider == Provider.INSTAGRAM && belongsTo("facebook.com")) return LoginNavigation.ALLOW
     if (provider == Provider.X && belongsTo("twitter.com")) return LoginNavigation.ALLOW
-    if (host == "accounts.google.com" || host == "appleid.apple.com") return LoginNavigation.EXTERNAL_SIGN_IN
+    if (host == "accounts.google.com" || host == "appleid.apple.com") return LoginNavigation.AUTHENTICATE
     return LoginNavigation.BLOCK
 }

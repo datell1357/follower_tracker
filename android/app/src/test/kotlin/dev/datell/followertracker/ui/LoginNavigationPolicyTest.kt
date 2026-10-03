@@ -20,13 +20,19 @@ class LoginNavigationPolicyTest {
         assertEquals(LoginNavigation.ALLOW, loginNavigation(Provider.X, url))
         assertFalse(Provider.X.allows(url))
     }
-    @Test fun unsupportedFederatedLoginHasAnExplicitResult() {
-        assertEquals(LoginNavigation.EXTERNAL_SIGN_IN, loginNavigation(Provider.REDDIT, "https://accounts.google.com/o/oauth2/auth"))
-        assertEquals(LoginNavigation.EXTERNAL_SIGN_IN, loginNavigation(Provider.TIKTOK, "https://appleid.apple.com/auth/authorize"))
+    @Test fun federatedLoginIsAllowedForAllProvidersWithoutExpandingCollectionHosts() {
+        Provider.entries.forEach { provider ->
+            listOf("https://accounts.google.com/o/oauth2/auth", "https://appleid.apple.com/auth/authorize").forEach { url ->
+                assertEquals(LoginNavigation.AUTHENTICATE, loginNavigation(provider, url))
+                assertFalse(provider.allows(url))
+                assertFalse(canAutoConnect(provider, url, true, false, false))
+            }
+        }
     }
     @Test fun lookalikesInsecureUrlsAndUnrelatedDomainsCannotReceiveLoginNavigation() {
         listOf("https://facebook.com.example.test/login", "https://accounts.google.com.example.test/", "http://m.facebook.com/login",
-            "https://user@m.facebook.com/login", "https://m.facebook.com:8443/login", "intent://login", "file:///login", "https://example.test/")
+            "https://user@m.facebook.com/login", "https://m.facebook.com:8443/login", "intent://login", "file:///login", "https://example.test/",
+            "http://accounts.google.com/", "https://user@accounts.google.com/", "https://accounts.google.com:8443/", "https://appleid.apple.com.example.test/")
             .forEach { assertEquals(it, LoginNavigation.BLOCK, loginNavigation(Provider.INSTAGRAM, it)) }
     }
 }

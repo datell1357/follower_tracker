@@ -16,6 +16,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.datell.followertracker.core.Provider
 import dev.datell.followertracker.ui.MainActivity
+import dev.datell.followertracker.ui.LoginNavigation
+import dev.datell.followertracker.ui.loginNavigation
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule
@@ -35,11 +37,46 @@ class LoginRuntimeTest {
                 val attributes = web.rootView.layoutParams as WindowManager.LayoutParams
                 assertTrue("Login window must prevent Android screen capture", attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
                 assertTrue("Cross-site login cookies must be available in this view", CookieManager.getInstance().acceptThirdPartyCookies(web))
+                assertTrue(web.settings.supportMultipleWindows())
+                assertTrue(web.settings.javaScriptCanOpenWindowsAutomatically)
+                assertFalse(web.settings.userAgentString.contains("; wv"))
+                assertFalse(web.settings.userAgentString.contains("Version/4.0"))
                 assertFalse(web.settings.allowFileAccess)
                 assertFalse(web.settings.allowContentAccess)
             }
             close()
         }
+    }
+
+    @Test fun closingAPopupRestoresTheLoginPageAndClosingTheDialogReleasesBothWindows() {
+        open(Provider.REDDIT)
+        val main = rule.runOnIdle { browser().apply { stopLoading(); settings.blockNetworkLoads = true } }
+        rule.runOnUiThread {
+            loadLoginFixture(main, Provider.REDDIT.loginUrl, "<html><body>Popup fixture</body></html>")
+        }
+        var ready = false
+        rule.waitUntil(10_000) {
+            if (!ready) rule.runOnUiThread { main.evaluateJavascript("document.readyState==='complete'&&document.body.innerText==='Popup fixture'") { ready = it == "true" } }
+            ready
+        }
+        fun openPopup() {
+            rule.runOnUiThread { main.evaluateJavascript("window.open('about:blank','fixture-popup');null;", null) }
+            rule.waitUntil(10_000) { browsers().size == 2 }
+            rule.runOnIdle {
+                val popup = browsers().last()
+                assertTrue(CookieManager.getInstance().acceptThirdPartyCookies(popup))
+                assertEquals(main.settings.userAgentString, popup.settings.userAgentString)
+                val attributes = popup.rootView.layoutParams as WindowManager.LayoutParams
+                assertTrue(attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+            }
+        }
+        openPopup()
+        rule.onNodeWithContentDescription("이전 페이지").performClick()
+        rule.waitUntil(10_000) { browsers().size == 1 }
+        assertSame(main, rule.runOnIdle { browser() })
+        openPopup()
+        close()
+        rule.runOnIdle { assertTrue(browsers().isEmpty()) }
     }
 
     /** Run explicitly on a networked device. This records form availability, not successful authentication. */
@@ -94,12 +131,87 @@ class LoginRuntimeTest {
         File(directory, "official-login-pages.json").writeText(observations.toString(2))
     }
 
+    /** Explicit network diagnostic: anonymous Google-page entry only, no credentials or connection writes. */
+    @Test fun recordGoogleLoginPageEntry() {
+        val results = JSONObject().put("webViewVersion", WebView.getCurrentWebViewPackage()?.versionName)
+        for (provider in listOf(Provider.TIKTOK, Provider.X, Provider.REDDIT)) {
+            open(provider)
+            val main = rule.runOnIdle { browser() }
+            var candidate: String? = null
+            val result = JSONObject().put("googleButtonFound", false).put("googlePageReached", false)
+            try {
+                rule.waitUntil(30_000) {
+                    if (candidate == null) rule.runOnUiThread {
+                        main.evaluateJavascript("""
+                            (function(){
+                              if(!document.body || document.readyState==='loading') return null;
+                              var roots=[document], choices=[];
+                              for(var i=0;i<roots.length;i++){
+                                roots[i].querySelectorAll('*').forEach(function(n){if(n.shadowRoot) roots.push(n.shadowRoot)});
+                                roots[i].querySelectorAll('button,a,[role=button],iframe,span,div').forEach(function(n){
+                                  var text=(n.innerText||'').trim(), frame=n.tagName==='IFRAME'&&/google/i.test(n.title||'');
+                                  if(!frame&&!/^(?:(?:continue|sign in|log in) with google|google(?:로| 계정으로)?(?: 계속(?:하기)?| 로그인)?)$/i.test(text)) return;
+                                  var r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+                                  if(r.width<2||r.height<2||x<0||y<0||x>=innerWidth||y>=innerHeight) return;
+                                  var hit=roots[i].elementFromPoint(x,y);
+                                  if(hit!==n&&!n.contains(hit)) return;
+                                  choices.push({x:x,y:y,width:innerWidth,area:r.width*r.height});
+                                });
+                              }
+                              choices.sort(function(a,b){return a.area-b.area});
+                              return choices.length ? JSON.stringify(choices[0]) : null;
+                            })()
+                        """.trimIndent()) { if (it != "null") candidate = it }
+                    }
+                    candidate != null
+                }
+                val point = JSONObject(org.json.JSONArray("[$candidate]").getString(0))
+                result.put("googleButtonFound", true)
+                rule.runOnIdle {
+                    val scale = main.width / point.getDouble("width")
+                    val x = (point.getDouble("x") * scale).toFloat()
+                    val y = (point.getDouble("y") * scale).toFloat()
+                    val start = SystemClock.uptimeMillis()
+                    listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP).forEach { action ->
+                        val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x, y, 0)
+                        main.dispatchTouchEvent(event); event.recycle()
+                    }
+                }
+                var page: String? = null
+                rule.waitUntil(30_000) {
+                    val current = rule.runOnIdle { browsers().lastOrNull() }
+                    if (page == null && current != null) rule.runOnUiThread {
+                        if (loginNavigation(provider, current.url.orEmpty()) == LoginNavigation.AUTHENTICATE) {
+                            current.evaluateJavascript("""
+                                (function(){if(!document.body||document.readyState==='loading')return null;
+                                return JSON.stringify({host:location.hostname,
+                                  emailField:!!document.querySelector('input[type=email],input[name=identifier],#identifierId'),
+                                  googleDenied:/disallowed_useragent|browser or app may not be secure|안전하지 않을|액세스 차단/i.test(document.body.innerText),
+                                  accountChooser:/choose an account|계정 선택/i.test(document.body.innerText),opener:!!window.opener});})()
+                            """.trimIndent()) { if (it != "null") page = it }
+                        }
+                    }
+                    page != null
+                }
+                result.put("googlePageReached", true)
+                result.put("page", JSONObject(org.json.JSONArray("[$page]").getString(0)))
+            } catch (_: androidx.compose.ui.test.ComposeTimeoutException) {
+                result.put("stageTimedOut", true)
+            } finally {
+                results.put(provider.name, result)
+                close()
+            }
+        }
+        val directory = File(rule.activity.getExternalFilesDir(null), "qa").apply { mkdirs() }
+        File(directory, "google-login-entry.json").writeText(results.toString(2))
+    }
+
     @Test fun percentageHeightLoginFormIsVisibleAndAcceptsTouch() {
         open(Provider.INSTAGRAM)
         val web = rule.runOnIdle { browser() }
         rule.runOnUiThread {
             web.stopLoading()
-            web.loadDataWithBaseURL(null, """
+            loadLoginFixture(web, Provider.INSTAGRAM.loginUrl, """
                 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
                 <style>html,body,#login-fixture {height:100%;margin:0}
                 #login-fixture {overflow:hidden;background:#117744}
@@ -107,7 +219,7 @@ class LoginRuntimeTest {
                 </head><body><div id="login-fixture"><form>
                 <input id="fixture-username" type="text"><input type="password">
                 </form></div></body></html>
-            """.trimIndent(), "text/html", "UTF-8", null)
+            """.trimIndent())
         }
         var loaded = false
         rule.waitUntil(15_000) {
@@ -175,8 +287,9 @@ class LoginRuntimeTest {
         rule.onNodeWithContentDescription("닫기").performClick()
         rule.waitUntil(15_000) { rule.onAllNodesWithText("SNS 연결하기").fetchSemanticsNodes().isNotEmpty() }
     }
-    private fun browser(): WebView = WindowInspector.getGlobalWindowViews().asSequence()
-        .flatMap { descendants(it) }.filterIsInstance<WebView>().first()
+    private fun browsers(): List<WebView> = WindowInspector.getGlobalWindowViews().asSequence()
+        .flatMap { descendants(it) }.filterIsInstance<WebView>().toList()
+    private fun browser(): WebView = browsers().first()
     private fun descendants(view: View): Sequence<View> = sequence {
         yield(view)
         if (view is ViewGroup) for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))
