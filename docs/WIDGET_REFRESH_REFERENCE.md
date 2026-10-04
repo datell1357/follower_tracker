@@ -18,7 +18,7 @@
 
 ## 현재 팔로워 트래커와의 차이
 
-팔로워 트래커의 `RapidTrackingService`도 수집 경과 시간을 고려한 1분 루프, 실행·중지 알림, 실패 시 마지막 정상 기록 보존과 저장 직후 위젯 갱신 요청을 사용한다. 현재 서비스 유형은 `dataSync`이고 `START_NOT_STICKY`, 자체 상한 5시간 59분 30초, OS `onTimeout` 처리와 사용자의 직접 재시작을 유지한다. 일반 예약은 별도의 15분 이상 WorkManager 작업이다.
+팔로워 트래커의 `RapidTrackingService`도 수집 경과 시간을 고려한 1분 루프, 실행·중지 알림, 실패 시 마지막 정상 기록 보존과 저장 직후 위젯 갱신 요청을 사용한다. 현재 서비스 유형은 `dataSync`이고 `START_NOT_STICKY`, 자체 상한 5시간 59분 30초, OS `onTimeout` 처리와 사용자의 직접 재시작을 유지한다. 일반 예약은 별도의 15분 고정 WorkManager 작업이며 간격 선택 설정을 제공하지 않는다.
 
 Android 15 이상을 대상으로 하는 `dataSync`·`mediaProcessing` 전경 서비스에는 백그라운드 실행 총 6시간/24시간 제한이 적용된다. 이 제한이 모든 전경 서비스 유형에 동일하게 적용되는 것은 아니다. AI Quota의 `specialUse`는 이 두 유형과 다르므로 코드에 같은 6시간 종료가 없는 이유를 설명한다. [Android 전경 서비스 시간 제한](https://developer.android.com/develop/background-work/services/fgs/timeout)
 

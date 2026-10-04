@@ -17,7 +17,7 @@ struct TrackerMoreView: View {
                 VStack(spacing: 0) {
                     link(.accounts, "연결된 계정", "SNS 추가, 로그인 확인, 연결 해제", "person.crop.circle")
                     Divider().padding(.horizontal, 18)
-                    link(.settings, "수집 설정", "내 생활에 맞는 갱신 간격", "slider.horizontal.3")
+                    link(.settings, "수집 설정", "자동 수집과 명단 안내", "slider.horizontal.3")
                 }.background(TrackerStyle.surface, in: RoundedRectangle(cornerRadius: 24))
                 TrackerSectionTitle(title: "함께 만드는 트래커")
                 VStack(spacing: 0) {

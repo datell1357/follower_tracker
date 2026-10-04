@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 import dev.datell.followertracker.BuildConfig
 
 enum class MorePage(val title: String, val subtitle: String) {
-    SETTINGS("수집 설정", "내 생활에 맞는 갱신 주기"),
+    SETTINGS("수집 설정", "빠른 추적과 수집 상태"),
     ACCOUNTS("연결된 계정", "SNS 연결과 로그인 관리"),
     SUPPORT("앱 지원", "기본 기능은 무료로"),
     PRIVACY("개인정보와 데이터", "내 기록이 저장되는 곳"),
@@ -40,7 +40,7 @@ fun MoreScreen(state: TrackerState, onPage: (MorePage) -> Unit) {
                 Column {
                     MenuRow("연결된 계정", "SNS 추가, 로그인 확인, 연결 해제", Icons.Outlined.ManageAccounts, { onPage(MorePage.ACCOUNTS) })
                     HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                    MenuRow("수집 설정", "빠른 추적과 일반 갱신 간격", Icons.Outlined.Tune, { onPage(MorePage.SETTINGS) })
+                    MenuRow("수집 설정", "빠른 추적 시작과 중지", Icons.Outlined.Tune, { onPage(MorePage.SETTINGS) })
                 }
             }
         }
@@ -139,7 +139,7 @@ fun PrivacyScreen() {
 fun HelpScreen() {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { InfoPanel("마지막 수집 시각부터 확인해요", "갱신이 늦어질 때는 수집 시각과 계정 상태를 함께 확인하세요. 네트워크, SNS 요청 제한, 기기의 절전 상태가 영향을 줄 수 있어요.", icon = Icons.Outlined.Schedule) }
-        item { FaqItem("1분마다 항상 갱신되나요?", "설정 → 수집 설정에서 빠른 추적을 시작하면 Instagram을 약 1분마다 확인해요. 실행 알림이 표시되며 한 번에 최대 약 6시간 실행해요. 정확히 1분마다 또는 24시간 연속 수집은 보장하지 않아요. 일반 수집은 15분 이상 간격으로 운영체제가 실행 시각을 정해요.") }
+        item { FaqItem("1분마다 항상 갱신되나요?", "설정 → 수집 설정에서 빠른 추적을 시작하면 연결된 SNS를 약 1분마다 확인해요. 실행 알림이 표시되며 한 번에 최대 약 6시간 실행해요. 일반 수집은 별도 설정 없이 15분 간격으로 요청해요. 운영체제·네트워크·SNS 요청 제한에 따라 실제 갱신은 늦어질 수 있어요.") }
         item { FaqItem("위젯의 숫자가 그대로예요", "실제 팔로워 수가 같거나 수집이 지연될 수 있어요. 위젯 아래의 수집 시각을 확인하세요. 홈 화면을 길게 눌러 위젯을 추가할 수 있고, 위젯을 누르면 앱의 계정 탭으로 이동해요.") }
         item { FaqItem("위젯이 회색으로 바뀌었어요", "앱을 강제 중지하면 예약 수집과 빠른 추적도 멈춰요. Android 15 이상에서는 위젯이 회색으로 비활성화돼요. 앱 아이콘으로 다시 열면 위젯을 사용할 수 있어요. 빠른 추적은 설정 → 수집 설정에서 다시 시작해주세요.") }
         item { FaqItem("갱신 대기와 로그인 필요는 다른가요?", "갱신 대기는 SNS의 요청 제한일 수 있어요. 대기 시간을 지켜 다시 요청하며, 반복해서 눌러도 우회하지 않아요. 다시 로그인 필요가 표시되면 설정 → 연결된 계정에서 공식 로그인 페이지를 열어주세요.") }

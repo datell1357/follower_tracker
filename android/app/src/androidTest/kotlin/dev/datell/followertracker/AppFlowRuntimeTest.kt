@@ -63,11 +63,9 @@ class AppFlowRuntimeTest {
         rule.onNodeWithText("수집 설정").performClick()
         rule.onNodeWithText("1분 빠른 추적").assertIsDisplayed()
         rule.onNodeWithText("빠른 추적 시작").assertIsNotEnabled()
-        rule.onNodeWithText("수집 요청 간격").assertIsDisplayed()
-        rule.onNodeWithText("15분").assertIsDisplayed()
-        rule.onNodeWithText("30분").assertIsDisplayed()
-        rule.onNodeWithText("60분").assertIsDisplayed()
-        rule.onNodeWithText("2시간").assertIsDisplayed()
+        rule.onNodeWithText("수집 요청 간격").assertDoesNotExist()
+        for (label in listOf("15분", "30분", "60분", "2시간")) rule.onNodeWithText(label).assertDoesNotExist()
+        rule.onNodeWithText("관계 명단은 하루 간격으로").assertIsDisplayed()
         capture("settings.png")
     }
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -98,7 +96,7 @@ class AppFlowRuntimeTest {
         }
     }
     @Test fun repeatedWidgetIntentsReturnToTracking() {
-        listOf("설정" to "수집 요청 간격", "분석" to "연결된 계정이 없어요", "위젯" to "첫 계정을 기다려요").forEach { (tab, content) ->
+        listOf("설정" to "관계 명단은 하루 간격으로", "분석" to "연결된 계정이 없어요", "위젯" to "첫 계정을 기다려요").forEach { (tab, content) ->
             rule.onAllNodesWithText(tab).filter(hasClickAction()).onFirst().performClick()
             if (tab == "설정") rule.onNodeWithText("수집 설정").performClick()
             rule.onNodeWithText(content).assertIsDisplayed()

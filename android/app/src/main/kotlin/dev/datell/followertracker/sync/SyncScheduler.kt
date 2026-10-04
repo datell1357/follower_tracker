@@ -7,12 +7,13 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 
 object SyncScheduler {
-    fun interval(context: Context) = context.getSharedPreferences("settings", Context.MODE_PRIVATE).getInt("interval", 60)
-    fun schedule(context: Context, minutes: Int = interval(context)) {
-        require(minutes in setOf(15, 30, 60, 120))
-        context.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putInt("interval", minutes).apply()
+    private const val METRICS_INTERVAL_MINUTES = 15
+
+    fun schedule(context: Context) {
+        // Normalize earlier configurable intervals when the app starts after an update.
+        context.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putInt("interval", METRICS_INTERVAL_MINUTES).apply()
         val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
-        val metrics = PeriodicWorkRequestBuilder<MetricsWorker>(minutes.toLong(), TimeUnit.MINUTES)
+        val metrics = PeriodicWorkRequestBuilder<MetricsWorker>(METRICS_INTERVAL_MINUTES.toLong(), TimeUnit.MINUTES)
             .setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES).build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork("metrics-refresh", ExistingPeriodicWorkPolicy.UPDATE, metrics)
         val lists = PeriodicWorkRequestBuilder<RelationshipsWorker>(24, TimeUnit.HOURS)

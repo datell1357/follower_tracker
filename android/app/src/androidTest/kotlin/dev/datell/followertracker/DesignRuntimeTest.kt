@@ -106,19 +106,21 @@ class DesignRuntimeTest {
         capture("design-widget-preview.png")
     }
 
-    @Test fun smallWidthLargeTypeKeepsEveryIntervalChoiceWithinTheScreen() {
+    @Test fun smallWidthLargeTypeKeepsTrackingControlsWithoutIntervalChoices() {
         rule.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, 1.5f)) {
                 Frame("수집 설정", small = true) { SettingsScreen(TrackerState(loading = false)) }
             }
         }
-        for (label in listOf("15분", "30분", "60분", "2시간")) {
+        rule.onNodeWithText("수집 요청 간격").assertDoesNotExist()
+        for (label in listOf("15분", "30분", "60분", "2시간")) rule.onNodeWithText(label).assertDoesNotExist()
+        for (label in listOf("1분 빠른 추적", "빠른 추적 시작")) {
             val node = rule.onNodeWithText(label).performScrollTo().assertIsDisplayed().fetchSemanticsNode()
             val root = rule.onNodeWithTag("design-frame").fetchSemanticsNode().boundsInRoot
             assertTrue("$label must fit the viewport", node.boundsInRoot.left >= root.left && node.boundsInRoot.right <= root.right)
         }
-        capture("design-small-large-type.png")
+        capture("design-fixed-interval-small-large-type.png")
         rule.onNodeWithText("빠른 추적 시작").performScrollTo().assertIsNotEnabled()
     }
 
