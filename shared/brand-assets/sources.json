@@ -1,0 +1,57 @@
+{
+  "retrieved_on": "2026-10-04",
+  "android_conversion": "sdk-common 31.13.2 Svg2Vector.parseSvgToXml",
+  "illustrator_conversion": "PyMuPDF 1.26.6 get_svg_image(text_as_path=True), viewBox crops artboard whitespace only",
+  "assets": [
+    {
+      "provider": "instagram",
+      "official_page": "https://www.meta.com/brand/resources/instagram/instagram-brand/",
+      "official_source": "IG_brand_asset_pack_2023.zip/01 Static Glyph/02 White Glyph/Instagram_Glyph_White.svg",
+      "source_file_hashed": "instagram.zip",
+      "source_sha256": "a9e5cbe63dc01279b3d12d536ea9d94ab5236521601bd5cc4b4caf7ba7060e82",
+      "svg": "svg/instagram.svg",
+      "svg_sha256": "3347813e9e8f082cdf48495818bd370ccff94b687efb8aa1c8a7b36cfcfb8291",
+      "conversion": "original-svg"
+    },
+    {
+      "provider": "facebook",
+      "official_page": "https://www.meta.com/brand/resources/facebook/logo/",
+      "official_source": "Facebook-Brand-Asset-Pack.zip/Facebook Brand Asset Pack/Logo/Primary Logo/Facebook_Logo_Primary.ai",
+      "source_file_hashed": "facebook-primary.ai",
+      "source_sha256": "64c6215ccf409d1eeba355388611286d633cb2da28cf959b75840c273e68d241",
+      "svg": "svg/facebook.svg",
+      "svg_sha256": "f4cae73d4c6a32870d8fe4b1de15b7a03b562e9b770dc3aa6ce85b2af50d3e07",
+      "conversion": "official-ai-to-svg"
+    },
+    {
+      "provider": "tiktok",
+      "official_page": "https://developers.tiktok.com/docs/en/getting-started-design-guidelines",
+      "official_source": "logo-pack.zip/TikTok_Icon_Black.ai (artboard 1)",
+      "source_file_hashed": "tiktok-icon.ai",
+      "source_sha256": "d76ffdb96ef96082c3e65a8cc0f2a386d338849d1670c6d388aa616ad1061e1a",
+      "svg": "svg/tiktok.svg",
+      "svg_sha256": "e848e1ab057ada8d57f6f1d19bf2a84491b642588c008a92d375d653c32994ba",
+      "conversion": "official-ai-to-svg"
+    },
+    {
+      "provider": "x",
+      "official_page": "https://about.x.com/es/who-we-are/brand-toolkit",
+      "official_source": "x-logo.zip/logo.svg",
+      "source_file_hashed": "x.zip",
+      "source_sha256": "ee404b30ad693963f35088e3da1c2e6e59925a34702a2e24d3980ffce5967fff",
+      "svg": "svg/x.svg",
+      "svg_sha256": "dd46f96b6f47fcd33683b79ddfaf3daca1d4f8aeba3c0f2bde1584c69cc699d4",
+      "conversion": "original-svg"
+    },
+    {
+      "provider": "reddit",
+      "official_page": "https://redditbrand.lingoapp.com/s/PXzmWE?v=46",
+      "official_source": "Reddit_Icon_FullColor_Bleed.svg (Brand foundation v5.1)",
+      "source_file_hashed": "reddit.svg",
+      "source_sha256": "b4b5a80b2b6b5f9735328a10b0fe122b5eae221cd885d67bbf538f01da347946",
+      "svg": "svg/reddit.svg",
+      "svg_sha256": "944f308b42648bde5d2a54144146f21eb98b847365e3ac1df9de8a28d7f0d872",
+      "conversion": "original-svg-trailing-whitespace-normalized"
+    }
+  ]
+}

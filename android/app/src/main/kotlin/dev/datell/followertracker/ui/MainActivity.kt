@@ -141,7 +141,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
             }
                 if (provider == Provider.FACEBOOK) item(key = "facebook-page") {
                     ListItem(headlineContent = { Text("Facebook 페이지") }, supportingContent = { Text("페이지로 이동한 뒤 연결 확인") },
-                        leadingContent = { Icon(Icons.Outlined.Flag, null, tint = MaterialTheme.colorScheme.primary) },
+                        leadingContent = { ProviderMark(Provider.FACEBOOK) },
                         trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
                         modifier = Modifier.clickableSafe { picking = false; model.dismissMessage(); login = LoginRequest(Provider.FACEBOOK, facebookPage = true) })
                 }

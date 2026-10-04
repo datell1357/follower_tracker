@@ -1,6 +1,7 @@
 package dev.datell.followertracker.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,8 +13,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
@@ -21,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.data.AccountOverview
+import dev.datell.followertracker.R
 import java.text.NumberFormat
 import java.time.Instant
 import java.time.ZoneId
@@ -43,20 +47,28 @@ fun relativeTime(at: Long?): String {
     return when { minutes < 1 -> "방금 갱신"; minutes < 60 -> "${minutes}분 전 갱신"; minutes < 1440 -> "${minutes / 60}시간 전 갱신";
         else -> DateTimeFormatter.ofPattern("M월 d일 HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(at)) }
 }
-fun providerColor(provider: Provider): Color = when (provider) {
-    Provider.INSTAGRAM -> Color(0xFFAB467B); Provider.TIKTOK -> Color(0xFF226A70)
-    Provider.X -> Color(0xFF25354D); Provider.FACEBOOK -> Color(0xFF3768D2); Provider.REDDIT -> Color(0xFFD86532)
-}
 @Composable
 fun ProviderMark(provider: Provider, modifier: Modifier = Modifier) {
-    Box(modifier.size(44.dp).background(providerColor(provider).copy(alpha = .11f), RoundedCornerShape(14.dp)), contentAlignment = androidx.compose.ui.Alignment.Center) {
-        Text(when (provider) { Provider.INSTAGRAM -> "IG"; Provider.TIKTOK -> "Tk"; Provider.X -> "X"; Provider.FACEBOOK -> "f"; Provider.REDDIT -> "r" },
-            color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium)
+    val palette = providerPalette(provider)
+    val background = when (provider) {
+        Provider.INSTAGRAM -> Brush.linearGradient(listOf(Color(0xFF833AB4), Color(0xFFE1306C), Color(0xFFFCAF45)))
+        Provider.TIKTOK, Provider.X -> Brush.linearGradient(listOf(Color.Black, Color.Black))
+        Provider.FACEBOOK, Provider.REDDIT -> Brush.linearGradient(listOf(palette.accent.copy(alpha = .10f), palette.accent.copy(alpha = .10f)))
+    }
+    val drawable = when (provider) {
+        Provider.INSTAGRAM -> R.drawable.provider_instagram
+        Provider.TIKTOK -> R.drawable.provider_tiktok
+        Provider.X -> R.drawable.provider_x
+        Provider.FACEBOOK -> R.drawable.provider_facebook
+        Provider.REDDIT -> R.drawable.provider_reddit
+    }
+    Box(modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(background), contentAlignment = Alignment.Center) {
+        // Image preserves the official artwork's colors; Icon would apply a tint.
+        Image(painterResource(drawable), contentDescription = null, Modifier.size(if (provider == Provider.REDDIT) 44.dp else 28.dp))
     }
 }
 @Composable
-fun GrowthChart(history: List<MetricSnapshot>, modifier: Modifier = Modifier) {
-    val color = MaterialTheme.colorScheme.primary
+fun GrowthChart(history: List<MetricSnapshot>, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
     Canvas(modifier.semantics { contentDescription = "팔로워 수 변화 그래프, ${history.size}개 기록" }) {
         if (history.isEmpty()) return@Canvas
         val min = history.minOf { it.followers }.toDouble()

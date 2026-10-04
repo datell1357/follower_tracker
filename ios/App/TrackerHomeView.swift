@@ -77,8 +77,8 @@ struct AccountCard: View {
                 Text(row.comparisonAt.map { TrackerStyle.observationTime($0, compact: true) + " 대비" } ?? (row.previous == nil ? "변화 기록을 시작해요" : "정확한 두 기록이 필요해요"))
                     .font(.caption).foregroundStyle(TrackerStyle.muted)
             }
-            if row.history.count > 1 { GrowthChart(history: row.history).frame(height: 56).accessibilityHidden(true) }
-        }.foregroundStyle(TrackerStyle.ink).trackerPanel(padding: 22).accessibilityElement(children: .combine)
+            if row.history.count > 1 { GrowthChart(history: row.history, color: TrackerStyle.color(row.account.provider)).frame(height: 56).accessibilityHidden(true) }
+        }.foregroundStyle(TrackerStyle.ink).providerPanel(row.account.provider, padding: 22).accessibilityElement(children: .combine)
     }
 }
 

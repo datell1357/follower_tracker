@@ -12,7 +12,7 @@ enum TrackerStyle {
     static let blueSurface = adaptive(0xE9EDFF, 0x253365)
     static let onBlueSurface = adaptive(0x243D99, 0xE2E7FF)
     static let onBlue = adaptive(0xFFFFFF, 0x192A75)
-    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
+    static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(uiColor: UIColor { traits in
             let value = traits.userInterfaceStyle == .dark ? dark : light
             return UIColor(red: Double((value >> 16) & 255) / 255,
@@ -52,21 +52,19 @@ enum TrackerStyle {
         return date.formatted(.dateTime.month().day().hour().minute())
     }
     static func color(_ provider: Provider) -> Color {
-        switch provider {
-        case .instagram: adaptive(0xAA447A, 0xFFADD4)
-        case .tiktok: adaptive(0x216B70, 0x7CDADE)
-        case .x: ink
-        case .facebook: blue
-        case .reddit: adaptive(0xAF5026, 0xFFB896)
-        }
+        ProviderBrand(provider: provider).accent
     }
 }
 struct ProviderMark: View {
     let provider: Provider
     var body: some View {
-        Text([Provider.instagram: "IG", .tiktok: "Tk", .x: "X", .facebook: "f", .reddit: "r"][provider]!)
-            .font(.headline).foregroundStyle(TrackerStyle.color(provider)).frame(width: 44, height: 44)
-            .background(TrackerStyle.color(provider).opacity(0.11), in: RoundedRectangle(cornerRadius: 14)).accessibilityHidden(true)
+        let brand = ProviderBrand(provider: provider)
+        Image(brand.assetName).resizable().renderingMode(.original).scaledToFit()
+            .frame(width: provider == .reddit ? 44 : 28, height: provider == .reddit ? 44 : 28)
+            .frame(width: 44, height: 44)
+            .background(brand.iconBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .accessibilityHidden(true)
     }
 }
 struct EmptyCard<Content: View>: View {
@@ -83,6 +81,7 @@ extension EmptyCard where Content == EmptyView {
 }
 struct GrowthChart: View {
     let history: [MetricSnapshot]
+    var color: Color = TrackerStyle.blue
     var body: some View {
         Canvas { context, size in
             guard let first = history.first, let last = history.last else { return }
@@ -93,10 +92,10 @@ struct GrowthChart: View {
             var path = Path(); path.move(to: points[0]); points.dropFirst().forEach { path.addLine(to: $0) }
             if points.count > 1 {
                 var fill = path; fill.addLine(to: CGPoint(x: points.last!.x, y: size.height)); fill.addLine(to: CGPoint(x: points[0].x, y: size.height)); fill.closeSubpath()
-                context.fill(fill, with: .linearGradient(Gradient(colors: [TrackerStyle.blue.opacity(0.16), .clear]), startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
-                context.stroke(path, with: .color(TrackerStyle.blue), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                context.fill(fill, with: .linearGradient(Gradient(colors: [color.opacity(0.16), .clear]), startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
+                context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
             }
-            context.fill(Path(ellipseIn: CGRect(x: points.last!.x - 3, y: points.last!.y - 3, width: 6, height: 6)), with: .color(TrackerStyle.blue))
+            context.fill(Path(ellipseIn: CGRect(x: points.last!.x - 3, y: points.last!.y - 3, width: 6, height: 6)), with: .color(color))
         }.accessibilityLabel("팔로워 변화 그래프, \(history.count)개 기록")
     }
 }

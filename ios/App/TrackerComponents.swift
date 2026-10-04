@@ -1,9 +1,14 @@
 import SwiftUI
+import FollowerCore
 
 extension View {
     func trackerPanel(padding: CGFloat = 20) -> some View {
         self.padding(padding).frame(maxWidth: .infinity, alignment: .leading)
             .background(TrackerStyle.surface, in: RoundedRectangle(cornerRadius: 24))
+    }
+    func providerPanel(_ provider: Provider, padding: CGFloat = 20) -> some View {
+        self.padding(padding).padding(.top, 4).frame(maxWidth: .infinity, alignment: .leading)
+            .background { ProviderCardBackground(provider: provider) }
     }
 }
 

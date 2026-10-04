@@ -1,6 +1,7 @@
 package dev.datell.followertracker.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -55,7 +56,8 @@ fun AccountManagementScreen(state: TrackerState, onReconnect: (Account) -> Unit,
         } }
         if (state.accounts.isEmpty()) item { EmptyCard("연결된 계정이 없어요", "공식 SNS 페이지에서 로그인하면 확인 가능한 본인 계정의 수치를 자동으로 연결해요.") }
         items(state.accounts, key = { it.account.key }) { row ->
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            val palette = providerPalette(row.account.provider)
+            ProviderCard(row.account.provider) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ProviderMark(row.account.provider)
@@ -66,9 +68,11 @@ fun AccountManagementScreen(state: TrackerState, onReconnect: (Account) -> Unit,
                     }
                     StatusLine(row.account, row.latest?.observedAt)
                     row.latest?.let { Text("마지막 수집 ${observationTime(it.observedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    HorizontalDivider(color = palette.accent.copy(alpha = .16f))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        OutlinedButton(onClick = { onReconnect(row.account) }, enabled = !state.busy) { Text(if (row.account.accountType == AccountType.PAGE) "페이지 갱신" else "로그인 확인") }
+                        OutlinedButton(onClick = { onReconnect(row.account) }, enabled = !state.busy,
+                            border = BorderStroke(1.dp, palette.accent.copy(alpha = if (state.busy) .12f else .45f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.accent)) { Text(if (row.account.accountType == AccountType.PAGE) "페이지 갱신" else "로그인 확인") }
                         TextButton(onClick = { onDisconnect(row.account.key) }, enabled = !state.busy, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("연결 해제") }
                     }
                 }

@@ -61,6 +61,35 @@ final class DesignRuntimeTests: XCTestCase {
             }
         }
     }
+    func testOfficialProviderAssetsAndBrandedCardsRenderWithoutLoadingAccounts() throws {
+        let providers: [Provider] = [.instagram, .tiktok, .x, .facebook, .reddit]
+        for provider in providers {
+            let asset = try XCTUnwrap(UIImage(named: ProviderBrand(provider: provider).assetName))
+            XCTAssertGreaterThan(asset.size.width, 0)
+            XCTAssertGreaterThan(asset.size.height, 0)
+        }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tracker-ui-qa", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for appearance in [ColorScheme.light, .dark] {
+            let gallery = VStack(spacing: 12) {
+                ForEach(providers, id: \.self) { provider in
+                    HStack(spacing: 12) {
+                        ProviderMark(provider: provider)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(provider.title).font(.headline)
+                            Text("팔로워 12,480 · 갱신 0분 전").font(.caption).foregroundStyle(TrackerStyle.muted)
+                        }
+                        Spacer()
+                    }.providerPanel(provider, padding: 16)
+                }
+            }.padding(20).frame(width: 390).foregroundStyle(TrackerStyle.ink)
+                .background(TrackerStyle.background).environment(\.colorScheme, appearance)
+            let renderer = ImageRenderer(content: gallery)
+            let image = try XCTUnwrap(renderer.uiImage)
+            let data = try XCTUnwrap(image.pngData())
+            try data.write(to: folder.appendingPathComponent("provider-brand-\(appearance == .dark ? "dark" : "light").png"))
+        }
+    }
     func testSyntheticCardsAndWidgetSizesRenderWithoutSavingAnAccount() throws {
         let value = try row()
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tracker-ui-qa", isDirectory: true)

@@ -57,7 +57,7 @@ private fun AccountCard(row: AccountOverview, onClick: () -> Unit) {
             }
         }
     }
-    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    ProviderCard(row.account.provider, onClick = onClick) {
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProviderMark(row.account.provider)
@@ -83,7 +83,7 @@ private fun AccountCard(row: AccountOverview, onClick: () -> Unit) {
                     }
                 }
             }
-            if (row.history.size > 1) GrowthChart(row.history, Modifier.fillMaxWidth().height(56.dp))
+            if (row.history.size > 1) GrowthChart(row.history, Modifier.fillMaxWidth().height(56.dp), providerPalette(row.account.provider).accent)
         }
     }
 }

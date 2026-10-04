@@ -62,12 +62,12 @@ struct TrackerAccountsView: View {
                             HStack { reconnect(row); Spacer(minLength: 12); disconnect(row) }
                             VStack(alignment: .leading, spacing: 10) { reconnect(row); disconnect(row) }
                         }
-                    }.trackerPanel().disabled(busy)
+                    }.providerPanel(row.account.provider).disabled(busy)
                 }
             }.padding(20).foregroundStyle(TrackerStyle.ink)
         }.background(TrackerStyle.background).navigationTitle("연결된 계정").navigationBarTitleDisplayMode(.inline)
     }
-    private func reconnect(_ row: AccountOverview) -> some View { Button("로그인 페이지") { onReconnect(row.account.provider) }.font(.subheadline.weight(.semibold)).frame(minHeight: 48) }
+    private func reconnect(_ row: AccountOverview) -> some View { Button("로그인 페이지") { onReconnect(row.account.provider) }.font(.subheadline.weight(.semibold)).tint(TrackerStyle.color(row.account.provider)).frame(minHeight: 48) }
     private func disconnect(_ row: AccountOverview) -> some View { Button("연결 해제", role: .destructive) { onDisconnect(row.id) }.font(.subheadline).frame(minHeight: 48) }
 }
 
