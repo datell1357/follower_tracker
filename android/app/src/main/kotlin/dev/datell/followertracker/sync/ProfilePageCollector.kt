@@ -10,6 +10,8 @@ import android.webkit.*
 import dev.datell.followertracker.BuildConfig
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.ui.captureWebSession
+import dev.datell.followertracker.ui.facebookCollectionFallback
+import dev.datell.followertracker.ui.isOptionalTikTokAppLink
 import dev.datell.followertracker.ui.webCaptureFailure
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -37,12 +39,13 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
     @SuppressLint("SetJavaScriptEnabled")
     suspend fun read(account: Account, userAgent: String, retain: Boolean = false): String = mutex.withLock {
       withContext(Dispatchers.Main.immediate) {
-        if (account.provider != Provider.INSTAGRAM || !account.provider.allows(account.profileUrl))
+        if (account.accountType != AccountType.PROFILE || !account.provider.allows(account.profileUrl))
             throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
         if (!sessions.hasAuthentication(account.provider) || sessions.identity(account.provider) != account.stableId)
             throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
         val loaded = CompletableDeferred<Unit>()
         var failure: CollectionFailure? = null
+        var pendingCaptureFailure: CollectionFailure? = null
         val binding = Binding(account.provider, account.key, account.connectedAt,
             sessions.metadata(account.provider)?.savedAt ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED),
             userAgent, account.profileUrl)
@@ -54,9 +57,11 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             createWebView(context)
         }
         val acquiredGeneration = generation
+        val facebookFallbacks = mutableSetOf<String>()
         var succeeded = false
-        fun fail(error: CollectionFailure) {
+        fun fail(error: CollectionFailure, stage: String) {
             if (failure != null) return
+            if (BuildConfig.DEBUG) Log.d("FollowerCollection", "provider=${account.provider.name} profileFailure=$stage status=${error.status.name}")
             failure = error
             loaded.completeExceptionally(error)
             web.stopLoading()
@@ -85,24 +90,37 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             web.webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                     val path = runCatching { java.net.URI(url.orEmpty()).path.orEmpty() }.getOrDefault("")
-                    if (!account.provider.allows(url.orEmpty())) fail(CollectionFailure(SyncStatus.CHECK_REQUIRED))
+                    if (!account.provider.allows(url.orEmpty())) fail(CollectionFailure(SyncStatus.CHECK_REQUIRED),
+                        if (url == "about:blank") "START_BLANK" else "START_ORIGIN")
                     else if (Regex("(^|/)(login|challenge|checkpoint|two_factor)(/|$)", RegexOption.IGNORE_CASE).containsMatchIn(path))
-                        fail(CollectionFailure(if (path.contains("login", true)) SyncStatus.REAUTH_REQUIRED else SyncStatus.CHECK_REQUIRED))
+                        fail(CollectionFailure(if (path.contains("login", true)) SyncStatus.REAUTH_REQUIRED else SyncStatus.CHECK_REQUIRED), "START_AUTH")
                 }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     if (!request.isForMainFrame) return false
                     val url = request.url.toString()
                     val path = request.url.path.orEmpty()
-                    if (!account.provider.allows(url)) { fail(CollectionFailure(SyncStatus.CHECK_REQUIRED)); return true }
+                    if (isOptionalTikTokAppLink(account.provider, view.url.orEmpty(), url)) return true
+                    val fallback = facebookCollectionFallback(account.provider, view.url.orEmpty(), url, account.stableId)
+                    if (fallback != null) {
+                        if (fallback in facebookFallbacks || facebookFallbacks.size >= 2)
+                            fail(CollectionFailure(SyncStatus.CHECK_REQUIRED), "FALLBACK_LOOP")
+                        else {
+                            facebookFallbacks.add(fallback)
+                            view.loadUrl(fallback, mapOf("Cache-Control" to "no-cache"))
+                        }
+                        return true
+                    }
+                    if (!account.provider.allows(url)) { fail(CollectionFailure(SyncStatus.CHECK_REQUIRED), "NAVIGATION_ORIGIN"); return true }
                     if (Regex("(^|/)(login|challenge|checkpoint|two_factor)(/|$)", RegexOption.IGNORE_CASE).containsMatchIn(path)) {
-                        fail(CollectionFailure(if (path.contains("login", true)) SyncStatus.REAUTH_REQUIRED else SyncStatus.CHECK_REQUIRED))
+                        fail(CollectionFailure(if (path.contains("login", true)) SyncStatus.REAUTH_REQUIRED else SyncStatus.CHECK_REQUIRED), "NAVIGATION_AUTH")
                         return true
                     }
                     return false
                 }
                 override fun onPageFinished(view: WebView, url: String?) {
                     if (failure != null) return
-                    if (!account.provider.allows(url.orEmpty())) fail(CollectionFailure(SyncStatus.CHECK_REQUIRED))
+                    if (!account.provider.allows(url.orEmpty())) fail(CollectionFailure(SyncStatus.CHECK_REQUIRED),
+                        if (url == "about:blank") "FINISH_BLANK" else "FINISH_ORIGIN")
                     else loaded.complete(Unit)
                 }
                 override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
@@ -110,16 +128,16 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                     if (request.isForMainFrame || response.statusCode == 429 && account.provider.allows(request.url.toString()))
                         fail(CollectionFailure(statusForHttp(response.statusCode) ?: SyncStatus.FORMAT_CHANGED,
                             response.responseHeaders?.entries?.firstOrNull { it.key.equals("Retry-After", true) }
-                                ?.value?.toLongOrNull()?.coerceIn(60, 86_400)))
+                                ?.value?.toLongOrNull()?.coerceIn(60, 86_400)), "HTTP")
                 }
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                    if (request.isForMainFrame) fail(CollectionFailure(SyncStatus.OFFLINE))
+                    if (request.isForMainFrame) fail(CollectionFailure(SyncStatus.OFFLINE), "NETWORK")
                 }
                 override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
-                    handler.cancel(); fail(CollectionFailure(SyncStatus.CHECK_REQUIRED))
+                    handler.cancel(); fail(CollectionFailure(SyncStatus.CHECK_REQUIRED), "SSL")
                 }
                 override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                    fail(CollectionFailure(SyncStatus.OFFLINE)); return true
+                    fail(CollectionFailure(SyncStatus.OFFLINE), "RENDERER"); return true
                 }
             }
             val metrics = context.resources.displayMetrics
@@ -138,8 +156,13 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                     failure?.let { throw it }
                     val result = JSONObject(payload)
                     if (!result.has("error")) return@withTimeout payload
-                    if (result.optString("error") != "exact_count_missing")
-                        throw webCaptureFailure(result) ?: CollectionFailure(SyncStatus.FORMAT_CHANGED)
+                    val error = webCaptureFailure(result) ?: CollectionFailure(SyncStatus.FORMAT_CHANGED)
+                    pendingCaptureFailure = error
+                    // onPageFinished can precede client-side routing/profile hydration. Re-read the fresh
+                    // document locally; never load alternate endpoints or turn missing data into zero.
+                    if (result.optString("error") !in setOf("exact_count_missing", "own_profile_required", "owner_context_missing")) {
+                        fail(error, "CAPTURE"); throw error
+                    }
                     delay(1_000)
                 }
                 @Suppress("UNREACHABLE_CODE") error("Unreachable")
@@ -147,7 +170,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             succeeded = true
             payload
         } catch (_: TimeoutCancellationException) {
-            throw failure ?: CollectionFailure(if (loaded.isCompleted) SyncStatus.FORMAT_CHANGED else SyncStatus.OFFLINE)
+            throw failure ?: pendingCaptureFailure ?: CollectionFailure(if (loaded.isCompleted) SyncStatus.FORMAT_CHANGED else SyncStatus.OFFLINE)
         } finally {
             web.stopLoading()
             val keep = retain && succeeded && currentCoroutineContext().isActive && generation == acquiredGeneration &&

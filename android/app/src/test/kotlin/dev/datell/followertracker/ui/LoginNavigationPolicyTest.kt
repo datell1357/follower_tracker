@@ -40,6 +40,15 @@ class LoginNavigationPolicyTest {
             "https://example.test/profile.php?id=42", "https://www.facebook.com/login/", "javascript:alert(1)"))
             assertNull(facebookBrowserFallback(Provider.FACEBOOK, Provider.FACEBOOK.loginUrl, facebookIntent(fallback)))
     }
+    @Test fun countCollectionFallbackMustTargetExactlyTheAuthenticatedOwner() {
+        val source = Provider.FACEBOOK.loginUrl
+        assertEquals("https://www.facebook.com/profile.php?id=42",
+            facebookCollectionFallback(Provider.FACEBOOK, source, facebookIntent(), "42"))
+        for (fallback in listOf("https://www.facebook.com/profile.php?id=99", "https://www.facebook.com/profile.php",
+            "https://www.facebook.com/profile.php?id=42&id=99", "https://www.facebook.com/profile.php?id=42&id=42"))
+            assertNull(facebookCollectionFallback(Provider.FACEBOOK, source, facebookIntent(fallback), "42"))
+        assertNull(facebookCollectionFallback(Provider.FACEBOOK, source, facebookIntent(), "not-an-id"))
+    }
     @Test fun malformedAndAmbiguousFacebookIntentsRemainBlocked() {
         val valid = facebookIntent()
         for (target in listOf(valid.replace("intent:", "fb:"), valid.replace("//profile/", "//profile.example.test/"),

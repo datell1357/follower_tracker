@@ -15,7 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.datell.followertracker.core.Provider
+import dev.datell.followertracker.core.RefreshPolicy
 import dev.datell.followertracker.sync.RapidTracking
 
 @Composable
@@ -30,7 +30,7 @@ fun RapidTrackingCard(state: TrackerState, compact: Boolean = false) {
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) start() else error = "시작·중지 상태를 확인할 수 있도록 알림을 허용해주세요."
     }
-    val connected = state.accounts.any { it.account.provider == Provider.INSTAGRAM }
+    val connected = state.accounts.any { RefreshPolicy.supportsCountRefresh(it.account) && !it.account.status.blocksAutomaticRetry }
     val toggle = {
         if (rapid.running) RapidTracking.stop(context)
         else if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
@@ -39,8 +39,8 @@ fun RapidTrackingCard(state: TrackerState, compact: Boolean = false) {
     }
     val description = when {
         rapid.running || rapid.message != "중지됨" -> rapid.message
-        connected -> "Instagram을 약 1분마다 확인해요."
-        else -> "Instagram 연결 후 시작할 수 있어요."
+        connected -> "연결된 SNS를 약 1분마다 확인해요."
+        else -> "추적할 SNS 계정을 연결하고 로그인 상태를 확인해주세요."
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -30,7 +30,7 @@ class MetricsWorker(context: Context, parameters: WorkerParameters) : CoroutineW
     override suspend fun doWork(): Result = try {
         val graph = applicationContext.appGraph
         for (account in graph.repository.accounts()) {
-            if (account.provider == dev.datell.followertracker.core.Provider.INSTAGRAM && RapidTracking.state.value.running) continue
+            if (RapidTracking.state.value.running && dev.datell.followertracker.core.RefreshPolicy.supportsCountRefresh(account)) continue
             graph.coordinator.refresh(account.key, background = true)
         }
         Result.success()

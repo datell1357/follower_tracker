@@ -50,6 +50,18 @@ fun facebookBrowserFallback(provider: Provider, sourceUrl: String, targetUrl: St
     return fallback.takeIf { page.path == "/profile.php" }
 }
 
+/** Collection must stay on the authenticated person's profile, including native-app fallbacks. */
+fun facebookCollectionFallback(provider: Provider, sourceUrl: String, targetUrl: String, expectedId: String): String? {
+    if (!expectedId.matches(Regex("[0-9]+"))) return null
+    val fallback = facebookBrowserFallback(provider, sourceUrl, targetUrl) ?: return null
+    val query = runCatching { java.net.URI(fallback).rawQuery.orEmpty().split('&').map { part ->
+        val key = URLDecoder.decode(part.substringBefore('='), "UTF-8")
+        val value = URLDecoder.decode(part.substringAfter('=', ""), "UTF-8")
+        key to value
+    } }.getOrNull() ?: return null
+    return fallback.takeIf { query.filter { it.first == "id" }.map { it.second } == listOf(expectedId) }
+}
+
 /** Login redirects have a separate boundary from the hosts receiving collection cookies. */
 fun loginNavigation(provider: Provider, url: String): LoginNavigation {
     if (provider.allows(url)) return LoginNavigation.ALLOW

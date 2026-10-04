@@ -27,17 +27,21 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
         val metadata = sessions.metadata(provider) ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
         if (!sessions.hasAuthentication(provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
         val now = System.currentTimeMillis()
+        if (expected != null && RefreshPolicy.usesProfileBrowser(expected)) {
+            val browser = profileBrowser ?: throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
+            val captured = captured(provider, browser.read(expected, metadata.userAgent,
+                retain = RapidTracking.state.value.running), expected)
+            currentCoroutineContext().ensureActive()
+            return captured.first.copy(status = SyncStatus.READY, countTransport = CountTransport.PROFILE_BROWSER,
+                capabilities = captured.first.capabilities.copy(count = Capability.OBSERVED,
+                    background = expected.capabilities.background.takeIf { it != Capability.FOREGROUND_ONLY } ?: Capability.UNVERIFIED)) to
+                captured.second.copy(observedAt = System.currentTimeMillis(), source = "${provider.name.lowercase()}-profile-browser")
+        }
         val observation = when (provider) {
             Provider.INSTAGRAM -> {
                 val id = sessions.identity(provider) ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
                 if (expected != null && id != expected.stableId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
-                if (expected != null && RefreshPolicy.usesProfileBrowser(expected)) {
-                    val browser = profileBrowser ?: throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
-                    val captured = captured(provider, browser.read(expected, metadata.userAgent,
-                        retain = RapidTracking.state.value.running), expected)
-                    captured.first.copy(countTransport = CountTransport.PROFILE_BROWSER) to
-                        captured.second.copy(source = "instagram-profile-browser")
-                } else if (expected != null) {
+                if (expected != null) {
                     val url = "https://www.instagram.com/api/v1/users/web_profile_info/".toHttpUrl().newBuilder()
                         .addQueryParameter("username", expected.username).build()
                     ResponseParser.instagramWebProfile(http.read(provider, url, metadata.userAgent), id, now)
@@ -92,7 +96,7 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
             status = if (sessionResponse) SyncStatus.READY else SyncStatus.FOREGROUND_ONLY,
             capabilities = (expected?.capabilities ?: Capabilities()).copy(count = if (sessionResponse) Capability.OBSERVED else Capability.FOREGROUND_ONLY,
                 background = if (sessionResponse) Capability.UNVERIFIED else Capability.FOREGROUND_ONLY), connectedAt = expected?.connectedAt ?: now, lastAttemptAt = now,
-            countTransport = if (provider == Provider.INSTAGRAM && !sessionResponse) CountTransport.PROFILE_BROWSER else CountTransport.SESSION_HTTP)
+            countTransport = if (!sessionResponse) CountTransport.PROFILE_BROWSER else CountTransport.SESSION_HTTP)
         val followers = (root["followers"] as? JsonPrimitive)?.longOrNull ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
         val following = (root["following"] as? JsonPrimitive)?.longOrNull
         val metric = MetricSnapshot(account.key, now, followers, following, source = source)

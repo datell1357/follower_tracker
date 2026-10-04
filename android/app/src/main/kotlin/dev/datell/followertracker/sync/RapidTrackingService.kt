@@ -10,6 +10,8 @@ import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.util.Log
+import dev.datell.followertracker.BuildConfig
 import dev.datell.followertracker.R
 import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.*
@@ -114,23 +116,27 @@ class RapidTrackingService : Service() {
                         continue
                     }
                     val cycleStarted = SystemClock.elapsedRealtime()
-                    val rows = appGraph.repository.widgetOverviews().filter { it.account.provider == Provider.INSTAGRAM }
+                    val rows = appGraph.repository.widgetOverviews().filter { RefreshPolicy.supportsCountRefresh(it.account) }
                     val available = rows.filter { !it.account.status.blocksAutomaticRetry }
                     if (available.isEmpty()) {
-                        finish(if (rows.isEmpty()) "Instagram을 연결한 뒤 시작해주세요." else "연결 상태를 확인한 뒤 다시 시작해주세요.")
+                        finish(if (rows.isEmpty()) "추적할 SNS 계정을 연결한 뒤 시작해주세요." else "연결 상태를 확인한 뒤 다시 시작해주세요.")
                         return@launch
                     }
                     for (row in available) appGraph.coordinator.refresh(row.account.key, background = true)
-                    val after = appGraph.repository.widgetOverviews().filter { it.account.provider == Provider.INSTAGRAM }
+                    val after = appGraph.repository.widgetOverviews().filter { RefreshPolicy.supportsCountRefresh(it.account) }
                     val successful = after.filter { row ->
                         row.account.capabilities.background == Capability.OBSERVED && row.latest != null &&
                             row.latest!!.observedAt > (available.firstOrNull { it.account.key == row.account.key }?.latest?.observedAt ?: Long.MAX_VALUE)
                     }
                     val freshAt = successful.maxOfOrNull { it.latest!!.observedAt }
+                    if (BuildConfig.DEBUG) for (row in after) Log.d("FollowerCollection",
+                        "provider=${row.account.provider.name} rapidFresh=${row in successful} " +
+                            "status=${row.account.status.name} cycleElapsedMs=${cycleStarted - started}")
                     val message = when {
                         after.all { it.account.status.blocksAutomaticRetry } -> "연결 상태를 확인한 뒤 다시 시작해주세요."
                         after.any { it.account.status == SyncStatus.RATE_LIMITED } -> "SNS 요청 제한 · 대기 후 다시 확인해요"
                         after.any { it.account.status == SyncStatus.OFFLINE } -> "일시 오류 · 잠시 후 다시 확인해요"
+                        after.any { it.account.status.blocksAutomaticRetry } -> "일부 SNS 연결 확인 필요 · 가능한 계정은 계속 추적해요"
                         freshAt != null -> "수집 완료 · 1분 간격으로 확인해요"
                         else -> "마지막 기록을 유지하고 있어요"
                     }

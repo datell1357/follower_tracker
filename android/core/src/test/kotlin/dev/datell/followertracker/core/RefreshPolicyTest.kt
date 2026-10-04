@@ -32,12 +32,22 @@ class RefreshPolicyTest {
         assertTrue(RefreshPolicy.canRefresh(observed, 1, background = true))
     }
 
-    @Test fun unsupportedForegroundProvidersAreNotPromotedToBackgroundSupport() {
-        for (provider in listOf(Provider.FACEBOOK, Provider.X, Provider.TIKTOK)) {
-            val unsupported = owner.copy(provider = provider, profileUrl = provider.loginUrl, status = SyncStatus.FOREGROUND_ONLY)
-            assertFalse(RefreshPolicy.usesProfileBrowser(unsupported))
-            assertFalse(RefreshPolicy.canRefresh(unsupported, 1, background = true))
+    @Test fun allStoredPersonalProfilesCanTryTheirOfficialBrowserRouteWithoutClaimingSuccess() {
+        for (provider in Provider.entries) {
+            val legacy = owner.copy(provider = provider, profileUrl = provider.loginUrl, status = SyncStatus.FOREGROUND_ONLY,
+                capabilities = Capabilities(count = Capability.FOREGROUND_ONLY, background = Capability.FOREGROUND_ONLY))
+            assertTrue(provider.name, RefreshPolicy.usesProfileBrowser(legacy))
+            assertTrue(provider.name, RefreshPolicy.canRefresh(legacy, 1, background = true))
+            assertEquals(Capability.FOREGROUND_ONLY, legacy.capabilities.background)
         }
+    }
+
+    @Test fun facebookPagesKeepTheirExplicitPageConfirmationFlow() {
+        val page = owner.copy(provider = Provider.FACEBOOK, profileUrl = Provider.FACEBOOK.loginUrl,
+            accountType = AccountType.PAGE, sessionOwnerId = "99", status = SyncStatus.FOREGROUND_ONLY,
+            countTransport = CountTransport.PROFILE_BROWSER)
+        assertFalse(RefreshPolicy.usesProfileBrowser(page))
+        assertFalse(RefreshPolicy.canRefresh(page, 1, background = true))
     }
 
     @Test fun olderStoredAccountWithoutTransportStillDecodes() {
