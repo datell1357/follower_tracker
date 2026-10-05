@@ -30,11 +30,11 @@ object SyncScheduler {
 class MetricsWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result = try {
         val graph = applicationContext.appGraph
-        for (account in graph.repository.accounts()) {
-            if (RapidTracking.state.value.running && dev.datell.followertracker.core.RefreshPolicy.supportsCountRefresh(account)) continue
-            graph.coordinator.refresh(account.key, background = true)
+        val failures = refreshCountBatch(graph.repository.accounts()) { account ->
+            if (!RapidTracking.state.value.running || !dev.datell.followertracker.core.RefreshPolicy.supportsCountRefresh(account))
+                graph.coordinator.refresh(account.key, background = true)
         }
-        Result.success()
+        if (failures.isEmpty()) Result.success() else Result.retry()
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { Result.retry() }
 }

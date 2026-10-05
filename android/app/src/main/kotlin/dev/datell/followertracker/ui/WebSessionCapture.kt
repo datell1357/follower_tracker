@@ -6,6 +6,7 @@ import java.util.UUID
 import kotlin.coroutines.resume
 import kotlinx.coroutines.*
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 /** A manual Page confirmation can request one desktop document; subsequent reads are local DOM polls. */
@@ -63,26 +64,37 @@ suspend fun captureWebSession(web: WebView, provider: Provider, identity: String
         else if (allowRequest) "FollowerTrackerCapture.captureAsync($arguments)"
         else "Promise.resolve(FollowerTrackerCapture.capture($arguments))"
     try {
-        web.evaluate("""$script;globalThis[$slot]=null;
+        if (!allowRequest && !facebookPage) {
+            // Profile DOM capture is synchronous. Read it once in this document, without Promise slots/polling.
+            val encoded = withTimeoutOrNull(22_000) {
+                web.evaluate("$script;JSON.stringify(FollowerTrackerCapture.capture($arguments));")
+            } ?: throw CollectionFailure(SyncStatus.OFFLINE)
+            if (!provider.allows(web.url.orEmpty())) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            // A same-origin route change can be normal hydration. Discard this document's result and re-read locally.
+            if (web.url != initialUrl) return@withContext "{\"error\":\"document_changed\"}"
+            return@withContext JSONArray("[$encoded]").getString(0)
+        }
+        withTimeoutOrNull(22_000) {
+            // Include the initial JavaScript callback in the same bounded operation.
+            web.evaluate("""$script;globalThis[$slot]=null;
             $read.then(function(result) {
               globalThis[$slot]=JSON.stringify(result);
             },function() {globalThis[$slot]=JSON.stringify({error:'offline'});});null;
         """.trimIndent())
-        withTimeout(22_000) {
             while (true) {
                 currentCoroutineContext().ensureActive()
                 if (!provider.allows(web.url.orEmpty())) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
                 if (facebookPage && web.url != initialUrl) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
                 val encoded = web.evaluate("globalThis[$slot]")
-                if (encoded != "null" && encoded != "undefined") return@withTimeout JSONArray("[$encoded]").getString(0)
+                if (encoded != "null" && encoded != "undefined") return@withTimeoutOrNull JSONArray("[$encoded]").getString(0)
                 delay(250)
             }
             @Suppress("UNREACHABLE_CODE") error("Unreachable")
-        }
-    } catch (_: TimeoutCancellationException) {
-        throw CollectionFailure(SyncStatus.OFFLINE)
+        } ?: throw CollectionFailure(SyncStatus.OFFLINE)
+    } catch (_: JSONException) {
+        throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
     } finally {
-        if (provider.allows(web.url.orEmpty())) web.evaluateJavascript("delete globalThis[$slot]", null)
+        if ((allowRequest || facebookPage) && provider.allows(web.url.orEmpty())) web.evaluateJavascript("delete globalThis[$slot]", null)
     }
 }
 

@@ -154,6 +154,55 @@ test("Facebook rejects foreign or insecure pages and invalid cookie identity", (
   assert.equal(capture("FACEBOOK", "not-a-cookie-id", facebookDocument({})).error, "identity_missing");
 });
 
+function facebookSpanDocument(texts, path = '/profile.php?id=42', boundary = null) {
+  const doc = facebookDOMDocument([], path);
+  const heading = doc.querySelectorAll('h1')[0], header = heading.parentElement;
+  const spans = texts.map(text => ({ tagName: 'SPAN', textContent: text, innerText: text, closest: () => null }));
+  header.querySelectorAll = selector => selector === 'h1' ? [heading] : selector.includes('span') ? spans : [];
+  if (boundary === 'feed') header.querySelector = () => ({ tagName: 'ARTICLE' });
+  if (boundary === 'otherHeading') header.querySelectorAll = selector => selector === 'h1' ? [heading, { tagName: 'H1' }] : spans;
+  return doc;
+}
+test('Facebook personal profiles read exact text spans after the header is hydrated', () => {
+  for (const [text, count] of [['0 followers', 0], ['12,345 팔로워', 12345], ['팔로워 5명', 5]]) {
+    const result = capture('FACEBOOK', '42', facebookSpanDocument(['팔로워', text, 'Following', 'Following 2']));
+    assert.equal(result.followers, count);
+    assert.equal(result.following, 2);
+    assert.equal(result.stableId, '42');
+  }
+});
+test('Facebook text spans cannot cross profile ownership, feeds, rounded or conflicting counts', () => {
+  for (const texts of [['1.2K followers'], ['5 followers', '6 followers'], ['Friends 500'], ['followers']])
+    assert.equal(capture('FACEBOOK', '42', facebookSpanDocument(texts)).error, 'exact_count_missing');
+  for (const boundary of ['feed', 'otherHeading'])
+    assert.equal(capture('FACEBOOK', '42', facebookSpanDocument(['5 followers'], undefined, boundary)).error, 'exact_count_missing');
+  assert.equal(capture('FACEBOOK', '42', facebookSpanDocument(['5 followers'], '/profile.php?id=99')).error, 'own_profile_required');
+});
+function facebookSjsDocument(records, path = '/profile.php?id=42') {
+  const doc = facebookDOMDocument([], path), previous = doc.querySelectorAll;
+  doc.querySelectorAll = selector => selector.startsWith('script') ?
+    (selector.includes('[data-sjs]') ? [{ textContent: JSON.stringify({ require: records }) }] : []) : previous(selector);
+  return doc;
+}
+test('Facebook personal profiles read bounded data-sjs JSON tied to the authenticated owner', () => {
+  const result = capture('FACEBOOK', '42', facebookSjsDocument([
+    { id: '99', name: 'Other', followers_count: 999 }, { id: '42', name: 'Self', followers_count: 0, following_count: 2 }
+  ]));
+  assert.equal(result.followers, 0);
+  assert.equal(result.following, 2);
+  assert.equal(result.stableId, '42');
+});
+test('Facebook data-sjs cannot substitute another owner, a friend count or executable content', () => {
+  for (const records of [[{ id: '99', name: 'Other', followers_count: 999 }],
+    [{ id: '42', name: 'Self', friends: { count: 500 } }], [{ id: '42', name: 'Self', followers_count: '1.2K' }]])
+    assert.equal(capture('FACEBOOK', '42', facebookSjsDocument(records)).error, 'exact_count_missing');
+  for (const text of ['window.data={"id":"42","name":"Self","followers_count":5}', ' '.repeat(4 * 1024 * 1024) + '{}']) {
+    const doc = facebookSjsDocument([]), previous = doc.querySelectorAll;
+    doc.querySelectorAll = selector => selector.startsWith('script') ? [{ textContent: text }] : previous(selector);
+    assert.equal(capture('FACEBOOK', '42', doc).error, 'exact_count_missing');
+  }
+});
+
 function facebookPageDocument(data = {}, texts = ["12,345 팔로워"], path = "/fixture.page", pageLabel = true) {
   const doc = facebookDOMDocument(texts, path);
   const header = doc.querySelectorAll('h1')[0].parentElement, headerQuery = header.querySelectorAll;

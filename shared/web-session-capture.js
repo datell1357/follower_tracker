@@ -80,7 +80,7 @@
     }
     return null;
   }
-  function facebookProfileCounts(doc, page = false) {
+  function facebookProfileCounts(doc, includeTextNodes = false) {
     const headings = Array.from(doc.querySelectorAll("h1")).filter(node => node.tagName === "H1" && node.textContent?.trim());
     if (!headings.length || headings.length > 32) return null;
     let captured = null;
@@ -91,7 +91,7 @@
       for (let scope = heading.parentElement, depth = 0; scope && depth < 5; scope = scope.parentElement, depth++) {
         if (scope.tagName === "BODY" || scope.tagName === "HTML" || scope.querySelector('article,[role="article"],[role="feed"]')) break;
         if (scope.querySelectorAll("h1").length !== 1) break;
-        const nodes = scope.querySelectorAll('a[href],button,[role="button"]' + (page ? ',span' : ''));
+        const nodes = scope.querySelectorAll('a[href],button,[role="button"]' + (includeTextNodes ? ',span' : ''));
         if (nodes.length > 1000) return null;
         const followers = new Set(), following = new Set();
         let followerSeen = false, invalidFollower = false, invalidFollowing = false;
@@ -99,7 +99,7 @@
           if (node.closest('article,[role="article"],[role="feed"]')) continue;
           const text = (node.innerText || node.textContent || "").trim();
           if (text.length > 140) continue;
-          if (page && /^(팔로워|followers|팔로잉|following)$/i.test(text)) continue;
+          if (includeTextNodes && /^(팔로워|followers|팔로잉|following)$/i.test(text)) continue;
           const followerLabel = /(?:^(?:팔로워|followers)(?:\s|$)|(?:\s|^)(?:팔로워|followers)$)/i.test(text);
           const followingLabel = /(?:^(?:팔로잉|following)(?:\s|$)|(?:\s|^)(?:팔로잉|following)$)/i.test(text);
           if (!followerLabel && !followingLabel) continue;
@@ -242,7 +242,7 @@
   }
   function capture(provider, expectedID, suppliedDocument) {
     const doc = suppliedDocument || document;
-    const roots = jsonRoots(doc);
+    const roots = jsonRoots(doc, provider === "FACEBOOK");
     if (provider === "INSTAGRAM") {
       if (!expectedID || !/^[0-9]+$/.test(expectedID)) return { error: "identity_missing" };
       const isOwner = value => textID(value.pk ?? value.id) === expectedID && value.username;
@@ -352,7 +352,7 @@
       const ownProfile = currentURL.pathname === "/profile.php" && profileIDs.length === 1 && profileIDs[0] === expectedID ||
         owner?.username && currentURL.pathname.replace(/\/$/, "") === "/" + encodeURIComponent(owner.username);
       if (!ownProfile) return { error: "own_profile_required", profileURL };
-      const counts = facebookProfileCounts(doc);
+      const counts = facebookProfileCounts(doc, true);
       if (counts) return result(provider, expectedID, owner?.username || expectedID, owner?.name || counts.name,
         profileURL, counts.followers, counts.following, "facebook-webview-profile");
       return { error: "exact_count_missing" };

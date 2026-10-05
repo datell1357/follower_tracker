@@ -161,7 +161,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                     pendingCaptureFailure = error
                     // onPageFinished can precede client-side routing/profile hydration. Re-read the fresh
                     // document locally; never load alternate endpoints or turn missing data into zero.
-                    if (result.optString("error") !in setOf("exact_count_missing", "own_profile_required", "owner_context_missing", "identity_missing")) {
+                    if (result.optString("error") !in setOf("exact_count_missing", "own_profile_required", "owner_context_missing", "identity_missing", "document_changed")) {
                         fail(error, "CAPTURE"); throw error
                     }
                     delay(1_000)
@@ -171,6 +171,8 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             succeeded = true
             payload
         } catch (_: TimeoutCancellationException) {
+            // A caller's timeout/stop must remain cancellation, not a new collection failure.
+            currentCoroutineContext().ensureActive()
             throw failure ?: pendingCaptureFailure ?: CollectionFailure(if (loaded.isCompleted) SyncStatus.FORMAT_CHANGED else SyncStatus.OFFLINE)
         } finally {
             web.stopLoading()
