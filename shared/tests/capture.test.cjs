@@ -239,6 +239,58 @@ test("conflicting exact JSON and Page header totals require another observation"
   assert.equal(captureFacebookPage('42', null, facebookPageDocument(record, ['6 followers'])).error, 'exact_count_missing');
   assert.equal(captureFacebookPage('42', null, facebookPageDocument(record, ['5 followers'])).followers, 5);
 });
+test("new Facebook Pages bind their User profile to its delegate Page and canonical profile ID", () => {
+  const user = { __typename: 'User', id: '99', username: 'fixture.page', name: 'Fixture Page',
+    url: 'https://www.facebook.com/fixture.page/', delegate_page: { id: '88' }, followers_count: 0 };
+  for (const path of ['/people/Fixture-Page/99/', '/p/Fixture-Page-99/']) {
+    const doc = facebookPageDocument({ records: [user, { __typename: 'User', id: '99', name: 'Fixture Page' }] }, [], undefined, false);
+    doc.metadata['link[rel="canonical"]'][1] = 'https://www.facebook.com' + path;
+    const captured = captureFacebookPage('42', null, doc);
+    assert.equal(captured.stableId, '99');
+    assert.equal(captured.sessionOwnerId, '42');
+    assert.equal(captured.accountType, 'PAGE');
+    assert.equal(captured.followers, 0);
+  }
+});
+test("new Page canonical addresses alone never classify personal or recommended User records as Pages", () => {
+  for (const record of [
+    { __typename: 'User', id: '99', name: 'Personal', username: 'fixture.page', followers_count: 5 },
+    { __typename: 'User', id: '99', name: 'Personal', username: 'fixture.page', delegate_page: { id: 'invalid' }, followers_count: 5 },
+    { __typename: 'User', id: '77', name: 'Other Page', username: 'other', delegate_page: { id: '66' }, followers_count: 999 }
+  ]) {
+    const doc = facebookPageDocument(record, ['5 followers'], undefined, false);
+    doc.metadata['link[rel="canonical"]'][1] = 'https://www.facebook.com/people/Fixture-Page/99/';
+    assert.equal(captureFacebookPage('42', null, doc).error, 'page_required');
+  }
+});
+test("new Page social context reads only an exact label linked to that Page's followers", () => {
+  const user = { __typename: 'User', id: '99', username: 'fixture.page', name: 'Fixture Page', delegate_page: { id: '88' } };
+  const item = (text, uri = 'https://www.facebook.com/fixture.page/followers/') => ({ text: { text }, uri });
+  const doc = items => facebookPageDocument({ ...user, profile_social_context: { content: items } }, [], undefined, false);
+  for (const [text, count] of [['팔로워 0명', 0], ['12,345 followers', 12345]])
+    assert.equal(captureFacebookPage('42', null, doc([item(text)])).followers, count);
+  assert.equal(captureFacebookPage('42', null, doc([item('5 followers', 'https://www.facebook.com/profile.php?id=99&sk=followers')])).followers, 5);
+  const numeric = facebookPageDocument({ ...user, url: 'https://www.facebook.com/fixture.page/',
+    profile_social_context: { content: [item('5 followers')] } }, [], '/profile.php?id=99', false);
+  assert.equal(captureFacebookPage('42', null, numeric).followers, 5);
+  for (const items of [[item('팔로워 1.2천명')], [item('1.2K followers')]])
+    assert.equal(captureFacebookPage('42', null, doc(items)).error, 'rounded_count_only');
+  for (const items of [[item('5 friends')],
+    [item('5 followers', 'https://example.test/fixture.page/followers')], [item('5 followers', 'https://www.facebook.com/other/followers')],
+    [item('5 followers', 'http://www.facebook.com/fixture.page/followers')],
+    [item('5 followers', 'https://private@www.facebook.com/fixture.page/followers')],
+    [item('5 followers', 'https://www.facebook.com/profile.php?id=99&id=77&sk=followers')],
+    [item('5 followers', 'https://www.facebook.com/fixture.page/following')], [item('5 followers'), item('6 followers')]])
+    assert.equal(captureFacebookPage('42', null, doc(items)).error, 'exact_count_missing');
+});
+test("new Page counts in another User fragment require a delegate proof for the same public profile ID", () => {
+  const page = { __typename: 'User', id: '99', username: 'fixture.page', name: 'Fixture Page', delegate_page: { id: '88' } };
+  const count = { __typename: 'User', id: '99', followers_count: 0 };
+  const doc = data => facebookPageDocument(data, [], undefined, false);
+  assert.equal(captureFacebookPage('42', null, doc({ records: [page, count, { ...count, id: '77', followers_count: 999 }] })).followers, 0);
+  assert.equal(captureFacebookPage('42', null, doc(count)).error, 'page_required');
+  assert.equal(captureFacebookPage('42', null, doc({ records: [page, count, { ...count, followers_count: 1 }] })).error, 'exact_count_missing');
+});
 
 function instagramDocument(data, path = "/self/") {
   const doc = documentWith(data);

@@ -66,6 +66,21 @@ class FacebookAppLinkRuntimeTest {
         }
     }
 
+    @Test fun officialNamedPageFallbackReloadsInsideTheWebView() = runBlocking {
+        val pageUrl = "https://www.facebook.com/fixture.page/?force_web=1"
+        instrumentation.runOnMainSync { loadLoginFixture(checkNotNull(browser.active), pageUrl,
+            "<!doctype html><html><body><script>window.fixtureAttempts=0;</script><h1>Fixture Page</h1></body></html>") }
+        await { browser.active?.url == pageUrl && !browser.loading }
+        withTimeout(5_000) { while (evaluate("window.fixtureAttempts") != "0") delay(50) }
+        evaluate("window.fixtureAttempts=1;location.href=${JSONObject.quote(intent(pageUrl))};null;")
+        withTimeout(5_000) { while (evaluate("window.fixtureAttempts") != "0") delay(50) }
+        instrumentation.runOnMainSync {
+            assertEquals(pageUrl, browser.active?.url)
+            assertNull(browser.notice)
+            assertNull(browser.blockedDestination)
+        }
+    }
+
     @Test fun repeatedFacebookFallbackStopsInsteadOfLooping() = runBlocking {
         evaluate("window.fixtureAttempts=1;location.href=${JSONObject.quote(intent())};null;")
         withTimeout(5_000) { while (evaluate("window.fixtureAttempts") != "0") delay(50) }

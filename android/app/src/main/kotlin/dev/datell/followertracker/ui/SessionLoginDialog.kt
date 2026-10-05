@@ -134,14 +134,18 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                     scope.launch {
                         try {
                             val identity = context.appGraph.sessions.identity(provider)
-                            val payload = captureWebSession(web, provider, identity, script, allowRequest = false,
-                                facebookPage = true, expectedPageId = expectedPage?.stableId)
+                            val agent = web.settings.userAgentString
+                            val payload = captureConfirmedFacebookPage(web, identity, script, expectedPage?.stableId) { loginBrowser.loading }
                             val result = JSONObject(payload)
                             val failure = webCaptureFailure(result)
-                            if (failure == null && identity == context.appGraph.sessions.identity(provider))
-                                currentConnect(payload, web.settings.userAgentString)
-                            else loginBrowser.notice = facebookPageFailureMessage(result.optString("error"))
+                            if (identity != context.appGraph.sessions.identity(provider)) loginBrowser.notice = facebookPageFailureMessage("identity_missing")
+                            else if (failure == null) currentConnect(payload, agent)
+                            else if (loginBrowser.notice == null) loginBrowser.notice = facebookPageFailureMessage(result.optString("error"))
                         } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (failure: CollectionFailure) { loginBrowser.notice = loginBrowser.notice ?: when (failure.status) {
+                            SyncStatus.OFFLINE -> "페이지를 읽지 못했어요. 인터넷 연결을 확인한 뒤 다시 눌러주세요."
+                            else -> facebookPageFailureMessage("page_required")
+                        } }
                         catch (_: Exception) { loginBrowser.notice = facebookPageFailureMessage("exact_count_missing") }
                         finally { checking = false }
                     }
@@ -155,6 +159,8 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
 fun facebookPageFailureMessage(error: String): String = when (error) {
     "identity_missing", "reauth_required" -> "페이스북 로그인을 완료한 뒤 페이지에서 연결 확인을 눌러주세요."
     "page_mismatch" -> "기존에 연결한 페이지를 열어주세요. 다른 페이지는 SNS 연결에서 새로 추가할 수 있어요."
-    "page_required", "page_identity_missing", "own_profile_required" -> "추적할 페이스북 페이지의 첫 화면을 열고 연결 확인을 눌러주세요."
+    "page_identity_missing" -> "페이지 식별 정보를 읽지 못했어요. 페이지를 새로고침한 뒤 다시 확인해주세요."
+    "rounded_count_only" -> "Facebook이 팔로워 수를 축약해서 표시하고 있어요. 이 화면에서는 정확한 수를 확보하지 못했어요."
+    "page_required", "own_profile_required" -> "추적할 페이스북 페이지의 첫 화면을 열고 연결 확인을 눌러주세요."
     else -> "이 페이지에서 정확한 팔로워 수를 읽지 못했어요. 팔로워 수가 보이는 페이지 첫 화면에서 다시 확인해주세요."
 }

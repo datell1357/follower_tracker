@@ -8,6 +8,49 @@ import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** A manual Page confirmation can request one desktop document; subsequent reads are local DOM polls. */
+suspend fun captureConfirmedFacebookPage(web: WebView, identity: String?, script: String,
+    expectedPageId: String?, loading: () -> Boolean): String = withContext(Dispatchers.Main.immediate) {
+    val selected = web.url.orEmpty()
+    var latest = captureWebSession(web, Provider.FACEBOOK, identity, script, allowRequest = false,
+        facebookPage = true, expectedPageId = expectedPageId)
+    if (JSONObject(latest).optString("error") !in setOf("page_required", "page_identity_missing", "exact_count_missing", "rounded_count_only"))
+        return@withContext latest
+    val desktopUrl = facebookPageDesktopUrl(selected) ?: return@withContext latest
+    val originalAgent = web.settings.userAgentString
+    val desktopAgent = facebookPageUserAgent(originalAgent) ?: return@withContext latest
+    val originalImages = web.settings.blockNetworkImage
+    try {
+        web.settings.blockNetworkImage = true
+        web.settings.userAgentString = desktopAgent
+        web.loadUrl(desktopUrl)
+        withTimeoutOrNull(20_000) {
+            // Yield to WebView navigation before inspecting the replacement document.
+            delay(250)
+            repeat(20) {
+                currentCoroutineContext().ensureActive()
+                if (!sameFacebookPageTarget(selected, web.url.orEmpty()))
+                    throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+                if (!loading()) {
+                    latest = captureWebSession(web, Provider.FACEBOOK, identity, script, allowRequest = false,
+                        facebookPage = true, expectedPageId = expectedPageId)
+                    val error = JSONObject(latest).optString("error")
+                    if (error !in setOf("page_required", "page_identity_missing", "exact_count_missing"))
+                        return@withTimeoutOrNull latest
+                }
+                delay(500)
+            }
+            latest
+        } ?: latest
+    } finally {
+        // The saved login and personal profile collector keep their original mobile representation.
+        if (web.isAttachedToWindow) {
+            web.settings.userAgentString = originalAgent
+            web.settings.blockNetworkImage = originalImages
+        }
+    }
+}
+
 /** Executes only within the bounded provider WebView; no JavaScript bridge or form access. */
 suspend fun captureWebSession(web: WebView, provider: Provider, identity: String?, script: String,
     allowRequest: Boolean = true, facebookPage: Boolean = false, expectedPageId: String? = null): String = withContext(Dispatchers.Main.immediate) {

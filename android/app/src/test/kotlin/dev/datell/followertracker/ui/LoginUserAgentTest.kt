@@ -17,4 +17,13 @@ class LoginUserAgentTest {
         assertEquals(agent, loginUserAgent(agent))
         assertEquals(agent, loginUserAgent(loginUserAgent(agent)))
     }
+    @Test fun pageRepresentationKeepsTheInstalledChromeVersionWithoutChangingLogin() {
+        val agent = "Mozilla/5.0 (Linux; Android 16) Chrome/145.0.1234.56 Mobile Safari/537.36"
+        val desktop = checkNotNull(facebookPageUserAgent(agent))
+        assertTrue(desktop.contains("Chrome/145.0.1234.56"))
+        assertFalse(desktop.contains("Mobile"))
+        assertFalse(desktop.contains("Android"))
+        assertEquals(agent, loginUserAgent(agent))
+        assertNull(facebookPageUserAgent("Mozilla/5.0 Safari/537.36"))
+    }
 }

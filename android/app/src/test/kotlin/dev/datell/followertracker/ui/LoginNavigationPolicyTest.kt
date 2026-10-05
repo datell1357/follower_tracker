@@ -28,6 +28,31 @@ class LoginNavigationPolicyTest {
             }
         }
     }
+    @Test fun facebookNamedPageHandoffOpensItsOfficialWebFallback() {
+        for (host in listOf("www.facebook.com", "m.facebook.com")) {
+            val fallback = "https://$host/fixture.page/?locale=ko_KR&_rdr"
+            val target = facebookIntent(fallback)
+            assertEquals(fallback, facebookBrowserFallback(Provider.FACEBOOK, "https://www.facebook.com/fixture.page", target))
+            assertNull(facebookCollectionFallback(Provider.FACEBOOK, Provider.FACEBOOK.loginUrl, target, "42"))
+        }
+        for (path in listOf("login", "home.php", "checkpoint", "search", "groups", "fixture.page/posts/42", "fixture.page/photos"))
+            assertNull(facebookBrowserFallback(Provider.FACEBOOK, Provider.FACEBOOK.loginUrl,
+                facebookIntent("https://www.facebook.com/$path/")))
+        assertNull(facebookCollectionFallback(Provider.FACEBOOK, Provider.FACEBOOK.loginUrl,
+            facebookIntent("https://www.facebook.com/fixture.page?id=42"), "42"))
+    }
+    @Test fun desktopPageReadsKeepTheSelectedOfficialTargetAndRejectFeedsAndAmbiguousIDs() {
+        val source = "https://m.facebook.com/fixture.page/?locale=ko_KR#top"
+        assertEquals("https://www.facebook.com/fixture.page/?locale=ko_KR", facebookPageDesktopUrl(source))
+        assertTrue(sameFacebookPageTarget(source, "https://www.facebook.com/fixture.page?locale=en_US"))
+        assertTrue(sameFacebookPageTarget("https://m.facebook.com/profile.php?id=42", "https://www.facebook.com/profile.php?id=42&_rdr"))
+        assertFalse(sameFacebookPageTarget(source, "https://www.facebook.com/other"))
+        assertFalse(sameFacebookPageTarget("https://m.facebook.com/profile.php?id=42", "https://www.facebook.com/profile.php?id=99"))
+        for (url in listOf("https://facebook.com.example.test/fixture.page", "http://www.facebook.com/fixture.page", "https://user@www.facebook.com/fixture.page",
+            "https://www.facebook.com:8443/fixture.page", "https://www.facebook.com/", "https://www.facebook.com/login/",
+            "https://www.facebook.com/fixture.page/posts/42", "https://www.facebook.com/profile.php", "https://www.facebook.com/profile.php?id=42&id=99"))
+            assertNull(facebookPageDesktopUrl(url))
+    }
     @Test fun facebookFallbackRejectsUntrustedOriginsAndDifferentProviders() {
         Provider.entries.filter { it != Provider.FACEBOOK }.forEach {
             assertNull(facebookBrowserFallback(it, it.loginUrl, facebookIntent()))

@@ -137,11 +137,37 @@
     }
     const segments = path.split('/').filter(Boolean);
     if (segments.length === 1 && /^[0-9]+$/.test(segments[0])) return { id: segments[0], path };
-    if (segments[0] === 'pages' && segments.length === 3 && /^[0-9]+$/.test(segments[2]))
+    if (['pages', 'people'].includes(segments[0]) && segments.length === 3 && /^[0-9]+$/.test(segments[2]))
       return { id: segments[2], path };
+    const namedID = segments[0] === 'p' && segments.length === 2 && /-([0-9]+)$/.exec(segments[1]);
+    if (namedID) return { id: namedID[1], path };
     const blocked = /^(login|login\.php|home\.php|checkpoint|challenge|two_factor|two-factor|twofactor|reel|reels|watch|groups|events|marketplace|search|pages|settings|notifications|friends|bookmarks|gaming|help|privacy|policies|photo\.php|photos|story\.php|stories|permalink\.php)$/i;
     if (segments.length !== 1 || blocked.test(segments[0]) || !/^[A-Za-z0-9.]{1,255}$/.test(segments[0])) return null;
     return { username: segments[0], path: '/' + segments[0].toLowerCase() };
+  }
+
+  function facebookPageSocialFollowers(record, doc, current, id) {
+    const counts = { exact: [], rounded: false };
+    if (!Array.isArray(record.profile_social_context?.content)) return counts;
+    const recordAddress = facebookPageAddress(record.url || record.profile_url, doc.location.href);
+    for (const item of record.profile_social_context.content.slice(0, 32)) {
+      const text = typeof item.text === 'string' ? item.text : item.text?.text;
+      if (typeof text !== 'string' || text.length > 140 || typeof item.uri !== 'string') continue;
+      let url;
+      try { url = new URL(item.uri, doc.location.href); } catch (_) { continue; }
+      if (url.username || url.password) continue;
+      const path = url.pathname.replace(/\/$/, '');
+      const base = path.endsWith('/followers') ? url.origin + path.slice(0, -10) :
+        path === '/profile.php' && url.searchParams.get('sk') === 'followers' ? url.href : null;
+      const target = base && facebookPageAddress(base, doc.location.href);
+      if (!target || target.id !== id && (!current.username || target.path !== current.path) &&
+          (!recordAddress?.username || target.path !== recordAddress.path)) continue;
+      const match = /^(?:([0-9][0-9,\s\u00a0\u202f]*)\s*(?:명의?\s*)?(?:팔로워|followers)|(?:팔로워|followers)\s*([0-9][0-9,\s\u00a0\u202f]*)(?:명)?)$/i.exec(text.trim());
+      const value = match ? exactCount(match[1] ?? match[2]) : null;
+      if (value !== null) counts.exact.push(value);
+      else counts.rounded ||= /^(?:[0-9]+(?:\.[0-9]+)?\s*(?:[kmb]|천|만|억)\s*(?:명의?\s*)?(?:팔로워|followers)|(?:팔로워|followers)\s*[0-9]+(?:\.[0-9]+)?\s*(?:[kmb]|천|만|억)(?:명)?)$/i.test(text.trim());
+    }
+    return counts;
   }
 
   /** The user explicitly confirms this target. Its identity is separate from the authenticated person. */
@@ -158,11 +184,13 @@
     const ids = new Set([current.id, canonical?.id, native?.[2], pageMetaID].filter(Boolean));
     if (ids.size > 1 || canonical?.username && current.username && canonical.path !== current.path)
       return { error: 'page_identity_missing' };
-    const roots = jsonRoots(doc, true), queue = roots.slice(), records = [];
+    const roots = jsonRoots(doc, true), queue = roots.slice(), records = [], users = [];
+    const delegatedPage = record => record.__typename === 'User' && /^[0-9]+$/.test(textID(record.delegate_page?.id) || '');
     for (let i = 0; i < queue.length && i < 100000; i++) {
       const record = queue[i];
       if (!record || typeof record !== 'object') continue;
-      if (!Array.isArray(record) && (record.__typename === 'Page' || record.__isPage === 'Page')) {
+      if (!Array.isArray(record) && record.__typename === 'User') users.push(record);
+      if (!Array.isArray(record) && (record.__typename === 'Page' || record.__isPage === 'Page' || delegatedPage(record))) {
         const id = textID(record.id), address = facebookPageAddress(record.url || record.profile_url, doc.location.href);
         const matches = id && /^[0-9]+$/.test(id) && (ids.has(id) ||
           current.username && (String(record.username || '').toLowerCase() === current.username.toLowerCase() || address?.path === current.path));
@@ -174,7 +202,15 @@
     const id = ids.values().next().value;
     if (id === expectedID) return { error: 'page_required' };
     if (expectedPageID && id !== expectedPageID) return { error: 'page_mismatch' };
-    if (findRecord(roots, r => r.__typename === 'User' && textID(r.id) === id)) return { error: 'page_required' };
+    const delegated = records.some(delegatedPage);
+    // New Pages expose a public User profile backed by a delegate Page. Other User fragments
+    // for that same profile do not repeat the delegate, so the bound profile supplies its proof.
+    if (!delegated && users.some(r => textID(r.id) === id))
+      return { error: 'page_required' };
+    if (delegated) {
+      const known = new Set(records);
+      for (const user of users) if (textID(user.id) === id && !known.has(user)) { records.push(user); known.add(user); }
+    }
     const header = facebookProfileCounts(doc, true);
     const pageLabel = Array.from(doc.querySelectorAll('h1')).slice(0,32).some(heading => {
       for (let scope = heading.parentElement, depth = 0; scope && depth < 5; scope = scope.parentElement, depth++) {
@@ -190,13 +226,16 @@
       return false;
     });
     if (!records.length && !pageMetaID && native?.[1] !== 'page' && !pageLabel) return { error: 'page_required' };
-    const exact = new Set(records.map(r => exactCount(r.followers_count ?? r.follower_count ?? r.followers?.count)).filter(n => n !== null));
+    const social = records.map(r => facebookPageSocialFollowers(r, doc, current, id));
+    const exact = new Set([...records.map(r => exactCount(r.followers_count ?? r.follower_count ?? r.followers?.count)),
+      ...social.flatMap(s => s.exact)].filter(n => n !== null));
     if (exact.size > 1 || exact.size === 1 && header && !exact.has(header.followers)) return { error: 'exact_count_missing' };
     const followers = exact.size === 1 ? exact.values().next().value : header?.followers;
     const record = records.find(r => r.name);
     const name = record?.name || header?.name;
-    if (!name || typeof name !== 'string' || !name.trim() || name.length > 256 || exactCount(followers) === null)
+    if (!name || typeof name !== 'string' || !name.trim() || name.length > 256)
       return { error: 'exact_count_missing' };
+    if (exactCount(followers) === null) return { error: social.some(s => s.rounded) ? 'rounded_count_only' : 'exact_count_missing' };
     const captured = result('FACEBOOK', id, record?.username || current.username || id, name,
       'https://www.facebook.com/profile.php?id=' + encodeURIComponent(id), followers, null, 'facebook-webview-page');
     return { ...captured, accountType: 'PAGE', sessionOwnerId: expectedID };
