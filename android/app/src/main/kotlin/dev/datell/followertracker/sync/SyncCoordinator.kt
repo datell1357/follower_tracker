@@ -31,7 +31,8 @@ class SyncCoordinator(context: Context, private val repository: TrackerRepositor
                 val failedAt = System.currentTimeMillis()
                 repository.updateStatus(key, failure.status, now, RefreshPolicy.serviceRetryAt(failure, failedAt),
                     expectedConnectedAt = account.connectedAt,
-                    transientRetry = if (failure.status == SyncStatus.OFFLINE) RefreshPolicy.nextTransientRetry(account, failedAt) else null)
+                    transientRetry = if (failure.status in setOf(SyncStatus.OFFLINE, SyncStatus.FORMAT_CHANGED))
+                        RefreshPolicy.nextTransientRetry(account, failedAt, failure.status) else null)
             }
         } catch (failure: Exception) {
             try {
@@ -56,11 +57,12 @@ class SyncCoordinator(context: Context, private val repository: TrackerRepositor
                 repository.saveScans(followers, following, expectedConnectedAt = account.connectedAt)
             } catch (failure: CollectionFailure) {
                 repository.updateListStatus(key, failure.status, expectedConnectedAt = account.connectedAt)
-                if (failure.status.blocksAutomaticRetry || failure.status in setOf(SyncStatus.RATE_LIMITED, SyncStatus.OFFLINE)) {
+                if (failure.status.blocksAutomaticRetry || failure.status in setOf(SyncStatus.RATE_LIMITED, SyncStatus.OFFLINE, SyncStatus.FORMAT_CHANGED)) {
                     val failedAt = System.currentTimeMillis()
                     repository.updateStatus(key, failure.status, now, RefreshPolicy.serviceRetryAt(failure, failedAt),
                         expectedConnectedAt = account.connectedAt,
-                        transientRetry = if (failure.status == SyncStatus.OFFLINE) RefreshPolicy.nextTransientRetry(account, failedAt) else null)
+                        transientRetry = if (failure.status in setOf(SyncStatus.OFFLINE, SyncStatus.FORMAT_CHANGED))
+                            RefreshPolicy.nextTransientRetry(account, failedAt, failure.status) else null)
                 }
             }
         } catch (failure: Exception) {

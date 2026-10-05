@@ -90,14 +90,16 @@ private suspend fun WebView.evaluate(script: String): String = suspendCancellabl
     evaluateJavascript(script) { if (continuation.isActive) continuation.resume(it) }
 }
 
-fun webCaptureFailure(result: JSONObject): CollectionFailure? {
+fun webCaptureFailure(result: JSONObject, sessionIdentityAvailable: Boolean = false): CollectionFailure? {
     if (!result.has("error")) return null
     val status = when (result.optString("error")) {
         "http" -> statusForHttp(result.optInt("status")) ?: SyncStatus.FORMAT_CHANGED
         "rate_limited" -> SyncStatus.RATE_LIMITED
         "offline" -> SyncStatus.OFFLINE
-        "reauth_required", "identity_missing" -> SyncStatus.REAUTH_REQUIRED
-        "own_profile_required", "owner_context_missing", "check_required", "page_required", "page_identity_missing", "page_mismatch" -> SyncStatus.CHECK_REQUIRED
+        "reauth_required" -> SyncStatus.REAUTH_REQUIRED
+        "identity_missing" -> if (sessionIdentityAvailable) SyncStatus.FORMAT_CHANGED else SyncStatus.REAUTH_REQUIRED
+        "owner_context_missing" -> if (sessionIdentityAvailable) SyncStatus.FORMAT_CHANGED else SyncStatus.CHECK_REQUIRED
+        "own_profile_required", "check_required", "page_required", "page_identity_missing", "page_mismatch" -> SyncStatus.CHECK_REQUIRED
         else -> SyncStatus.FORMAT_CHANGED
     }
     val retry = if (result.isNull("retryAfterSeconds")) null else result.optLong("retryAfterSeconds").coerceIn(60, 86_400)

@@ -173,7 +173,8 @@ actor SyncService {
             let failedAt = nowMillis()
             try await repository.updateStatus(key, failure.status, nextAllowedAt: RefreshPolicy.serviceRetryAt(failure, failedAt: failedAt),
                 expectedConnectedAt: account.connectedAt,
-                transientRetry: failure.status == .offline ? RefreshPolicy.nextTransientRetry(account, failedAt: failedAt) : nil)
+                transientRetry: [.offline, .formatChanged].contains(failure.status) ?
+                    RefreshPolicy.nextTransientRetry(account, failedAt: failedAt, status: failure.status) : nil)
         }
     }
     func relationships(_ key: String, background: Bool = false) async throws {
@@ -202,11 +203,12 @@ actor SyncService {
         catch is CancellationError { try await repository.listStatus(key, .listIncomplete, expectedConnectedAt: account.connectedAt); throw CancellationError() }
         catch let failure as CollectionFailure {
             try await repository.listStatus(key, failure.status, expectedConnectedAt: account.connectedAt)
-            if failure.status.blocksAutomaticRetry || [.rateLimited, .offline].contains(failure.status) {
+            if failure.status.blocksAutomaticRetry || [.rateLimited, .offline, .formatChanged].contains(failure.status) {
                 let failedAt = nowMillis()
                 try await repository.updateStatus(key, failure.status, nextAllowedAt: RefreshPolicy.serviceRetryAt(failure, failedAt: failedAt),
                     expectedConnectedAt: account.connectedAt,
-                    transientRetry: failure.status == .offline ? RefreshPolicy.nextTransientRetry(account, failedAt: failedAt) : nil)
+                    transientRetry: [.offline, .formatChanged].contains(failure.status) ?
+                        RefreshPolicy.nextTransientRetry(account, failedAt: failedAt, status: failure.status) : nil)
             }
         }
     }

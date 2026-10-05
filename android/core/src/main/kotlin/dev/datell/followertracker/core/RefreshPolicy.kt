@@ -19,9 +19,9 @@ object RefreshPolicy {
         return true
     }
 
-    fun nextTransientRetry(account: Account, failedAt: Long): TransientRetryState {
+    fun nextTransientRetry(account: Account, failedAt: Long, status: SyncStatus = SyncStatus.OFFLINE): TransientRetryState {
         val count = (account.transientRetry?.failureCount ?: 0).coerceIn(0, 4) + 1
-        val delay = minOf(900_000L, 60_000L shl (count - 1))
+        val delay = if (status == SyncStatus.FORMAT_CHANGED) 900_000L else minOf(900_000L, 60_000L shl (count - 1))
         return TransientRetryState(count, saturatedDeadline(failedAt, delay))
     }
 

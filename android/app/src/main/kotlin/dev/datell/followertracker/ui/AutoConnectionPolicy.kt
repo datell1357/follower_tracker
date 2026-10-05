@@ -39,7 +39,7 @@ fun connectionFailureMessage(failure: CollectionFailure): String = when (failure
     SyncStatus.OFFLINE -> "데이터를 읽지 못했어요. 인터넷 연결을 확인해주세요."
     SyncStatus.REAUTH_REQUIRED -> "로그인을 완료해주세요. 완료되면 계정을 자동으로 연결해요."
     SyncStatus.CHECK_REQUIRED -> "SNS의 추가 인증을 완료하거나 로그인한 내 계정의 프로필을 열어주세요."
-    SyncStatus.FORMAT_CHANGED -> "로그인 페이지에서 정확한 팔로워 수를 읽지 못했어요. 내 프로필에서 다시 확인해주세요."
+    SyncStatus.FORMAT_CHANGED -> "페이지에서 팔로워 정보를 읽지 못했어요. 잠시 뒤 내 프로필을 다시 확인해주세요."
     SyncStatus.FOREGROUND_ONLY -> "이 SNS는 로그인 창에서 내 프로필을 열어 갱신해요."
     SyncStatus.LIST_INCOMPLETE -> "명단을 끝까지 읽지 못했어요. 기존 명단을 유지했어요."
     else -> failure.status.label

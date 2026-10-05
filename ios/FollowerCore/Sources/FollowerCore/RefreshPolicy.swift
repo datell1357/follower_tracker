@@ -9,9 +9,9 @@ public enum RefreshPolicy {
         return !account.status.blocksAutomaticRetry && account.status != .foregroundOnly
     }
 
-    public static func nextTransientRetry(_ account: Account, failedAt: Int64) -> TransientRetryState {
+    public static func nextTransientRetry(_ account: Account, failedAt: Int64, status: SyncStatus = .offline) -> TransientRetryState {
         let count = min(4, max(0, account.transientRetry?.failureCount ?? 0)) + 1
-        let delay = min(900_000, Int64(60_000) << (count - 1))
+        let delay: Int64 = status == .formatChanged ? 900_000 : min(900_000, Int64(60_000) << (count - 1))
         return TransientRetryState(failureCount: count, nextAttemptAt: saturatedDeadline(failedAt, delay: delay))
     }
 

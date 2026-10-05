@@ -86,6 +86,52 @@ class SyncTransientRetryRuntimeTest {
             assertEquals(9L, f.repository.history(f.account.key).last().followers)
         } finally { f.database.close() }
     }
+    @Test fun formatFailuresPersistAWaitAndKeepExplicitRecoveryAvailable() = runBlocking {
+        val f = fixture()
+        try {
+            val collector = TransientCollector().apply { failure = CollectionFailure(SyncStatus.FORMAT_CHANGED) }
+            val sync = SyncCoordinator(context, f.repository, collector, publishWidgets = {})
+            val began = System.currentTimeMillis()
+            sync.refresh(f.account.key, background = true)
+            sync.refresh(f.account.key, background = true)
+            val stored = checkNotNull(f.repository.account(f.account.key))
+            assertEquals(1, collector.metricRequests)
+            assertEquals(SyncStatus.FORMAT_CHANGED, stored.status)
+            assertTrue(checkNotNull(stored.transientRetry).nextAttemptAt >= began + 900_000)
+            assertNull(stored.nextAllowedAt)
+            assertEquals(listOf(1_000L), f.repository.history(f.account.key).map { it.observedAt })
+            f.database.close()
+            val reopened = Room.databaseBuilder(context, TrackerDatabase::class.java, f.name).build()
+            try {
+                val repository = TrackerRepository(reopened, DataCipher())
+                assertEquals(stored.transientRetry, repository.account(f.account.key)?.transientRetry)
+                collector.failure = null
+                SyncCoordinator(context, repository, collector, publishWidgets = {}).refresh(f.account.key)
+                assertEquals(2, collector.metricRequests)
+                assertEquals(SyncStatus.READY, repository.account(f.account.key)?.status)
+                assertNull(repository.account(f.account.key)?.transientRetry)
+            } finally { reopened.close() }
+        } finally { f.database.close() }
+    }
+    @Test fun formatFailuresCanRecoverAutomaticallyAfterThePersistedWaitExpires() = runBlocking {
+        val f = fixture()
+        try {
+            val collector = TransientCollector().apply { failure = CollectionFailure(SyncStatus.FORMAT_CHANGED) }
+            val sync = SyncCoordinator(context, f.repository, collector, publishWidgets = {})
+            sync.refresh(f.account.key, background = true)
+            val stored = checkNotNull(f.repository.account(f.account.key))
+            f.repository.updateStatus(f.account.key, stored.status, System.currentTimeMillis(),
+                transientRetry = checkNotNull(stored.transientRetry).copy(nextAttemptAt = System.currentTimeMillis() - 1))
+            collector.failure = null
+            sync.refresh(f.account.key, background = true)
+            assertEquals(2, collector.metricRequests)
+            val recovered = checkNotNull(f.repository.account(f.account.key))
+            assertEquals(SyncStatus.READY, recovered.status)
+            assertEquals(Capability.OBSERVED, recovered.capabilities.background)
+            assertNull(recovered.transientRetry)
+            assertEquals(2, f.repository.history(f.account.key).size)
+        } finally { f.database.close() }
+    }
     @Test fun consecutiveFailuresIncreaseThePersistedDelay() = runBlocking {
         val f = fixture()
         try {

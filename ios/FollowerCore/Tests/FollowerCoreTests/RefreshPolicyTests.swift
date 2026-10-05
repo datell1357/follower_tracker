@@ -22,7 +22,7 @@ final class RefreshPolicyTests: XCTestCase {
         XCTAssertFalse(RefreshPolicy.canRefresh(pending, now: 60_000, background: true))
     }
     func testAutomaticRetriesStopButAnExplicitRefreshCanRetryAfterCooldown() throws {
-        for status: SyncStatus in [.reauthRequired, .checkRequired, .formatChanged, .foregroundOnly] {
+        for status: SyncStatus in [.reauthRequired, .checkRequired, .foregroundOnly] {
             let blocked = try account(status: status)
             XCTAssertFalse(RefreshPolicy.canRefresh(blocked, now: 1, background: true))
             XCTAssertTrue(RefreshPolicy.canRefresh(blocked, now: 1, background: false))
@@ -34,6 +34,26 @@ final class RefreshPolicyTests: XCTestCase {
             XCTAssertTrue(RefreshPolicy.canRefresh(ready, now: 60_000, background: false))
             XCTAssertTrue(RefreshPolicy.canRefresh(ready, now: 60_000, background: true))
         }
+    }
+
+    func testAProfileFormatFailureCanRecoverAfterItsLocalWaitWithoutReconnecting() throws {
+        var waiting = try account(status: .formatChanged)
+        waiting.transientRetry = TransientRetryState(failureCount: 1, nextAttemptAt: 900_001)
+        XCTAssertFalse(RefreshPolicy.canRefresh(waiting, now: 900_000, background: true))
+        XCTAssertTrue(RefreshPolicy.canRefresh(waiting, now: 900_001, background: true))
+        XCTAssertTrue(RefreshPolicy.canRefresh(waiting, now: 1, background: false))
+        XCTAssertTrue(RefreshPolicy.canRefresh(try account(status: .formatChanged), now: 1, background: true))
+    }
+
+    func testFormatFailuresWaitFifteenMinutesFromCompletionWithoutBlockingAnExplicitRefresh() throws {
+        var waiting = try account(status: .formatChanged)
+        let retry = RefreshPolicy.nextTransientRetry(waiting, failedAt: 30_000, status: .formatChanged)
+        XCTAssertEqual(retry.nextAttemptAt, 930_000)
+        waiting.transientRetry = retry
+        XCTAssertTrue(RefreshPolicy.canRefresh(waiting, now: 30_000, background: false))
+        XCTAssertFalse(RefreshPolicy.canRefresh(waiting, now: 929_999, background: true))
+        XCTAssertTrue(RefreshPolicy.canRefresh(waiting, now: 930_000, background: true))
+        XCTAssertEqual(RefreshPolicy.nextTransientRetry(waiting, failedAt: 30_000, status: .formatChanged).nextAttemptAt, 930_000)
     }
 
     func testTransientRetriesGrowFromOneMinuteToFifteenMinutesAndStayBounded() throws {

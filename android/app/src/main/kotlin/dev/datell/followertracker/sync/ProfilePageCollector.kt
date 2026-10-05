@@ -151,16 +151,17 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                 while (true) {
                     failure?.let { throw it }
                     currentCoroutineContext().ensureActive()
+                    if (!sessions.hasAuthentication(account.provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
                     if (sessions.identity(account.provider) != account.stableId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
                     val payload = captureWebSession(web, account.provider, account.stableId, script, allowRequest = false)
                     failure?.let { throw it }
                     val result = JSONObject(payload)
                     if (!result.has("error")) return@withTimeout payload
-                    val error = webCaptureFailure(result) ?: CollectionFailure(SyncStatus.FORMAT_CHANGED)
+                    val error = webCaptureFailure(result, sessionIdentityAvailable = true) ?: CollectionFailure(SyncStatus.FORMAT_CHANGED)
                     pendingCaptureFailure = error
                     // onPageFinished can precede client-side routing/profile hydration. Re-read the fresh
                     // document locally; never load alternate endpoints or turn missing data into zero.
-                    if (result.optString("error") !in setOf("exact_count_missing", "own_profile_required", "owner_context_missing")) {
+                    if (result.optString("error") !in setOf("exact_count_missing", "own_profile_required", "owner_context_missing", "identity_missing")) {
                         fail(error, "CAPTURE"); throw error
                     }
                     delay(1_000)

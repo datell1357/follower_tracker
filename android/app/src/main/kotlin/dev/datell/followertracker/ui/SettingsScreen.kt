@@ -21,7 +21,7 @@ fun SettingsScreen(state: TrackerState) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item { RapidTrackingCard(state) }
         item { InfoPanel("관계 명단은 하루 간격으로", "전체 명단을 읽을 수 있는 계정에서 하루 간격으로 요청해요. 빠른 추적은 팔로워 수를 확인하며, 관계 명단을 매분 요청하지 않아요.", icon = Icons.Outlined.PeopleOutline) }
-        item { InfoPanel("읽지 못하면 마지막 기록을 유지해요", "요청 제한 때는 대기 후 다시 확인해요. 로그인 확인이나 수집 경로 점검이 필요한 경우 자동 재시도를 중지하고 계정 상태에 표시해요.", icon = Icons.Outlined.Info) }
+        item { InfoPanel("읽지 못하면 마지막 기록을 유지해요", "페이지에서 팔로워 정보를 읽지 못하면 15분을 기다린 뒤 자동 수집으로 다시 확인해요. 요청 제한은 안내된 대기를 지키며, 실제 로그인 만료나 추가 인증이 필요할 때 계정 상태에 표시해요.", icon = Icons.Outlined.Info) }
     }
 }
 

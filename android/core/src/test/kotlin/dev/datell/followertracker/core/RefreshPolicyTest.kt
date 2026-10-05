@@ -17,9 +17,28 @@ class RefreshPolicyTest {
         }
     }
 
-    @Test fun backgroundRetriesStopForReauthenticationChallengeAndChangedFormats() {
-        for (status in listOf(SyncStatus.REAUTH_REQUIRED, SyncStatus.CHECK_REQUIRED, SyncStatus.FORMAT_CHANGED))
+    @Test fun backgroundRetriesStopForReauthenticationAndChallenges() {
+        for (status in listOf(SyncStatus.REAUTH_REQUIRED, SyncStatus.CHECK_REQUIRED))
             assertFalse(RefreshPolicy.canRefresh(owner.copy(status = status), 1, background = true))
+    }
+
+    @Test fun aProfileFormatFailureCanRecoverAfterItsLocalWaitWithoutReconnecting() {
+        val waiting = owner.copy(status = SyncStatus.FORMAT_CHANGED,
+            transientRetry = TransientRetryState(1, 900_001))
+        assertFalse(RefreshPolicy.canRefresh(waiting, 900_000, background = true))
+        assertTrue(RefreshPolicy.canRefresh(waiting, 900_001, background = true))
+        assertTrue(RefreshPolicy.canRefresh(waiting, 1, background = false))
+        assertTrue(RefreshPolicy.canRefresh(owner.copy(status = SyncStatus.FORMAT_CHANGED), 1, background = true))
+    }
+
+    @Test fun formatFailuresWaitFifteenMinutesFromCompletionWithoutBlockingAnExplicitRefresh() {
+        val retry = RefreshPolicy.nextTransientRetry(owner, 30_000, SyncStatus.FORMAT_CHANGED)
+        assertEquals(930_000L, retry.nextAttemptAt)
+        val waiting = owner.copy(status = SyncStatus.FORMAT_CHANGED, transientRetry = retry)
+        assertTrue(RefreshPolicy.canRefresh(waiting, 30_000, background = false))
+        assertFalse(RefreshPolicy.canRefresh(waiting, 929_999, background = true))
+        assertTrue(RefreshPolicy.canRefresh(waiting, 930_000, background = true))
+        assertEquals(930_000L, RefreshPolicy.nextTransientRetry(waiting, 30_000, SyncStatus.FORMAT_CHANGED).nextAttemptAt)
     }
 
     @Test fun previouslyStoredInstagramForegroundAccountCanTryItsProfileRoute() {

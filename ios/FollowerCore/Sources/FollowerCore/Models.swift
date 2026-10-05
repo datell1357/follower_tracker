@@ -58,12 +58,12 @@ public enum SyncStatus: String, Codable, Sendable {
         case .checkRequired: "연결 확인 필요"
         case .rateLimited: "갱신 대기"
         case .offline: "일시 오류"
-        case .formatChanged: "수집 경로 확인 필요"
+        case .formatChanged: "수집 재시도 대기"
         case .foregroundOnly: "앱에서 갱신"
         case .listIncomplete: "명단 갱신 미완료"
         }
     }
-    public var blocksAutomaticRetry: Bool { [.reauthRequired, .checkRequired, .formatChanged].contains(self) }
+    public var blocksAutomaticRetry: Bool { [.reauthRequired, .checkRequired].contains(self) }
 }
 
 public enum Capability: String, Codable, Sendable {

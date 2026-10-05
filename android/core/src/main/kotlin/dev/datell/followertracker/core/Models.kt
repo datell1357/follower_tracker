@@ -23,11 +23,11 @@ enum class Provider(val title: String, val loginUrl: String, val domain: String)
 enum class SyncStatus(val label: String) {
     READY("갱신 완료"), REFRESHING("갱신 중"), REAUTH_REQUIRED("다시 로그인 필요"),
     CHECK_REQUIRED("연결 확인 필요"), RATE_LIMITED("갱신 대기"), OFFLINE("일시 오류"),
-    FORMAT_CHANGED("수집 경로 확인 필요"), FOREGROUND_ONLY("앱에서 갱신"),
+    FORMAT_CHANGED("수집 재시도 대기"), FOREGROUND_ONLY("앱에서 갱신"),
     LIST_INCOMPLETE("명단 갱신 미완료");
 
     val blocksAutomaticRetry: Boolean
-        get() = this in setOf(REAUTH_REQUIRED, CHECK_REQUIRED, FORMAT_CHANGED)
+        get() = this in setOf(REAUTH_REQUIRED, CHECK_REQUIRED)
 }
 
 @Serializable

@@ -65,7 +65,8 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                 try {
                     val payload = captureWebSession(web, provider, identity, script, allowRequest)
                     val result = JSONObject(payload)
-                    val failure = webCaptureFailure(result)
+                    val failure = webCaptureFailure(result, sessionIdentityAvailable = identity != null &&
+                        sessionReady && identity == context.appGraph.sessions.identity(provider))
                     if (failure == null) {
                         capturedPages.add(pageKey)
                         currentConnect(payload, web.settings.userAgentString)
