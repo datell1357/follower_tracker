@@ -20,11 +20,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.datastore.preferences.core.emptyPreferences
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import dev.datell.followertracker.widget.TrackerWidget
-import dev.datell.followertracker.widget.TrackerWidgetReceiver
+import dev.datell.followertracker.widget.WidgetPinning
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -92,15 +88,15 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
         item {
             if (state.accounts.isEmpty()) Button(onClick = onConnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("SNS 연결하기") }
             else Button(onClick = {
+                val requestedAccount = selected
                 requesting = true; error = false
                 scope.launch {
                     try {
                         // The launcher's configuration screen uses the same default selection.
                         context.getSharedPreferences("widget_preferences", Context.MODE_PRIVATE).edit {
-                            if (selected == null) remove("accountKey") else putString("accountKey", selected)
+                            if (requestedAccount == null) remove("accountKey") else putString("accountKey", requestedAccount)
                         }
-                        val preferences = emptyPreferences().toMutablePreferences().apply { selected?.let { this[stringPreferencesKey("accountKey")] = it } }
-                        error = !GlanceAppWidgetManager(context).requestPinGlanceAppWidget(TrackerWidgetReceiver::class.java, preview = TrackerWidget(), previewState = preferences)
+                        error = !WidgetPinning.request(context, requestedAccount)
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { error = true }
                     finally { requesting = false }

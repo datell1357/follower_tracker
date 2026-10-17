@@ -20,9 +20,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.state.updateAppWidgetState
-import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.lifecycleScope
 import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.Account
@@ -91,12 +88,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
     }
     private fun configure(id: Int, key: String?, failure: () -> Unit) = lifecycleScope.launch {
         try {
-            val glanceId = GlanceAppWidgetManager(this@WidgetConfigurationActivity).getGlanceIdBy(id)
-            updateAppWidgetState(this@WidgetConfigurationActivity, glanceId) { preferences ->
-                val name = stringPreferencesKey("accountKey")
-                if (key == null) preferences.remove(name) else preferences[name] = key
-            }
-            TrackerWidget().update(this@WidgetConfigurationActivity, glanceId)
+            check(WidgetPinning.configure(this@WidgetConfigurationActivity, id, key))
             setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id))
             finish()
         } catch (cancelled: CancellationException) { throw cancelled }
