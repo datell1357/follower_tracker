@@ -28,6 +28,33 @@ test("no logged-in TikTok context does not connect an arbitrary public profile",
   } } } };
   assert.equal(capture("TIKTOK", null, documentWith(data)).error, "identity_missing");
 });
+test("a connected TikTok profile keeps exact counts when the signed-in context is omitted", () => {
+  for (const followerCount of [0, 7, "12,345"]) {
+    const data = { __DEFAULT_SCOPE__: {
+      "webapp.app-context": { user: null },
+      "webapp.user-detail": { statusCode: 0, userInfo: {
+        user: { id: "42", uniqueId: "self", nickname: "Self" }, stats: { followerCount, followingCount: 4 }
+      } }
+    } };
+    const result = capture("TIKTOK", "42", documentWith(data));
+    assert.equal(result.stableId, "42");
+    assert.equal(result.followers, exactCount(followerCount));
+    assert.equal(result.following, 4);
+    assert.equal(result.precision, "EXACT");
+  }
+});
+test("TikTok stored identity cannot connect public profiles or override mismatched owners and rounded counts", () => {
+  const data = { __DEFAULT_SCOPE__: { "webapp.user-detail": { userInfo: {
+    user: { id: "42", uniqueId: "self" }, stats: { followerCount: 7, followingCount: 4 }
+  } } } };
+  assert.equal(capture("TIKTOK", null, documentWith(data)).error, "identity_missing");
+  assert.equal(capture("TIKTOK", "99", documentWith(data)).error, "own_profile_required");
+  data.__DEFAULT_SCOPE__["webapp.app-context"] = { user: { id: "99" } };
+  assert.equal(capture("TIKTOK", "42", documentWith(data)).error, "own_profile_required");
+  delete data.__DEFAULT_SCOPE__["webapp.app-context"];
+  data.__DEFAULT_SCOPE__["webapp.user-detail"].userInfo.stats.followerCount = "1.2K";
+  assert.equal(capture("TIKTOK", "42", documentWith(data)).error, "exact_count_missing");
+});
 function facebookDocument(data, path = "/profile.php?id=42", links = []) {
   return { location: { href: "https://www.facebook.com" + path },
     querySelectorAll: selector => selector === "a[href]" ? links : [{ textContent: JSON.stringify(data) }],

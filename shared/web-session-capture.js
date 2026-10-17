@@ -279,13 +279,14 @@
         const signedIn = context.user || context.userInfo?.user;
         const ownerID = textID(signedIn?.id || signedIn?.uid);
         const info = scope["webapp.user-detail"]?.userInfo;
-        if (!ownerID) continue;
+        // Refreshes carry the stored account ID; TikTok can omit viewer context from a valid profile.
+        if (!ownerID && !expectedID) continue;
         if (!info?.user || !info.stats) {
-          if (signedIn.uniqueId) return { error: "own_profile_required", profileURL: "https://www.tiktok.com/@" + encodeURIComponent(signedIn.uniqueId) };
+          if (signedIn?.uniqueId) return { error: "own_profile_required", profileURL: "https://www.tiktok.com/@" + encodeURIComponent(signedIn.uniqueId) };
           continue;
         }
         const id = textID(info.user.id);
-        if (id !== ownerID || (expectedID && id !== expectedID)) return { error: "own_profile_required" };
+        if ((ownerID && id !== ownerID) || (expectedID && id !== expectedID)) return { error: "own_profile_required" };
         return result(provider, id, info.user.uniqueId, info.user.nickname,
           "https://www.tiktok.com/@" + encodeURIComponent(info.user.uniqueId),
           info.stats.followerCount, info.stats.followingCount, "tiktok-webview-profile");
