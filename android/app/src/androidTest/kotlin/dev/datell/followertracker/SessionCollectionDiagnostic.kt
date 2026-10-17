@@ -143,29 +143,42 @@ class SessionCollectionDiagnostic {
                             for(const child of Object.values(r))if(child&&typeof child==='object')queue.push(child);
                           }
                           const label=n=>(n.innerText||n.textContent||'').trim();
-                          const exact=t=>/^(?:[0-9][0-9,\s]*\s*(?:명의?\s*)?(?:팔로워|followers)|(?:팔로워|followers)\s*[0-9][0-9,\s]*(?:명)?)$/i.test(t);
-                          const followerNodes=Array.from(document.querySelectorAll('a[href],button,[role="button"],span')).slice(0,20000)
-                            .filter(n=>label(n).length<140&&/followers|팔로워/i.test(label(n))).slice(0,16)
+                          const exact=t=>/^(?:[0-9][0-9,\s]*\s*(?:명의?\s*)?(?:팔로워|followers?)|(?:팔로워|followers?)\s*[0-9][0-9,\s]*(?:명)?)$/i.test(t);
+                          const followerNodes=Array.from(document.querySelectorAll('a[href],button,[role="button"],span,div')).slice(0,20000)
+                            .filter(n=>label(n).length<140&&/followers?|팔로워/i.test(label(n))).slice(0,16)
                             .map(n=>({tag:n.tagName,button:n.matches('a[href],button,[role="button"]'),exact:exact(label(n)),
+                              mixedLabels:/following|팔로잉|posts|게시물/i.test(label(n)),children:n.childElementCount,
                               feed:!!n.closest('article,[role="article"],[role="feed"]')}));
                           const headings=Array.from(document.querySelectorAll('h1')).slice(0,16).map(h=>{
                             const scopes=[];for(let p=h.parentElement,d=1;p&&d<=8;p=p.parentElement,d++){
                               scopes.push({depth:d,headings:p.querySelectorAll('h1').length,
                                 feed:!!p.querySelector('article,[role="article"],[role="feed"]'),
-                                followerButtons:Array.from(p.querySelectorAll('a[href],button,[role="button"]')).filter(n=>/followers|팔로워/i.test(label(n))).length});
+                                followerButtons:Array.from(p.querySelectorAll('a[href],button,[role="button"]')).filter(n=>/followers?|팔로워/i.test(label(n))).length,
+                                followerTexts:Array.from(p.querySelectorAll('span,div')).filter(n=>exact(label(n))).length});
                               if(p.tagName==='BODY'||p.tagName==='HTML')break;
                             }return {scopes};
                           });
+                          const body=(document.body?.innerText||'').slice(0,500000);
+                          const notice={
+                            loginForm:!!document.querySelector('input[type="password"],input[name="pass"],input[name="email"]'),
+                            loginTitle:/log ?in|로그인/i.test(document.title),
+                            unavailable:/content.{0,30}(?:isn.t available|unavailable)|page.{0,30}(?:isn.t available|unavailable)|(?:콘텐츠|페이지).{0,40}(?:없|이용|사용)/i.test(body),
+                            temporaryError:/something went wrong|try again later|temporarily blocked|문제가 발생|나중에 다시/i.test(body),
+                            browserUnsupported:/unsupported browser|browser.{0,40}(?:not supported|update)|지원하지 않는 브라우저|브라우저.{0,30}(?:지원|업데이트)/i.test(body),
+                            sessionExpired:/session.{0,20}expired|세션.{0,20}만료/i.test(body),
+                            accountRestricted:/account.{0,30}(?:suspended|disabled|locked)|계정.{0,30}(?:정지|비활성|잠겼|잠금)/i.test(body)
+                          };
                           const error=window.FollowerTrackerCapture?.capture(${JSONObject.quote(provider.name)},expected)?.error;
                           return JSON.stringify({captureError:typeof error==='string'&&/^[a-z_]{1,64}$/.test(error)?error:null,
                             ownPath:url.pathname==='/profile.php'&&url.searchParams.get('id')===expected,
                             mobile:url.hostname==='m.facebook.com',ready:document.readyState,bodyLength:(document.body?.innerText||'').length,
-                            jsonRoots:roots.length,dataScripts:document.querySelectorAll('script[data-sjs]').length,owners,headings,followerNodes});
+                            jsonRoots:roots.length,dataScripts:document.querySelectorAll('script[data-sjs]').length,owners,headings,followerNodes,notice});
                         })();""".trimIndent()
                         val encoded = withTimeout(5_000) { suspendCancellableCoroutine<String> { continuation ->
                             web.evaluateJavascript(script) { result -> if (continuation.isActive) continuation.resume(result) }
                         } }
                         report.put("document", JSONObject(JSONArray("[$encoded]").getString(0)))
+
                     }
                 }
                 instrumentation.sendStatus(2, Bundle().apply { putString("SESSION_REUSE_DIAGNOSTIC", report.toString()) })

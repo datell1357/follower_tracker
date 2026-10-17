@@ -128,7 +128,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                     if (request.isForMainFrame || response.statusCode == 429 && account.provider.allows(request.url.toString()))
                         fail(CollectionFailure(statusForHttp(response.statusCode) ?: SyncStatus.FORMAT_CHANGED,
                             response.responseHeaders?.entries?.firstOrNull { it.key.equals("Retry-After", true) }
-                                ?.value?.toLongOrNull()?.coerceIn(60, 86_400)), "HTTP")
+                                ?.value?.toLongOrNull()?.coerceIn(60, 86_400)), "HTTP_${response.statusCode}")
                 }
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                     if (request.isForMainFrame) fail(CollectionFailure(SyncStatus.OFFLINE), "NETWORK")

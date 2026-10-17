@@ -163,6 +163,32 @@ function facebookSpanDocument(texts, path = '/profile.php?id=42', boundary = nul
   if (boundary === 'otherHeading') header.querySelectorAll = selector => selector === 'h1' ? [heading, { tagName: 'H1' }] : spans;
   return doc;
 }
+test('Facebook text counters survive transitions between singular and plural followers', () => {
+  for (const [text, count] of [['1 follower', 1], ['2 followers', 2], ['Follower 1', 1], ['0 followers', 0]]) {
+    const result = capture('FACEBOOK', '42', facebookSpanDocument(['follower', text, 'Following 3']));
+    assert.equal(result.followers, count);
+    assert.equal(result.following, 3);
+    assert.equal(result.precision, 'EXACT');
+  }
+});
+test('Facebook singular labels retain identity, rounding, ambiguity and header boundaries', () => {
+  for (const texts of [['1.2K follower'], ['1 follower', '2 followers'], ['1 follower', '1.2K followers']])
+    assert.equal(capture('FACEBOOK', '42', facebookSpanDocument(texts)).error, 'exact_count_missing');
+  for (const boundary of ['feed', 'otherHeading'])
+    assert.equal(capture('FACEBOOK', '42', facebookSpanDocument(['1 follower'], undefined, boundary)).error, 'exact_count_missing');
+  assert.equal(capture('FACEBOOK', '42', facebookSpanDocument(['1 follower'], '/profile.php?id=99')).error, 'own_profile_required');
+});
+test('Facebook inline counters do not require whitespace between numbers and labels', () => {
+  for (const [text, count] of [['1follower', 1], ['Follower1', 1], ['12,345followers', 12345], ['팔로워0명', 0], ['0팔로워', 0]]) {
+    const result = capture('FACEBOOK', '42', facebookSpanDocument([text, 'Following3']));
+    assert.equal(result.followers, count);
+    assert.equal(result.following, 3);
+  }
+});
+test('Facebook compact counters still reject rounded and conflicting numbers', () => {
+  for (const texts of [['1.2Kfollower'], ['1follower', '2followers'], ['1follower', '1.2Kfollowers'], ['Follower1e3']])
+    assert.equal(capture('FACEBOOK', '42', facebookSpanDocument(texts)).error, 'exact_count_missing');
+});
 test('Facebook personal profiles read exact text spans after the header is hydrated', () => {
   for (const [text, count] of [['0 followers', 0], ['12,345 팔로워', 12345], ['팔로워 5명', 5]]) {
     const result = capture('FACEBOOK', '42', facebookSpanDocument(['팔로워', text, 'Following', 'Following 2']));

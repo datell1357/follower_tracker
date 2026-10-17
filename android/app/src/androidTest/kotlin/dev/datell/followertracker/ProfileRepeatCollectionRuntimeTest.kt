@@ -65,6 +65,37 @@ class ProfileRepeatCollectionRuntimeTest {
         }
     }
 
+    @Test fun repeatedFacebookHeadersReadSingularAndPluralFollowersWithoutJson() = runBlocking {
+        var loads = 0
+        var views = 0
+        val expected = listOf(2L, 1L, 0L, 1L, 2L)
+        fixture({ context, _ ->
+            object : WebView(context) {
+                override fun loadUrl(url: String, additionalHttpHeaders: MutableMap<String, String>) {
+                    val count = expected[loads++]
+                    val label = if (count == 1L) "follower" else "followers"
+                    val separator = if (loads % 2 == 0) "" else " "
+                    val document = """<html><body><nav><h1>Navigation</h1></nav>
+                        <main><section><h1>Fixture</h1><div>
+                          <div role="button"><strong>$count</strong>$separator<span>$label</span></div>
+                          <div role="button"><strong>3</strong> following</div><div>4 posts</div>
+                        </div></section></main></body></html>"""
+                    loadDataWithBaseURL(url, document, "text/html", "UTF-8", url)
+                }
+            }.also { views++ }
+        }) { reader, account, agent ->
+            for (count in expected) {
+                val payload = JSONObject(reader.read(account, agent, retain = true))
+                assertEquals(count, payload.getLong("followers"))
+                assertEquals(3L, payload.getLong("following"))
+                assertEquals("EXACT", payload.getString("precision"))
+                assertTrue(payload.getString("stableId") == account.stableId)
+            }
+            assertEquals(expected.size, loads)
+            assertEquals(1, views)
+        }
+    }
+
     @Test fun aCallerDeadlineCancelsTheReadAndReleasesTheBrowser() = runBlocking {
         var destroyed = false
         fixture({ context, _ ->

@@ -99,12 +99,13 @@
           if (node.closest('article,[role="article"],[role="feed"]')) continue;
           const text = (node.innerText || node.textContent || "").trim();
           if (text.length > 140) continue;
-          if (includeTextNodes && /^(팔로워|followers|팔로잉|following)$/i.test(text)) continue;
-          const followerLabel = /(?:^(?:팔로워|followers)(?:\s|$)|(?:\s|^)(?:팔로워|followers)$)/i.test(text);
-          const followingLabel = /(?:^(?:팔로잉|following)(?:\s|$)|(?:\s|^)(?:팔로잉|following)$)/i.test(text);
+          if (includeTextNodes && /^(팔로워|followers?|팔로잉|following)$/i.test(text)) continue;
+          // Inline elements can join labels to digits; malformed numeric counters must still fail closed.
+          const followerLabel = /(?:^(?:팔로워|followers?)(?:\s|[0-9]|$)|^[0-9].*(?:팔로워|followers?)$|(?:\s|^)(?:팔로워|followers?)$)/i.test(text);
+          const followingLabel = /(?:^(?:팔로잉|following)(?:\s|[0-9]|$)|^[0-9].*(?:팔로잉|following)$|(?:\s|^)(?:팔로잉|following)$)/i.test(text);
           if (!followerLabel && !followingLabel) continue;
           followerSeen ||= followerLabel;
-          const match = /^(?:([0-9][0-9,\s\u00a0\u202f]*)\s*(?:명의?\s*)?(팔로워|followers|팔로잉|following)|(팔로워|followers|팔로잉|following)\s*([0-9][0-9,\s\u00a0\u202f]*)(?:명)?)$/i.exec(text);
+          const match = /^(?:([0-9][0-9,\s\u00a0\u202f]*)\s*(?:명의?\s*)?(팔로워|followers?|팔로잉|following)|(팔로워|followers?|팔로잉|following)\s*([0-9][0-9,\s\u00a0\u202f]*)(?:명)?)$/i.exec(text);
           const count = match ? exactCount(match[1] ?? match[4]) : null;
           if (count === null) {
             invalidFollower ||= followerLabel;
