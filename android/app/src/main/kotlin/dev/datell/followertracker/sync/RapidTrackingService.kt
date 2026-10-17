@@ -135,15 +135,7 @@ class RapidTrackingService : Service() {
                         "provider=${row.account.provider.name} rapidFresh=${row in successful} " +
                             "status=${row.account.status.name} batchFailure=${row.account.provider in failedProviders} " +
                             "cycleElapsedMs=${cycleStarted - started}")
-                    val message = when {
-                        after.all { it.account.status.blocksAutomaticRetry } -> "연결 상태를 확인한 뒤 다시 시작해주세요."
-                        after.any { it.account.status == SyncStatus.RATE_LIMITED } -> "SNS 요청 제한 · 대기 후 다시 확인해요"
-                        after.any { it.account.status == SyncStatus.OFFLINE } -> "일시 오류 · 잠시 후 다시 확인해요"
-                        after.any { it.account.status.blocksAutomaticRetry } -> "일부 SNS 연결 확인 필요 · 가능한 계정은 계속 추적해요"
-                        failedProviders.isNotEmpty() -> "일부 SNS 갱신 오류 · 다른 계정은 계속 추적해요"
-                        freshAt != null -> "수집 완료 · 1분 간격으로 확인해요"
-                        else -> "마지막 기록을 유지하고 있어요"
-                    }
+                    val message = countBatchMessage(after.map { it.account.status }, freshAt != null, failedProviders.isNotEmpty())
                     if (after.isEmpty() || after.all { it.account.status.blocksAutomaticRetry }) {
                         finish(message); return@launch
                     }

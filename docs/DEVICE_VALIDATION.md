@@ -676,3 +676,10 @@ Facebook의 실패 문서에는 로그인 폼 대신 본인 프로필과 정확�
 앱 내부의 위젯 pin 요청에서는 Android 런처가 설정 Activity를 실행하지 않는다. 선택 계정은 요청마다 구분한 private PendingIntent에 담고, 실제 추가 성공 callback의 위젯 ID를 확인해 해당 위젯의 Glance 상태에 저장한다. 미리보기와 실제 상태를 혼동하지 않는다. 다른 위젯을 바꾸지 않으며 유효하지 않은 ID·다른 provider는 거부한다. [Android 공식 pin API 문서](https://developer.android.com/reference/android/appwidget/AppWidgetManager#requestPinAppWidget(android.content.ComponentName,%20android.os.Bundle,%20android.app.PendingIntent))
 
 core 45개·app 42개·공통 JavaScript 58개, Debug·테스트 APK·Release/R8·Debug/Release lint가 통과했다. lint는 오류 0개·기존 경고 각 8개다. 최종 APK에서 반복 WebView 회귀 5개와 pin callback 경계 회귀 3개가 실기기에서 실패·skip 없이 모두 통과했다. 합성 프로필은 저장소에 관측을 추가하지 않으며 기존 실제 세션을 교체하지 않는다. 실제 오류 화면과 진단 파일은 비공개 로컬 자료로만 보관하고 생산 수집기의 일회 화면 캡처 hook은 제거했다. 잠금·자연 절전·일반 15분 예약의 장시간 관찰, 24/72시간·배터리/데이터 절감률, Reddit·iOS 실제 세션과 위젯은 이 결과에 포함하지 않는다. 모든 상황의 100% 수집을 보장하는 결과가 아니다.
+
+
+### 후속 관찰과 일부 실패 안내
+
+정상 APK의 관찰을 연장하자 Instagram·X·Facebook은 각각 일곱 번째 새 관측까지 저장했으나 TikTok은 다섯 번 성공 후 여섯 번째에서 FORMAT_CHANGED와 15분 로컬 대기로 전환됐다. 네 번 연속 성공만으로 TikTok 문제를 해결했다고 판단하지 않는다. 기존 기록·로그인·명단은 유지됐고, 서비스는 나머지 계정의 후속 수집을 계속했다.
+
+이때 서비스 알림이 FORMAT_CHANGED를 놓쳐 `수집 완료`로 표시되는 별도 오류를 확인했다. 메시지 판정에 저장된 형식 오류를 포함해 일부 갱신 오류를 안내한다. 실패를 성공으로 바꾸거나 대기를 우회하지 않는다. 실제 수집 경로는 그대로 두고 메시지 판정을 서비스와 공유하는 순수 함수로 분리했다. 수정 전 부분 성공·대기 상태 회귀 두 개가 실패했고, 수정 후 관련 네 개와 전체 앱 단위 46개가 통과했다. core 45개·Debug·테스트 APK·Release/R8·두 lint도 통과했으며 lint 오류 0개·기존 경고 각 8개다. 원인을 구분하기 위한 일회 TikTok 문서 진단은 로컬 전용이며 정상 소스에서 제거한다.
