@@ -73,6 +73,19 @@ OS의 강제 중지는 일반적인 앱 화면 종료와 별도 시험한다. An
 
 `RapidTrackingRuntimeTest`의 6개 검사는 별도의 합성 SharedPreferences로 중지 사유·마지막 성공 시각 복원, 실행 중 프로세스 종료의 중단 안내, 이전 형식의 상태 읽기, 빈 기록과 성공 횟수 보존을 확인한다. 서비스나 SNS 요청을 시작하지 않고 기본 계정·세션·DB를 사용하지 않는다. 앱 시작 시의 실제 복원 연결은 별도 QA에서 저장된 상태를 준비하고 앱을 새 프로세스로 실행해 확인한다. 이 합성 상태 시험과 실제 6시간 종료 관찰은 [기기 검증](DEVICE_VALIDATION.md)에서 구분한다.
 
+`TrackingSessionPolicyTest`는 일반 모드의 종료 시각과 디버그·기기별 권한·API 34 조건, Release 차단, 프리미엄 시험의 종료 조건과 중지 후 복구 거부를 검사한다. `PremiumWidgetPolicyRuntimeTest`의 3개는 디버그 manifest와 별도의 시험 SharedPreferences만 검사한다. 서비스·SNS 요청·앱 DB를 사용하지 않는다. 시간 값을 24시간으로 전달하는 검사는 실제 24시간 수집 증거가 아니다.
+
+기존 계정을 보존하는 프리미엄 위젯 시험은 수정 디버그 APK·테스트 APK를 `adb install -r`로 설치하고, 추적을 중지한 뒤 아래 설정 검사 하나만 명시적으로 실행한다. 이 설정은 로컬 시험 권한만 켜고 기존 QA 일회 작업 `qa-live-metrics-once`를 취소한다. 사용자 수집·명단 예약은 유지한다. 서비스는 시작하지 않으므로 이후 실제 앱의 **설정 → 수집 설정 → 위젯 추적 시작** 버튼으로 시작해야 한다. 실행 중에는 대상 프로세스를 재시작하는 instrumentation을 사용하지 않는다.
+
+```sh
+adb -s TEST_DEVICE_SERIAL shell am instrument -w -r \
+  -e class 'dev.datell.followertracker.PremiumWidgetTestConfiguration#enablePremiumWidgetTrackingOnThisDebugDevice' \
+  -e enablePremiumWidgetTest true \
+  dev.datell.followertracker.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+최소 하나의 실제 홈 위젯이 있어야 설정 검사가 통과한다. 설정 완료와 실제 서비스 시작·새 수치 저장·홈 위젯 일치·24시간 경과는 각각 별도로 확인한다. Release에는 `specialUse` 선언을 넣지 않으며 실제 구독 검증을 구현한 것으로 보고하지 않는다. [시험 동작과 경계](WIDGET_REFRESH_REFERENCE.md#프리미엄-상태의-24시간-위젯-시험--2026-10-18)
+
 `LoginNavigationPolicyTest`는 로그인 호스트와 수집 쿠키 호스트의 분리, 공식 로그인 이동과 유사 도메인 거부를 검사한다. `LoginRuntimeTest.eachProviderOpensAProtectedLoginWindowAndCanBeClosed`는 SDK 29 이상에서 다섯 SNS 창 진입·닫기와 실제 `FLAG_SECURE` 적용을 확인한다. `recordOfficialLoginPageAvailability`는 네트워크가 있는 시험 기기에 명시적으로 실행하는 진단이며, 입력 요소 개수·화면 높이·입력란 중심점의 터치 가능 여부와 페이지 상태만 기록한다. 수집하는 입력값은 없고 로그인 성공을 주장하는 검사가 아니다. 기본 CI는 테스트 APK를 컴파일하며 실제 SNS 페이지 진단을 실행하지 않는다.
 
 Android 로그인 창은 인증 쿠키 후보와 공식 페이지 상태를 확인한 뒤 본인 계정 수치를 자동으로 읽는다. 로그인·추가 인증 화면에서는 연결을 보류한다. `AutoConnectionPolicyTest`는 중복 요청과 HTTP 429의 대기 시간, 제한된 네트워크 재시도 및 오류 안내를 검사한다. `AutoConnectionRuntimeTest`는 개인 세션이 없는 별도 기기에서 합성 쿠키·페이지로 버튼 없는 연결, 미인증·다른 계정 거부, 정확한 0, 요청 없이 프로필 수치 읽기, HTTP 429 뒤 추가 요청 없이 늦게 표시된 수치 확보를 검사한다. 합성 계정을 앱 DB에 저장하지 않는다.

@@ -10,9 +10,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import dev.datell.followertracker.BuildConfig
+import dev.datell.followertracker.sync.PremiumWidgetTestAccess
 
 enum class MorePage(val title: String, val subtitle: String) {
     SETTINGS("수집 설정", "빠른 추적과 수집 상태"),
@@ -24,11 +26,12 @@ enum class MorePage(val title: String, val subtitle: String) {
 
 @Composable
 fun MoreScreen(state: TrackerState, onPage: (MorePage) -> Unit) {
+    val premium = PremiumWidgetTestAccess.isEnabled(LocalContext.current)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ToneBadge("기본 기능 무료")
+                    ToneBadge(if (premium) "프리미엄 테스트" else "기본 기능 무료")
                     Text("내 SNS를,\n내 방식으로.", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Text("연결된 계정 ${state.accounts.size}개 · 이 기기에 기록하고 있어요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
@@ -65,15 +68,16 @@ fun MoreScreen(state: TrackerState, onPage: (MorePage) -> Unit) {
 
 @Composable
 fun SupportScreen(onHelp: () -> Unit, onPrivacy: () -> Unit) {
+    val premium = PremiumWidgetTestAccess.isEnabled(LocalContext.current)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(Icons.Outlined.FavoriteBorder, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
                     Text("변화를 확인하는 일,\n부담 없이.", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text("기본 기능", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text("0원", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text("팔로워 추적과 위젯을 무료로 이용하세요.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(if (premium) "프리미엄 테스트" else "기본 기능", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(if (premium) "사용 중" else "0원", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(if (premium) "이 기기에서 24시간 위젯 추적을 시험하고 있어요." else "팔로워 추적과 위젯을 무료로 이용하세요.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
         }

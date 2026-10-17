@@ -36,8 +36,10 @@ object RapidTracking {
             "마지막 기록을 유지하고 있어요"
         )
         // A new process has no running service. Restore its record, never restart it.
-        val restoredMessage = if (prefs.getBoolean("running", false) || legacyRunning)
-            "빠른 추적이 중단됐어요. 앱에서 다시 시작해주세요." else message
+        val restoredMessage = if (prefs.getBoolean("running", false) || legacyRunning) {
+            if (PremiumWidgetTestAccess.isEnabled(context)) "위젯 추적이 중단됐어요. 앱에서 다시 시작해주세요."
+            else "빠른 추적이 중단됐어요. 앱에서 다시 시작해주세요."
+        } else message
         update(context, false, restoredMessage, prefs.getLong("lastSuccessAt", 0).takeIf { it > 0 })
     }
     internal fun update(context: Context, running: Boolean, message: String, successAt: Long? = state.value.lastSuccessAt) {
@@ -55,21 +57,25 @@ object RapidTracking {
         mutableState.value = RapidTrackingState(running, message, successAt)
     }
     fun start(context: Context) {
-        context.startForegroundService(Intent(context, RapidTrackingService::class.java))
+        PremiumWidgetTestAccess.beginRequest(context, newSession = !state.value.running)
+        try { context.startForegroundService(Intent(context, RapidTrackingService::class.java)) }
+        catch (failure: RuntimeException) { PremiumWidgetTestAccess.endRequest(context); throw failure }
     }
     fun stop(context: Context) {
+        PremiumWidgetTestAccess.endRequest(context)
         context.stopService(Intent(context, RapidTrackingService::class.java))
         update(context, false, "중지됨")
     }
 }
 
-/** User-started, finite dataSync session. The OS can suspend/stop it; it is not a 24-hour timer. */
+/** User-started tracking. Only the opt-in debug entitlement can use the persistent widget test. */
 class RapidTrackingService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var tracking: Job? = null
     private val networkAvailable = Channel<Unit>(Channel.CONFLATED)
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNotificationMessage: String? = null
+    private var mode = TrackingMode.FAST
     private val notifications get() = getSystemService(NotificationManager::class.java)
 
     override fun onCreate() {
@@ -89,30 +95,40 @@ class RapidTrackingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) { finish("중지됨"); return START_NOT_STICKY }
-        if (tracking?.isActive == true) return START_NOT_STICKY
+        if (tracking?.isActive == true) return restartPolicy()
+        mode = PremiumWidgetTestAccess.mode(this)
+        if (!TrackingSessionPolicy.canStart(mode, intent != null, PremiumWidgetTestAccess.isRequested(this))) {
+            finish("중지됨"); return START_NOT_STICKY
+        }
+        if (mode == TrackingMode.PREMIUM_WIDGET_TEST) PremiumWidgetTestAccess.beginRequest(this)
         notifications.createNotificationChannel(NotificationChannel(CHANNEL, "빠른 팔로워 추적", NotificationManager.IMPORTANCE_LOW))
         try {
             val notification = notification("1분 간격으로 확인해요")
             lastNotificationMessage = "1분 간격으로 확인해요"
-            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            if (Build.VERSION.SDK_INT >= 34 && mode == TrackingMode.PREMIUM_WIDGET_TEST)
+                startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            else if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             else startForeground(NOTIFICATION, notification)
         } catch (_: RuntimeException) {
             finish("빠른 추적을 시작하지 못했어요. 앱에서 다시 시작해주세요.")
             return START_NOT_STICKY
         }
+        getSharedPreferences("rapid_tracking_runtime", MODE_PRIVATE).edit { putString("trackingMode", mode.name) }
+        PremiumWidgetTestAccess.markStarted(this)
         RapidTracking.update(this, true, "첫 수집을 확인하고 있어요")
         tracking = scope.launch {
             val started = SystemClock.elapsedRealtime()
             try {
-                while (isActive && SystemClock.elapsedRealtime() - started < MAX_DURATION) {
+                while (isActive && TrackingSessionPolicy.canContinue(mode, SystemClock.elapsedRealtime() - started)) {
                     if (NetworkAvailability.isDefinitelyOffline(this@RapidTrackingService)) {
                         val message = "인터넷 연결을 기다리고 있어요 · 마지막 기록 유지"
                         if (RapidTracking.state.value.message != message) RapidTracking.update(this@RapidTrackingService, true, message)
                         publishNotification(message)
-                        val remaining = MAX_DURATION - (SystemClock.elapsedRealtime() - started)
+                        val remaining = TrackingSessionPolicy.remainingMillis(mode, SystemClock.elapsedRealtime() - started)
                         // Callback failures use a bounded fallback; successful callbacks need no polling while offline.
-                        val wait = if (networkCallback == null) minOf(INTERVAL, remaining) else remaining
-                        withTimeoutOrNull(wait.coerceAtLeast(1)) { networkAvailable.receive() }
+                        val wait = if (networkCallback == null) minOf(INTERVAL, remaining ?: INTERVAL) else remaining
+                        if (wait == null) networkAvailable.receive()
+                        else withTimeoutOrNull(wait.coerceAtLeast(1)) { networkAvailable.receive() }
                         continue
                     }
                     val cycleStarted = SystemClock.elapsedRealtime()
@@ -145,21 +161,24 @@ class RapidTrackingService : Service() {
                     val cooldown = after.minOfOrNull { maxOf(it.account.nextAllowedAt ?: 0,
                         it.account.transientRetry?.nextAttemptAt ?: 0) - now } ?: 0
                     val delayMs = maxOf(1_000L, INTERVAL - (SystemClock.elapsedRealtime() - cycleStarted), cooldown)
-                    val remaining = MAX_DURATION - (SystemClock.elapsedRealtime() - started)
-                    delay(minOf(delayMs, remaining.coerceAtLeast(1)))
+                    val remaining = TrackingSessionPolicy.remainingMillis(mode, SystemClock.elapsedRealtime() - started)
+                    delay(minOf(delayMs, (remaining ?: delayMs).coerceAtLeast(1)))
                 }
                 finish("빠른 추적 시간이 끝났어요. 앱에서 다시 시작할 수 있어요.")
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { finish("빠른 추적을 중지했어요. 마지막 기록을 보존했어요.") }
         }
-        return START_NOT_STICKY
+        return restartPolicy()
     }
+
+    private fun restartPolicy(): Int = if (mode == TrackingMode.PREMIUM_WIDGET_TEST) START_STICKY else START_NOT_STICKY
 
     override fun onTimeout(startId: Int, fgsType: Int) {
         finish("기기의 실행 시간 제한으로 중지됐어요. 앱에서 다시 시작해주세요.")
     }
 
     private fun finish(message: String) {
+        PremiumWidgetTestAccess.endRequest(this)
         RapidTracking.update(this, false, message)
         tracking?.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -190,14 +209,14 @@ class RapidTrackingService : Service() {
         val stop = PendingIntent.getService(this, 1, Intent(this, RapidTrackingService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_tracker)
-            .setContentTitle("팔로워 빠른 추적").setContentText(message).setContentIntent(open)
+            .setContentTitle(if (mode == TrackingMode.PREMIUM_WIDGET_TEST) "팔로워 위젯 추적 · 프리미엄 테스트" else "팔로워 빠른 추적")
+            .setContentText(message).setContentIntent(open)
             .setOngoing(true).setOnlyAlertOnce(true).setVisibility(Notification.VISIBILITY_PRIVATE)
             .addAction(Notification.Action.Builder(null, "중지", stop).build()).build()
     }
 
     companion object {
         const val INTERVAL = 60_000L
-        private const val MAX_DURATION = 6 * 60 * 60_000L - 30_000
         private const val CHANNEL = "rapid-follower-tracking"
         private const val NOTIFICATION = 901
         private const val ACTION_STOP = "dev.datell.followertracker.STOP_RAPID_TRACKING"

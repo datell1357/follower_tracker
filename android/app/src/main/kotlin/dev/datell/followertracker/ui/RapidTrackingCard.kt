@@ -17,11 +17,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.datell.followertracker.core.RefreshPolicy
 import dev.datell.followertracker.sync.RapidTracking
+import dev.datell.followertracker.sync.PremiumWidgetTestAccess
 
 @Composable
 fun RapidTrackingCard(state: TrackerState, compact: Boolean = false) {
     val context = LocalContext.current
     val rapid by RapidTracking.state.collectAsStateWithLifecycle()
+    val premium = PremiumWidgetTestAccess.isEnabled(context)
     var error by remember { mutableStateOf<String?>(null) }
     fun start() {
         try { RapidTracking.start(context); error = null }
@@ -39,15 +41,15 @@ fun RapidTrackingCard(state: TrackerState, compact: Boolean = false) {
     }
     val description = when {
         rapid.running || rapid.message != "중지됨" -> rapid.message
-        connected -> "연결된 SNS를 약 1분마다 확인해요."
+        connected -> if (premium) "연결된 SNS를 약 1분마다 확인해 위젯에 반영해요." else "연결된 SNS를 약 1분마다 확인해요."
         else -> "추적할 SNS 계정을 연결하고 로그인 상태를 확인해주세요."
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Icons.Outlined.Bolt, null, tint = MaterialTheme.colorScheme.primary)
-                Text("1분 빠른 추적", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                ToneBadge(if (rapid.running) "실행 중" else "꺼짐", positive = rapid.running)
+                Text(if (premium) "24시간 위젯 추적" else "1분 빠른 추적", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                ToneBadge(if (rapid.running) "실행 중" else if (premium) "프리미엄 테스트" else "꺼짐", positive = rapid.running)
             }
             if (compact) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(description, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -56,15 +58,17 @@ fun RapidTrackingCard(state: TrackerState, compact: Boolean = false) {
                     Text(if (rapid.running) "중지" else "시작")
                 }
             } else Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (compact) Text("실행 알림 · 한 번에 최대 6시간 · 갱신이 지연될 수 있어요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (compact) Text(if (premium) "프리미엄 테스트 · 위젯 자동 갱신 · 실행 알림" else "실행 알림 · 한 번에 최대 6시간 · 갱신이 지연될 수 있어요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!compact) {
-                Text("앱 화면을 열어두지 않아도 실행해요. 실행 중에는 알림이 표시되며, 한 번에 최대 6시간 이용할 수 있어요. 네트워크·절전·SNS 요청 제한에 따라 늦어지거나 멈출 수 있어요.",
+                Text(if (premium) "프리미엄 상태를 이 기기에서 시험하고 있어요. 앱 화면을 닫아도 수집해 위젯에 반영해요. 실행 상태는 알림에서 확인하고 언제든 중지할 수 있어요."
+                    else "앱 화면을 열어두지 않아도 실행해요. 실행 중에는 알림이 표시되며, 한 번에 최대 6시간 이용할 수 있어요. 네트워크·절전·SNS 요청 제한에 따라 늦어지거나 멈출 수 있어요.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 rapid.lastSuccessAt?.let { Text("마지막 수집 ${compactObservationTime(it)}", style = MaterialTheme.typography.labelMedium) }
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             if (!compact) Button(onClick = toggle, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = rapid.running || connected && !state.busy) {
-                Text(if (rapid.running) "빠른 추적 중지" else "빠른 추적 시작")
+                Text(if (premium) { if (rapid.running) "위젯 추적 중지" else "위젯 추적 시작" }
+                    else { if (rapid.running) "빠른 추적 중지" else "빠른 추적 시작" })
             }
         }
     }

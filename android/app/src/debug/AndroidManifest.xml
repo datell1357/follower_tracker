@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <application>
+        <service android:name=".sync.RapidTrackingService"
+            android:foregroundServiceType="dataSync|specialUse"
+            tools:replace="android:foregroundServiceType">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Debug-only, user-started ongoing follower-count monitoring for home-screen widgets. Visible notification includes a stop action. Not a production entitlement or Play approval claim." />
+        </service>
+    </application>
+</manifest>
