@@ -139,76 +139,86 @@ actor SyncService {
     let repository: TrackerRepository
     let collector: any SessionCollecting
     private let isDefinitelyOffline: @Sendable () -> Bool
-    init(repository: TrackerRepository, collector: any SessionCollecting = SessionCollector(vault: .shared),
-         isDefinitelyOffline: @escaping @Sendable () -> Bool = { NetworkAvailability.shared.isDefinitelyOffline }) {
-        self.repository = repository; self.collector = collector; self.isDefinitelyOffline = isDefinitelyOffline
+    private let captureSessionGuard: @Sendable (Provider) async throws -> SessionWriteGuard
+    init(repository: TrackerRepository, collector: (any SessionCollecting)? = nil,
+         isDefinitelyOffline: @escaping @Sendable () -> Bool = { NetworkAvailability.shared.isDefinitelyOffline },
+         captureSessionGuard: (@Sendable (Provider) async throws -> SessionWriteGuard)? = nil) {
+        self.repository = repository; self.collector = collector ?? SessionCollector(vault: .shared)
+        self.isDefinitelyOffline = isDefinitelyOffline
+        if let captureSessionGuard { self.captureSessionGuard = captureSessionGuard }
+        else if collector == nil { self.captureSessionGuard = { try await SessionVault.shared.captureGuard($0) } }
+        else { self.captureSessionGuard = { _ in { true } } }
     }
     func refresh(_ key: String, background: Bool = false, timeout: TimeInterval = 25) async throws {
         guard !active.contains(key), let account = try await repository.account(key) else { return }
         guard RefreshPolicy.canRefresh(account, now: nowMillis(), background: background) else { return }
         if background && isDefinitelyOffline() { return }
+        let writeIf = try await captureSessionGuard(account.provider)
+        guard try writeIf() else { return }
         let token = UUID().uuidString
         guard try await repository.claimSync(key, token: token) else { return }
         active.insert(key); defer { active.remove(key) }
-        do { try await performRefresh(account, background: background, timeout: timeout) }
+        do { try await performRefresh(account, background: background, timeout: timeout, writeIf: writeIf) }
         catch {
             // Storage failures can occur in the collector or while committing its result.
             try? await repository.updateStatus(key, account.status, nextAllowedAt: account.nextAllowedAt,
-                expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry)
+                expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry, writeIf: writeIf)
             try? await repository.releaseSync(key, token: token)
             throw error
         }
         try await repository.releaseSync(key, token: token)
     }
-    private func performRefresh(_ account: Account, background: Bool, timeout: TimeInterval) async throws {
+    private func performRefresh(_ account: Account, background: Bool, timeout: TimeInterval, writeIf: SessionWriteGuard) async throws {
         let key = account.id
         try await repository.updateStatus(key, .refreshing, nextAllowedAt: account.nextAllowedAt,
-            expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry)
+            expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry, writeIf: writeIf)
         do {
             var (updated, metric) = try await collector.native(account.provider, expected: account, timeout: timeout)
             if background { updated.capabilities.background = .observed }
             try Task.checkCancellation()
-            try await repository.saveObservation(updated, metric, requireExisting: true)
+            try await repository.saveObservation(updated, metric, requireExisting: true, writeIf: writeIf)
         } catch let failure as CollectionFailure {
             let failedAt = nowMillis()
             try await repository.updateStatus(key, failure.status, nextAllowedAt: RefreshPolicy.serviceRetryAt(failure, failedAt: failedAt),
                 expectedConnectedAt: account.connectedAt,
                 transientRetry: [.offline, .formatChanged].contains(failure.status) ?
-                    RefreshPolicy.nextTransientRetry(account, failedAt: failedAt, status: failure.status) : nil)
+                    RefreshPolicy.nextTransientRetry(account, failedAt: failedAt, status: failure.status) : nil, writeIf: writeIf)
         }
     }
     func relationships(_ key: String, background: Bool = false) async throws {
         guard !active.contains(key), let account = try await repository.account(key), !account.status.blocksAutomaticRetry,
               RefreshPolicy.canRefresh(account, now: nowMillis(), background: background) else { return }
         if background && isDefinitelyOffline() { return }
+        let writeIf = try await captureSessionGuard(account.provider)
+        guard try writeIf() else { return }
         let token = UUID().uuidString
         guard try await repository.claimSync(key, token: token) else { return }
         active.insert(key); defer { active.remove(key) }
-        do { try await performRelationships(account) }
+        do { try await performRelationships(account, writeIf: writeIf) }
         catch {
             if !(error is CancellationError) {
-                try? await repository.listStatus(key, account.relationshipStatus, expectedConnectedAt: account.connectedAt)
+                try? await repository.listStatus(key, account.relationshipStatus, expectedConnectedAt: account.connectedAt, writeIf: writeIf)
                 try? await repository.updateStatus(key, account.status, nextAllowedAt: account.nextAllowedAt,
-                    expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry)
+                    expectedConnectedAt: account.connectedAt, transientRetry: account.transientRetry, writeIf: writeIf)
             }
             try? await repository.releaseSync(key, token: token)
             throw error
         }
         try await repository.releaseSync(key, token: token)
     }
-    private func performRelationships(_ account: Account) async throws {
+    private func performRelationships(_ account: Account, writeIf: SessionWriteGuard) async throws {
         let key = account.id
-        try await repository.listStatus(key, .refreshing, expectedConnectedAt: account.connectedAt)
-        do { let (followers, following) = try await collector.relationships(account); try await repository.saveScans(followers, following, expectedConnectedAt: account.connectedAt) }
-        catch is CancellationError { try await repository.listStatus(key, .listIncomplete, expectedConnectedAt: account.connectedAt); throw CancellationError() }
+        try await repository.listStatus(key, .refreshing, expectedConnectedAt: account.connectedAt, writeIf: writeIf)
+        do { let (followers, following) = try await collector.relationships(account); try await repository.saveScans(followers, following, expectedConnectedAt: account.connectedAt, writeIf: writeIf) }
+        catch is CancellationError { try await repository.listStatus(key, .listIncomplete, expectedConnectedAt: account.connectedAt, writeIf: writeIf); throw CancellationError() }
         catch let failure as CollectionFailure {
-            try await repository.listStatus(key, failure.status, expectedConnectedAt: account.connectedAt)
+            try await repository.listStatus(key, failure.status, expectedConnectedAt: account.connectedAt, writeIf: writeIf)
             if failure.status.blocksAutomaticRetry || [.rateLimited, .offline, .formatChanged].contains(failure.status) {
                 let failedAt = nowMillis()
                 try await repository.updateStatus(key, failure.status, nextAllowedAt: RefreshPolicy.serviceRetryAt(failure, failedAt: failedAt),
                     expectedConnectedAt: account.connectedAt,
                     transientRetry: [.offline, .formatChanged].contains(failure.status) ?
-                        RefreshPolicy.nextTransientRetry(account, failedAt: failedAt, status: failure.status) : nil)
+                        RefreshPolicy.nextTransientRetry(account, failedAt: failedAt, status: failure.status) : nil, writeIf: writeIf)
             }
         }
     }

@@ -90,7 +90,8 @@ private fun AccountCard(row: AccountOverview, onClick: () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, onReconnect: () -> Unit) {
+fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, onReconnect: () -> Unit,
+    onLogout: (() -> Unit)? = null) {
     var period by rememberSaveable(row.account.key) { mutableIntStateOf(0) }
     val now = System.currentTimeMillis()
     val start = when (period) {
@@ -150,6 +151,7 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
             Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy && RefreshPolicy.supportsCountRefresh(row.account)) { Text("지금 갱신") }
                 OutlinedButton(onClick = onReconnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text(if (row.account.accountType == AccountType.PAGE) "페이지 열고 갱신" else "공식 로그인 페이지 열기") }
+                onLogout?.let { logout -> TextButton(onClick = logout, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text("로그아웃 · 기록 유지") } }
             }
         }
         item {

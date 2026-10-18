@@ -1,10 +1,10 @@
 package dev.datell.followertracker.sync
 
 import android.content.Context
-import android.content.Intent
 import android.util.Log
 import androidx.work.*
 import dev.datell.followertracker.BuildConfig
+import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 /** Requested debug premium sessions only. These jobs check health; they never poll SNS themselves. */
@@ -36,16 +36,10 @@ internal object TrackingRecoveryScheduler {
 }
 
 class TrackingRecoveryWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = try {
         val context = applicationContext
-        return when (TrackingRecovery(
-            mode = { PremiumWidgetTestAccess.mode(context) },
-            requested = { PremiumWidgetTestAccess.isRequested(context) },
-            running = { RapidTracking.state.value.running },
-            start = { context.startForegroundService(Intent(context, RapidTrackingService::class.java)
-                .setAction(RapidTrackingService.ACTION_RECOVER)) },
-        ).run()) {
-            TrackingRecoveryResult.INACTIVE -> Result.success()
+        when (RapidTracking.recoverRequested(context)) {
+            TrackingRecoveryResult.INACTIVE, TrackingRecoveryResult.WAITING_FOR_CONNECTION -> Result.success()
             TrackingRecoveryResult.HEALTHY, TrackingRecoveryResult.START_REQUESTED -> Result.success()
             TrackingRecoveryResult.DEFERRED -> {
                 // A service may have started concurrently. Never overwrite its actual running/success state.
@@ -53,5 +47,9 @@ class TrackingRecoveryWorker(context: Context, parameters: WorkerParameters) : C
                 if (TrackingRecovery.retryDeferred(runAttemptCount)) Result.retry() else Result.failure()
             }
         }
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) {
+        if (BuildConfig.DEBUG) Log.w("FollowerCollection", "trackingRecovery=unavailable")
+        if (TrackingRecovery.retryDeferred(runAttemptCount)) Result.retry() else Result.failure()
     }
 }

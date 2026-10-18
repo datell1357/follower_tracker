@@ -19,6 +19,7 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
     private val profileBrowser by lazy { context?.let { ProfilePageCollector(it, sessions) } }
 
     fun releaseProfileResources(provider: Provider? = null) { profileBrowser?.release(provider) }
+    suspend fun cancelProfileSession(provider: Provider) { profileBrowser?.cancelSession(provider) }
 
     override suspend fun native(provider: Provider, expected: Account?): Pair<Account, MetricSnapshot> =
         CollectionMeter.measure(provider, "count") { collectNative(provider, expected) }

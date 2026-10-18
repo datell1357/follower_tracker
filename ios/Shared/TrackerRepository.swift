@@ -112,9 +112,11 @@ actor TrackerRepository {
         try database.run("INSERT INTO accounts(key,provider,connected,payload) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET payload=excluded.payload",
             [.text(account.id), .text(account.provider.rawValue), .integer(account.connectedAt), .blob(try encoder.encode(account))])
     }
-    func saveObservation(_ account: Account, _ metric: MetricSnapshot, requireExisting: Bool = false) throws {
+    func saveObservation(_ account: Account, _ metric: MetricSnapshot, requireExisting: Bool = false,
+                         writeIf: SessionWriteGuard = { true }) throws {
         guard account.id == metric.accountKey else { throw StorageFailure.corrupted }
         try database.transaction {
+            guard try writeIf() else { return }
             let existing = try self.account(account.id)
             if requireExisting && existing?.connectedAt != account.connectedAt { return }
             if let occupied = try accounts().first(where: { $0.provider == account.provider }), occupied.id != account.id { throw CollectionFailure(.checkRequired) }
@@ -126,8 +128,9 @@ actor TrackerRepository {
         }
     }
     func updateStatus(_ key: String, _ status: SyncStatus, nextAllowedAt: Int64? = nil, expectedConnectedAt: Int64? = nil,
-                      transientRetry: TransientRetryState? = nil) throws {
+                      transientRetry: TransientRetryState? = nil, writeIf: SessionWriteGuard = { true }) throws {
         try database.transaction {
+            guard try writeIf() else { return }
             guard var account = try account(key) else { return }
             if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
             account.status = status; account.lastAttemptAt = nowMillis(); account.nextAllowedAt = nextAllowedAt
@@ -135,16 +138,20 @@ actor TrackerRepository {
             try put(account)
         }
     }
-    func listStatus(_ key: String, _ status: SyncStatus?, expectedConnectedAt: Int64? = nil) throws {
+    func listStatus(_ key: String, _ status: SyncStatus?, expectedConnectedAt: Int64? = nil,
+                    writeIf: SessionWriteGuard = { true }) throws {
         try database.transaction {
+            guard try writeIf() else { return }
             guard var account = try account(key) else { return }
             if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
             account.relationshipStatus = status; try put(account)
         }
     }
-    func saveScans(_ followers: RelationshipSnapshot, _ following: RelationshipSnapshot, expectedConnectedAt: Int64? = nil) throws {
+    func saveScans(_ followers: RelationshipSnapshot, _ following: RelationshipSnapshot, expectedConnectedAt: Int64? = nil,
+                   writeIf: SessionWriteGuard = { true }) throws {
         _ = try RelationshipAnalyzer.compare(followers: followers, following: following)
         try database.transaction {
+            guard try writeIf() else { return }
             guard var account = try account(followers.accountKey) else { return }
             if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
             try restoreRelationshipHistory(followers.accountKey)
@@ -198,6 +205,15 @@ actor TrackerRepository {
         let followers = try scans(key, .followers), following = try scans(key, .following)
         guard let current = followers.first, let following = following.first else { return nil }
         return try RelationshipAnalyzer.compare(followers: current, following: following, previous: followers.dropFirst().first, beforePrevious: followers.dropFirst(2).first)
+    }
+    func markLoggedOut(_ provider: Provider) throws {
+        try database.transaction {
+            for var account in try accounts() where account.provider == provider {
+                account.status = .reauthRequired; account.relationshipStatus = .reauthRequired
+                account.nextAllowedAt = nil; account.transientRetry = nil
+                try put(account)
+            }
+        }
     }
     func disconnect(_ key: String) throws { try database.run("DELETE FROM accounts WHERE key=?", [.text(key)]) }
     func claimSync(_ key: String, token: String) throws -> Bool {

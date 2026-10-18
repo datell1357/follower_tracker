@@ -11,7 +11,8 @@ object SyncScheduler {
 
     fun schedule(context: Context) {
         // A release upgrade or a stopped debug session must not retain premium-only health jobs.
-        if (!PremiumWidgetTestAccess.isRequested(context)) TrackingRecoveryScheduler.cancel(context)
+        restoreTrackingSchedule(PremiumWidgetTestAccess.isRequested(context),
+            register = { TrackingRecoveryScheduler.schedule(context) }, cancel = { TrackingRecoveryScheduler.cancel(context) })
         // Normalize earlier configurable intervals when the app starts after an update.
         context.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putInt("interval", METRICS_INTERVAL_MINUTES).apply()
         val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()

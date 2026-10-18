@@ -56,10 +56,6 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
     val rows = if (wide) state.accounts else state.accounts.filter { it.account.key == selected }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item {
-            Text("나의 숫자를,\n홈 화면에.", style = MaterialTheme.typography.headlineMedium)
-            Text("한 계정은 작게, 모든 SNS는 한눈에.", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        item {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 SegmentedButton(selected = !wide, onClick = { wide = false }, shape = SegmentedButtonDefaults.itemShape(0, 2), icon = { Icon(Icons.Outlined.CropSquare, null, Modifier.size(18.dp)) }) { Text("내 계정 · 1×1") }
                 SegmentedButton(selected = wide, onClick = { wide = true }, shape = SegmentedButtonDefaults.itemShape(1, 2), icon = { Icon(Icons.Outlined.Dashboard, null, Modifier.size(18.dp)) }) { Text("모아보기 · 대형") }
@@ -70,8 +66,8 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
             BoxWithConstraints(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.surfaceContainerLow)), shape).padding(20.dp).testTag("widget-preview"), contentAlignment = Alignment.Center) {
                 val width = if (wide) minOf(maxWidth, 330.dp) else 88.dp
                 val size = DpSize(width, if (wide) 360.dp else 88.dp)
-                Box(Modifier.fillMaxWidth().heightIn(min = if (wide) 360.dp else 192.dp), contentAlignment = Alignment.Center) {
-                    NativeWidgetPreview(rows, !wide, size, Modifier.size(size.width, size.height).shadow(16.dp, RoundedCornerShape(if (wide) 26.dp else 18.dp)))
+                Box(Modifier.fillMaxWidth().heightIn(min = if (wide) 360.dp else 112.dp), contentAlignment = Alignment.Center) {
+                    NativeWidgetPreview(rows, !wide, size, Modifier.size(size.width, size.height).shadow(6.dp, RoundedCornerShape(if (wide) 26.dp else 18.dp)))
                 }
             }
             Text(if (wide) "연결된 ${state.accounts.size}개 계정 · 많아지면 위젯 안에서 스크롤" else "가장 작은 1×1 · 숫자가 길면 축약 표시", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -94,9 +90,6 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
                 }
             }
         }
-        if (wide) item {
-            InfoPanel("연결하면 자동으로 포함", "모아보기는 연결된 계정을 모두 표시해요. 각 계정의 팔로워 수, 이전 수집 대비 변화, 마지막 수집 시각을 확인할 수 있어요.", icon = Icons.Outlined.Layers)
-        }
         item {
             if (state.accounts.isEmpty()) Button(onClick = onConnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("SNS 연결하기") }
             else Button(onClick = {
@@ -117,7 +110,7 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
             if (error) Text("추가 요청을 열지 못했어요. 홈 화면에서 직접 추가해주세요.", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
         item { InfoPanel("홈 화면에서 직접 추가하기", "빈 곳 길게 누르기 → 위젯 → 팔로워 트래커에서 내 계정 또는 소셜 모아보기를 선택하세요. 실제 크기는 런처의 격자와 여백에 따라 달라요.", icon = Icons.Outlined.TouchApp) }
-        item { InfoPanel("수집 시각까지 확인하세요", "위젯에는 마지막으로 성공한 기록이 표시돼요. 수집이 멈추면 이전 숫자와 시각이 유지돼요. 위젯을 누르면 계정 탭이 열려요. 앱을 강제 중지했다면 앱 아이콘으로 다시 열어주세요.", icon = Icons.Outlined.Schedule) }
+        item { Text("표시 시각은 마지막 수집에 성공한 때예요. 위젯을 누르면 계정 상태를 확인할 수 있어요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 

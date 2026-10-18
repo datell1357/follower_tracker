@@ -33,6 +33,7 @@ internal class CountTrackingLoop(
 ) {
     suspend fun run(): TrackingLoopStop {
         val started = elapsedRealtime()
+        val attemptedAt = mutableMapOf<String, Long>()
         while (true) {
             currentCoroutineContext().ensureActive()
             val elapsed = elapsedRealtime() - started
@@ -46,7 +47,11 @@ internal class CountTrackingLoop(
             val before = readCounts().filter { RefreshPolicy.supportsCountRefresh(it.account) }
             val retryable = before.filter { !it.account.status.blocksAutomaticRetry }
             if (retryable.isEmpty()) return if (before.isEmpty()) TrackingLoopStop.NO_ACCOUNTS else TrackingLoopStop.CONNECTION_REQUIRED
-            val available = retryable.filter { RefreshPolicy.canRefresh(it.account, currentTimeMillis(), background = true) }
+            val available = retryable.filter {
+                RefreshPolicy.canRefresh(it.account, currentTimeMillis(), background = true) &&
+                    (attemptedAt[it.account.key]?.let { at -> cycleStarted - at >= INTERVAL } ?: true)
+            }
+            available.forEach { attemptedAt[it.account.key] = cycleStarted }
             val failed = refreshCountBatch(available.map { it.account }, refresh)
             val after = readCounts().filter { RefreshPolicy.supportsCountRefresh(it.account) }
             val fresh = after.filter { row -> row.account.capabilities.background == Capability.OBSERVED &&
@@ -57,9 +62,14 @@ internal class CountTrackingLoop(
             onCycle(TrackingCycle(after, fresh.map { it.account.key }.toSet(), fresh.maxOfOrNull { it.observedAt!! },
                 failed, cycleStarted - started))
             val now = currentTimeMillis()
-            val cooldown = after.filter { !it.account.status.blocksAutomaticRetry }.minOfOrNull { maxOf(it.account.nextAllowedAt ?: 0,
-                it.account.transientRetry?.nextAttemptAt ?: 0) - now } ?: 0
-            val delayMillis = maxOf(1_000L, INTERVAL - (elapsedRealtime() - cycleStarted), cooldown)
+            attemptedAt.keys.retainAll(after.map { it.account.key }.toSet())
+            val elapsedNow = elapsedRealtime()
+            val next = after.filter { !it.account.status.blocksAutomaticRetry }.minOfOrNull { row ->
+                val cooldown = maxOf(row.account.nextAllowedAt ?: 0, row.account.transientRetry?.nextAttemptAt ?: 0) - now
+                val cadence = attemptedAt[row.account.key]?.let { INTERVAL - (elapsedNow - it) } ?: 0
+                maxOf(cooldown, cadence)
+            } ?: INTERVAL
+            val delayMillis = maxOf(1_000L, next)
             val remaining = TrackingSessionPolicy.remainingMillis(mode, elapsedRealtime() - started)
             currentCoroutineContext().ensureActive()
             wait(minOf(delayMillis, (remaining ?: delayMillis).coerceAtLeast(1)))

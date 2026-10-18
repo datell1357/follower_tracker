@@ -1,7 +1,6 @@
 package dev.datell.followertracker.ui
 
 import android.app.Application
-import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
@@ -9,7 +8,6 @@ import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.sync.*
-import dev.datell.followertracker.widget.TrackerWidget
 import dev.datell.followertracker.widget.WidgetUpdates
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -50,10 +48,18 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     fun refreshWidgets(): Job {
         widgetRefresh?.takeUnless { it.isCompleted }?.let { return it }
         return viewModelScope.launch {
-            try { TrackerWidget().updateAll(getApplication()) }
+            try { WidgetUpdates.refreshNow(getApplication()) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { state.update { it.copy(message = "위젯 새로고침을 요청하지 못했어요. 앱을 다시 열어 확인해주세요.") } }
         }.also { widgetRefresh = it }
+    }
+    fun resumeRequestedTracking(): Job {
+        RapidTracking.signalChange()
+        return viewModelScope.launch {
+            try { RapidTracking.recoverRequested(getApplication()) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { state.update { it.copy(message = "자동 추적을 복구하지 못했어요. 수집 설정에서 상태를 확인해주세요.") } }
+        }
     }
     fun refresh(key: String? = null) = action {
         val accounts = graph.repository.accounts().filter { key == null || it.key == key }
@@ -92,6 +98,24 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             SyncScheduler.initialLists(getApplication(), observation.first.key)
         WidgetUpdates.request(getApplication())
         reload()
+        RapidTracking.signalChange()
+        RapidTracking.recoverRequested(getApplication())
+    }
+    fun logout(provider: Provider) = action {
+        val accounts = graph.repository.accounts().filter { it.provider == provider }
+        withContext(NonCancellable) {
+            withContext(Dispatchers.IO) { graph.sessions.invalidate(provider) }
+            graph.collector.cancelProfileSession(provider)
+            withContext(Dispatchers.IO) { graph.sessions.disconnect(provider) }
+            graph.repository.markLoggedOut(provider)
+            accounts.forEach { WorkManager.getInstance(getApplication()).cancelUniqueWork("initial-list-${it.key}") }
+        }
+        if (graph.repository.accounts().none { RefreshPolicy.supportsCountRefresh(it) && !it.status.blocksAutomaticRetry })
+            RapidTracking.stop(getApplication())
+        WidgetUpdates.request(getApplication())
+        reload()
+        RapidTracking.signalChange()
+        state.update { it.copy(message = "${provider.title}에서 로그아웃했어요. 수집 기록은 유지했어요.") }
     }
     fun disconnect(key: String) = action {
         val account = graph.repository.account(key) ?: return@action
@@ -102,6 +126,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             withContext(Dispatchers.IO) { graph.sessions.disconnect(account.provider) }
         WidgetUpdates.request(getApplication())
         reload()
+        RapidTracking.signalChange()
     }
     private fun action(block: suspend () -> Unit): Job {
         operation?.takeUnless { it.isCompleted }?.let { return it }

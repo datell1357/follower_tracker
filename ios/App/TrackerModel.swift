@@ -85,4 +85,14 @@ final class TrackerModel {
             await reload(); await WidgetUpdates.shared.request()
         } catch { message = "연결 해제를 마치지 못했어요. 다시 확인해주세요." }
     }
+    func logout(_ provider: Provider) async {
+        guard !busy, let repository else { return }
+        busy = true; defer { busy = false }
+        do {
+            try await SessionVault.shared.remove(provider)
+            try await repository.markLoggedOut(provider)
+            await reload(); await WidgetUpdates.shared.request()
+            message = provider.title + "에서 로그아웃했어요. 수집 기록은 유지했어요."
+        } catch { message = "로그아웃을 마치지 못했어요. 기존 기록은 보존했어요." }
+    }
 }

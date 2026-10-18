@@ -6,6 +6,18 @@ private enum TrackerSheet: Identifiable {
     var id: String { switch self { case .picker: "picker"; case .login(let provider): "login-" + provider.id } }
 }
 private enum HomeDestination: Hashable { case account(String) }
+private enum AccountManagementAction {
+    case logout(Provider), disconnect(String)
+    var title: String {
+        switch self { case .logout(let provider): provider.title + "에서 로그아웃할까요?"; case .disconnect: "연결을 해제할까요?" }
+    }
+    var detail: String {
+        switch self {
+        case .logout: "이 기기의 SNS 로그인 정보를 지우고 해당 SNS의 자동 수집을 멈춰요. 팔로워·관계 기록과 다른 SNS 로그인은 유지해요."
+        case .disconnect: "이 SNS의 로그인 세션과 기기에 저장한 추적·관계 기록을 삭제해요. 다시 연결하면 새 기록부터 시작해요."
+        }
+    }
+}
 
 struct TrackerRootView: View {
     @Bindable var model: TrackerModel
@@ -13,7 +25,7 @@ struct TrackerRootView: View {
     @State private var homePath: [HomeDestination] = []
     @State private var morePath: [TrackerMorePage] = []
     @State private var sheet: TrackerSheet?
-    @State private var disconnectKey: String?
+    @State private var accountAction: AccountManagementAction?
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack(path: $homePath) {
@@ -24,7 +36,7 @@ struct TrackerRootView: View {
                     .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("SNS 연결", systemImage: "plus") { sheet = .picker }.disabled(model.busy) } }
                     .navigationDestination(for: HomeDestination.self) { destination in
                         switch destination {
-                        case .account(let key): AccountDetailScreen(model: model, key: key, onReconnect: { sheet = .login($0) })
+                        case .account(let key): AccountDetailScreen(model: model, key: key, onReconnect: { sheet = .login($0) }, onLogout: { accountAction = .logout($0) })
                         }
                     }
             }.tabItem { Label("계정", systemImage: "person.crop.circle") }.tag("home")
@@ -36,7 +48,7 @@ struct TrackerRootView: View {
                 TrackerMoreView(accountCount: model.accounts.count).navigationTitle("설정").navigationBarTitleDisplayMode(.inline)
                     .navigationDestination(for: TrackerMorePage.self) { page in
                         switch page {
-                        case .accounts: TrackerAccountsView(accounts: model.accounts, busy: model.busy, onConnect: { sheet = .picker }, onReconnect: { sheet = .login($0) }, onDisconnect: { disconnectKey = $0 })
+                        case .accounts: TrackerAccountsView(accounts: model.accounts, busy: model.busy, onConnect: { sheet = .picker }, onReconnect: { sheet = .login($0) }, onDisconnect: { accountAction = .disconnect($0) }, onLogout: { accountAction = .logout($0) })
                         case .settings: TrackerSettingsView()
                         case .support: TrackerSupportView()
                         case .help: TrackerHelpView()
@@ -55,10 +67,13 @@ struct TrackerRootView: View {
             case .login(let provider): SessionLoginView(provider: provider, model: model)
             }
         }
-        .alert("연결을 해제할까요?", isPresented: Binding(get: { disconnectKey != nil }, set: { if !$0 { disconnectKey = nil } })) {
-            Button("유지하기", role: .cancel) { disconnectKey = nil }
-            Button("연결 해제", role: .destructive) { if let key = disconnectKey { disconnectKey = nil; Task { await model.disconnect(key) } } }
-        } message: { Text("이 SNS의 로그인 세션과 기기에 저장한 추적·관계 기록을 삭제해요. 다시 연결하면 새 기록부터 시작해요.") }
+        .alert(accountAction?.title ?? "계정 관리", isPresented: Binding(get: { accountAction != nil }, set: { if !$0 { accountAction = nil } }), presenting: accountAction) { action in
+            Button("취소", role: .cancel) { accountAction = nil }
+            switch action {
+            case .logout(let provider): Button("로그아웃", role: .destructive) { accountAction = nil; Task { await model.logout(provider) } }
+            case .disconnect(let key): Button("연결 해제", role: .destructive) { accountAction = nil; Task { await model.disconnect(key) } }
+            }
+        } message: { Text($0.detail) }
         .alert("확인해주세요", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) { Button("확인") { model.message = nil } } message: { Text(model.message ?? "") }
     }
 }

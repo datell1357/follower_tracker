@@ -27,7 +27,8 @@ fun SettingsScreen(state: TrackerState) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AccountManagementScreen(state: TrackerState, onReconnect: (Account) -> Unit, onDisconnect: (String) -> Unit, onConnect: () -> Unit) {
+fun AccountManagementScreen(state: TrackerState, onReconnect: (Account) -> Unit, onDisconnect: (String) -> Unit,
+    onConnect: () -> Unit, onLogout: (Provider) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Button(onClick = onConnect, enabled = !state.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Icon(Icons.Outlined.Add, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("SNS 연결하기")
@@ -51,11 +52,12 @@ fun AccountManagementScreen(state: TrackerState, onReconnect: (Account) -> Unit,
                         OutlinedButton(onClick = { onReconnect(row.account) }, enabled = !state.busy,
                             border = BorderStroke(1.dp, palette.accent.copy(alpha = if (state.busy) .12f else .45f)),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.accent)) { Text(if (row.account.accountType == AccountType.PAGE) "페이지 갱신" else "로그인 확인") }
+                        TextButton(onClick = { onLogout(row.account.provider) }, enabled = !state.busy) { Text("로그아웃") }
                         TextButton(onClick = { onDisconnect(row.account.key) }, enabled = !state.busy, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("연결 해제") }
                     }
                 }
             }
         }
-        item { InfoPanel("공식 페이지에서 직접 로그인", "SNS 세션은 이 기기에 보관해요. SNS마다 개인 계정 하나를 연결하고, Facebook 페이지는 여러 개를 추가할 수 있어요. 개인 계정을 바꾸려면 기존 개인 연결을 해제해주세요.", icon = Icons.Outlined.Shield) }
+        item { Text("로그아웃하면 기록은 남아요. 연결 해제는 기록도 삭제해요. 다른 개인 계정은 기존 연결을 해제한 뒤 추가하세요.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }

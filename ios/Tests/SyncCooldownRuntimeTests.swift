@@ -29,6 +29,12 @@ final class SyncCooldownRuntimeTests: XCTestCase {
         account.status = status; account.nextAllowedAt = nextAllowedAt
         let metric = try MetricSnapshot(accountKey: account.id, observedAt: 1_000, followers: 0, following: 0, source: "synthetic-baseline")
         try await repository.saveObservation(account, metric)
+        if status == .formatChanged {
+            // Production persists this deadline after a format failure; an absent deadline is already due.
+            try await repository.updateStatus(account.id, status, nextAllowedAt: nextAllowedAt,
+                expectedConnectedAt: account.connectedAt,
+                transientRetry: RefreshPolicy.nextTransientRetry(account, failedAt: nowMillis(), status: .formatChanged))
+        }
         return (repository, account)
     }
 
@@ -74,6 +80,15 @@ final class SyncCooldownRuntimeTests: XCTestCase {
             let requests = await collector.metricRequests, stored = try await repository.account(account.id)
             XCTAssertEqual(requests, 0); XCTAssertEqual(stored?.status, status)
         }
+    }
+    func testElapsedFormatRetryAllowsTheNextBackgroundRead() async throws {
+        let (repository, account) = try await fixture(status: .formatChanged, nextAllowedAt: nil)
+        try await repository.updateStatus(account.id, .formatChanged, expectedConnectedAt: account.connectedAt,
+            transientRetry: TransientRetryState(failureCount: 1, nextAttemptAt: nowMillis() - 1))
+        let collector = CountingCollector(), sync = SyncService(repository: repository, collector: collector)
+        try await sync.refresh(account.id, background: true)
+        let stored = try await repository.account(account.id), requests = await collector.metricRequests
+        XCTAssertEqual(requests, 1); XCTAssertEqual(stored?.status, .ready); XCTAssertNil(stored?.transientRetry)
     }
 }
 
@@ -324,6 +339,68 @@ final class SyncStorageFailureRuntimeTests: XCTestCase {
             let released = try await repository.claimSync(account.id, token: "qa-after-list-storage-failure")
             XCTAssertTrue(released)
             try await repository.releaseSync(account.id, token: "qa-after-list-storage-failure")
+        }
+    }
+}
+
+private final class LogoutFenceFixture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = true
+    func accepts() -> Bool { lock.lock(); defer { lock.unlock() }; return current }
+    func revoke() { lock.lock(); defer { lock.unlock() }; current = false }
+}
+
+private actor LogoutDuringReadCollector: SessionCollecting {
+    let repository: TrackerRepository
+    let fence: LogoutFenceFixture
+    let failure: Int
+    init(repository: TrackerRepository, fence: LogoutFenceFixture, failure: Int) {
+        self.repository = repository; self.fence = fence; self.failure = failure
+    }
+    func native(_ provider: Provider, expected: Account?, timeout: TimeInterval) async throws -> (Account, MetricSnapshot) {
+        fence.revoke(); try await repository.markLoggedOut(provider)
+        if failure == 1 { throw CollectionFailure(.offline) }
+        if failure == 2 { throw StorageFailure.database }
+        if failure == 3 { throw CancellationError() }
+        guard var account = expected else { throw CollectionFailure(.checkRequired) }
+        account.status = .ready
+        return (account, try MetricSnapshot(accountKey: account.id, observedAt: 2_000, followers: 99, following: 4, source: "synthetic-late-after-logout"))
+    }
+    func relationships(_ account: Account) async throws -> (RelationshipSnapshot, RelationshipSnapshot) { throw CollectionFailure(.listIncomplete) }
+}
+
+final class LogoutRuntimeTests: XCTestCase {
+    func testLogoutPreservesHistoryAndOtherProvidersAcrossLateSuccessFailureAndCancellation() async throws {
+        for failure in 0...3 {
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tracker-logout-qa-" + UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let repository = try TrackerRepository(databaseURL: folder.appendingPathComponent("Tracker.sqlite"))
+            let accounts = try [Provider.instagram, .reddit].map { provider in
+                try Account(provider: provider, stableID: "fixture", username: "sample", displayName: "Sample", profileURL: URL(string: "https://\(provider.domain)/sample/")!, connectedAt: 1)
+            }
+            for account in accounts {
+                try await repository.saveObservation(account, MetricSnapshot(accountKey: account.id, observedAt: 1_000, followers: 95, following: 4, source: "synthetic-logout-baseline"))
+            }
+            let members = try (1...95).map { try Member(id: "fixture-\($0)", username: "sample_\($0)") }
+            func scan(_ direction: Direction) -> RelationshipSnapshot {
+                RelationshipSnapshot(accountKey: accounts[0].id, direction: direction, startedAt: 1, finishedAt: 2,
+                    members: direction == .followers ? members : Array(members.prefix(4)),
+                    complete: true, consistent: true, endReason: "synthetic-terminal")
+            }
+            try await repository.saveScans(scan(.followers), scan(.following))
+            let fence = LogoutFenceFixture()
+            let collector = LogoutDuringReadCollector(repository: repository, fence: fence, failure: failure)
+            let sync = SyncService(repository: repository, collector: collector, captureSessionGuard: { _ in { fence.accepts() } })
+            do { try await sync.refresh(accounts[0].id) }
+            catch { XCTAssertTrue(failure == 2 || failure == 3) }
+            let loggedOut = try await repository.account(accounts[0].id), other = try await repository.account(accounts[1].id)
+            let history = try await repository.history(accounts[0].id)
+            XCTAssertEqual(loggedOut?.status, .reauthRequired)
+            XCTAssertEqual(loggedOut?.connectedAt, 1)
+            XCTAssertEqual(history.map(\.observedAt), [1_000]); XCTAssertEqual(history.last?.followers, 95)
+            XCTAssertEqual(other?.status, .ready)
+            let report = try await repository.report(accounts[0].id)
+            XCTAssertEqual(report?.comparedAt, 2)
         }
     }
 }

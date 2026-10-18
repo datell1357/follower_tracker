@@ -34,6 +34,10 @@ private data class LoginRequest(val provider: Provider, val facebookPage: Boolea
             account.key.takeIf { account.accountType == AccountType.PAGE })
     }
 }
+private sealed interface AccountAction {
+    data class Logout(val provider: Provider) : AccountAction
+    data class Disconnect(val key: String) : AccountAction
+}
 
 class MainActivity : ComponentActivity() {
     private val model: TrackerViewModel by viewModels()
@@ -50,6 +54,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onResume() {
         super.onResume()
+        model.resumeRequestedTracking()
         model.refreshWidgets()
     }
     companion object {
@@ -67,7 +72,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
     var picking by remember { mutableStateOf(false) }
     var login by remember { mutableStateOf<LoginRequest?>(null) }
     var detail by remember { mutableStateOf<String?>(null) }
-    var disconnect by remember { mutableStateOf<String?>(null) }
+    var accountAction by remember { mutableStateOf<AccountAction?>(null) }
     var loginJob by remember { mutableStateOf<Job?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val screenStates = rememberSaveableStateHolder()
@@ -116,7 +121,9 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
                 tab == 2 -> WidgetScreen(state, onConnect = { picking = true })
                 else -> when (page) {
                     MorePage.SETTINGS -> SettingsScreen(state)
-                    MorePage.ACCOUNTS -> AccountManagementScreen(state, onReconnect = { login = LoginRequest.forAccount(it) }, onDisconnect = { disconnect = it }, onConnect = { picking = true })
+                    MorePage.ACCOUNTS -> AccountManagementScreen(state, onReconnect = { login = LoginRequest.forAccount(it) },
+                        onDisconnect = { accountAction = AccountAction.Disconnect(it) }, onConnect = { picking = true },
+                        onLogout = { accountAction = AccountAction.Logout(it) })
                     MorePage.SUPPORT -> SupportScreen(onHelp = { returnPage = MorePage.SUPPORT.name; morePage = MorePage.HELP.name }, onPrivacy = { returnPage = MorePage.SUPPORT.name; morePage = MorePage.PRIVACY.name })
                     MorePage.PRIVACY -> PrivacyScreen()
                     MorePage.HELP -> HelpScreen()
@@ -156,14 +163,25 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
     }
     detail?.let { key -> state.accounts.firstOrNull { it.account.key == key }?.let { row ->
         ModalBottomSheet(onDismissRequest = { detail = null }) {
-            AccountDetail(row, state.busy, onRefresh = { model.refresh(key) }, onReconnect = { detail = null; login = LoginRequest.forAccount(row.account) })
+            AccountDetail(row, state.busy, onRefresh = { model.refresh(key) },
+                onReconnect = { detail = null; login = LoginRequest.forAccount(row.account) },
+                onLogout = { detail = null; accountAction = AccountAction.Logout(row.account.provider) })
         }
     } }
-    disconnect?.let { key ->
-        AlertDialog(onDismissRequest = { disconnect = null }, title = { Text("연결을 해제할까요?") },
-            text = { Text("선택한 연결의 추적·관계 기록을 삭제해요. 같은 SNS의 다른 연결이 있으면 로그인 세션은 유지해요. 다시 연결하면 새 기록부터 시작해요.") },
-            confirmButton = { TextButton(onClick = { disconnect = null; model.disconnect(key) }) { Text("연결 해제") } },
-            dismissButton = { TextButton(onClick = { disconnect = null }) { Text("유지하기") } })
+    accountAction?.let { action ->
+        val logout = action as? AccountAction.Logout
+        AlertDialog(onDismissRequest = { accountAction = null },
+            title = { Text(logout?.let { "${it.provider.title}에서 로그아웃할까요?" } ?: "연결을 해제할까요?") },
+            text = { Text(if (logout != null) "이 기기의 SNS 로그인 정보를 지우고 해당 SNS의 자동 수집을 멈춰요. 같은 SNS의 페이지에도 적용돼요. 팔로워·관계 기록과 다른 SNS 로그인은 유지해요."
+                else "선택한 연결의 추적·관계 기록을 삭제해요. 같은 SNS의 다른 연결이 있으면 로그인 세션은 유지해요. 다시 연결하면 새 기록부터 시작해요.") },
+            confirmButton = { TextButton(onClick = {
+                accountAction = null
+                when (action) {
+                    is AccountAction.Logout -> model.logout(action.provider)
+                    is AccountAction.Disconnect -> model.disconnect(action.key)
+                }
+            }) { Text(if (logout != null) "로그아웃" else "연결 해제") } },
+            dismissButton = { TextButton(onClick = { accountAction = null }) { Text("취소") } })
     }
 }
 

@@ -11,10 +11,6 @@ struct TrackerWidgetGallery: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("나의 숫자를,\n홈 화면에.").font(.title.bold())
-                    Text("마지막으로 읽은 수와 실제 수집 시각을 함께 확인해요.").font(.subheadline).foregroundStyle(TrackerStyle.muted)
-                }.padding(.vertical, 8)
                 Picker("미리 볼 계정", selection: Binding(get: { validSelection }, set: { selection = $0 })) {
                     Text("첫 연결 계정").tag("all")
                     ForEach(accounts) { row in Text(row.account.provider.title + " · @" + row.account.username).tag(row.id) }
@@ -29,7 +25,7 @@ struct TrackerWidgetGallery: View {
                 TrackerSectionTitle(title: "소셜 모아보기 · 대형")
                 TrackerWidgetContent(rows: accounts, storageError: storageError, size: .large).frame(height: 360)
                     .clipShape(RoundedRectangle(cornerRadius: 24)).dynamicTypeSize(.medium)
-                Text("저장된 기록의 미리보기예요. 내 계정은 iOS의 최소 크기, 모아보기는 대형으로 추가해요.").font(.caption).foregroundStyle(TrackerStyle.muted)
+                Text("숫자와 함께 마지막 실제 수집 시각을 확인하세요.").font(.caption).foregroundStyle(TrackerStyle.muted)
                 TrackerSectionTitle(title: "위젯 추가하기")
                 VStack(alignment: .leading, spacing: 18) {
                     step("1", "홈 화면의 빈 곳을 길게 눌러요.")

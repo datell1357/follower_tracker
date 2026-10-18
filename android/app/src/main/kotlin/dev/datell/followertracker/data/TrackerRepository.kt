@@ -40,9 +40,11 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
             MetricSnapshot(it.accountKey, it.observedAt, it.followers, it.following, Precision.valueOf(it.precision), it.source, it.adapterVersion)
         }
     }
-    suspend fun saveObservation(account: Account, metric: MetricSnapshot, requireExisting: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun saveObservation(account: Account, metric: MetricSnapshot, requireExisting: Boolean = false,
+        writeIf: () -> Boolean = { true }) = withContext(Dispatchers.IO) {
         require(account.key == metric.accountKey)
         database.withTransaction {
+            if (!writeIf()) return@withTransaction
             if (accounts().any(account::conflictsWith)) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
             val previous = this@TrackerRepository.account(account.key)
             // A request must belong to the same connection, including after disconnect/reconnect.
@@ -55,17 +57,21 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
         }
     }
     suspend fun updateStatus(key: String, status: SyncStatus, now: Long, nextAllowedAt: Long? = null,
-        expectedConnectedAt: Long? = null, transientRetry: TransientRetryState? = null) = withContext(Dispatchers.IO) {
+        expectedConnectedAt: Long? = null, transientRetry: TransientRetryState? = null,
+        writeIf: () -> Boolean = { true }) = withContext(Dispatchers.IO) {
         database.withTransaction {
+            if (!writeIf()) return@withTransaction
             val previous = account(key) ?: return@withTransaction
             if (expectedConnectedAt != null && previous.connectedAt != expectedConnectedAt) return@withTransaction
             val updated = previous.copy(status = status, lastAttemptAt = now, nextAllowedAt = nextAllowedAt, transientRetry = transientRetry)
             dao.putAccount(AccountEntity(updated.key, updated.provider.name, updated.connectedAt, json.encodeToString(updated)))
         }
     }
-    suspend fun saveScans(followers: RelationshipSnapshot, following: RelationshipSnapshot, expectedConnectedAt: Long? = null) = withContext(Dispatchers.IO) {
+    suspend fun saveScans(followers: RelationshipSnapshot, following: RelationshipSnapshot, expectedConnectedAt: Long? = null,
+        writeIf: () -> Boolean = { true }) = withContext(Dispatchers.IO) {
         RelationshipAnalyzer.compare(followers, following)
         database.withTransaction {
+            if (!writeIf()) return@withTransaction
             val previous = account(followers.accountKey) ?: return@withTransaction
             if (expectedConnectedAt != null && previous.connectedAt != expectedConnectedAt) return@withTransaction
             restoreRelationshipHistory(followers.accountKey)
@@ -80,8 +86,10 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
             dao.putAccount(AccountEntity(updated.key, updated.provider.name, updated.connectedAt, json.encodeToString(updated)))
         }
     }
-    suspend fun updateListStatus(key: String, status: SyncStatus?, expectedConnectedAt: Long? = null) = withContext(Dispatchers.IO) {
+    suspend fun updateListStatus(key: String, status: SyncStatus?, expectedConnectedAt: Long? = null,
+        writeIf: () -> Boolean = { true }) = withContext(Dispatchers.IO) {
         database.withTransaction {
+            if (!writeIf()) return@withTransaction
             val previous = account(key) ?: return@withTransaction
             if (expectedConnectedAt != null && previous.connectedAt != expectedConnectedAt) return@withTransaction
             val updated = previous.copy(relationshipStatus = status)
@@ -129,6 +137,15 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
         val following = scans(key, Direction.FOLLOWING).firstOrNull() ?: return@withContext null
         val latest = followers.firstOrNull() ?: return@withContext null
         RelationshipAnalyzer.compare(latest, following, followers.getOrNull(1), followers.getOrNull(2))
+    }
+    suspend fun markLoggedOut(provider: Provider) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            for (account in accounts().filter { it.provider == provider }) {
+                val updated = account.copy(status = SyncStatus.REAUTH_REQUIRED, relationshipStatus = SyncStatus.REAUTH_REQUIRED,
+                    nextAllowedAt = null, transientRetry = null)
+                dao.putAccount(AccountEntity(updated.key, updated.provider.name, updated.connectedAt, json.encodeToString(updated)))
+            }
+        }
     }
     suspend fun disconnect(key: String) = withContext(Dispatchers.IO) { dao.deleteAccount(key) }
 }

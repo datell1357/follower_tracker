@@ -41,11 +41,10 @@ struct TrackerMoreView: View {
 struct TrackerAccountsView: View {
     let accounts: [AccountOverview]
     let busy: Bool
-    let onConnect: () -> Void, onReconnect: (Provider) -> Void, onDisconnect: (String) -> Void
+    let onConnect: () -> Void, onReconnect: (Provider) -> Void, onDisconnect: (String) -> Void, onLogout: (Provider) -> Void
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                TrackerInfoPanel(title: "로그인과 연결을 관리해요", detail: "SNS마다 본인 계정 하나를 연결해요. 계정을 바꾸려면 기존 연결을 해제한 뒤 다시 연결해주세요.", icon: "person.crop.circle")
                 Button("SNS 연결하기", systemImage: "plus", action: onConnect).buttonStyle(TrackerPrimaryButtonStyle()).disabled(busy)
                 if accounts.isEmpty { EmptyCard("연결된 계정이 없어요", "첫 SNS를 연결하면 계정의 상태와 기록을 확인할 수 있어요.") }
                 ForEach(accounts) { row in
@@ -59,17 +58,19 @@ struct TrackerAccountsView: View {
                         }
                         Text(row.account.status.label + " · " + TrackerStyle.collectedAt(row.latest?.observedAt, compact: true)).font(.caption).foregroundStyle(TrackerStyle.muted)
                         ViewThatFits(in: .horizontal) {
-                            HStack { reconnect(row); Spacer(minLength: 12); disconnect(row) }
-                            VStack(alignment: .leading, spacing: 10) { reconnect(row); disconnect(row) }
+                            HStack { reconnect(row); Spacer(minLength: 12); logout(row); disconnect(row) }
+                            VStack(alignment: .leading, spacing: 10) { reconnect(row); logout(row); disconnect(row) }
                         }
                     }.providerPanel(row.account.provider).disabled(busy)
                 }
+                Text("로그아웃하면 기록은 남아요. 연결 해제는 기록도 삭제해요. 다른 개인 계정은 기존 연결을 해제한 뒤 추가하세요.").font(.caption).foregroundStyle(TrackerStyle.muted)
             }.padding(20).foregroundStyle(TrackerStyle.ink)
         }.background(TrackerStyle.background).navigationTitle("연결된 계정").navigationBarTitleDisplayMode(.inline)
     }
     private func reconnect(_ row: AccountOverview) -> some View { Button("로그인 페이지") { onReconnect(row.account.provider) }.font(.subheadline.weight(.semibold)).tint(TrackerStyle.color(row.account.provider)).frame(minHeight: 48) }
     private func disconnect(_ row: AccountOverview) -> some View { Button("연결 해제", role: .destructive) { onDisconnect(row.id) }.font(.subheadline).frame(minHeight: 48) }
+    private func logout(_ row: AccountOverview) -> some View { Button("로그아웃") { onLogout(row.account.provider) }.font(.subheadline).frame(minHeight: 48) }
 }
 
 #Preview("설정") { NavigationStack { TrackerMoreView(accountCount: 0) } }
-#Preview("연결된 계정 · 빈 상태") { NavigationStack { TrackerAccountsView(accounts: [], busy: false, onConnect: {}, onReconnect: { _ in }, onDisconnect: { _ in }) } }
+#Preview("연결된 계정 · 빈 상태") { NavigationStack { TrackerAccountsView(accounts: [], busy: false, onConnect: {}, onReconnect: { _ in }, onDisconnect: { _ in }, onLogout: { _ in }) } }

@@ -27,6 +27,8 @@ data class RapidTrackingState(val running: Boolean = false, val message: String 
 object RapidTracking {
     private val mutableState = MutableStateFlow(RapidTrackingState())
     val state = mutableState.asStateFlow()
+    internal val changes = Channel<Unit>(Channel.CONFLATED)
+    internal fun signalChange() { changes.trySend(Unit) }
     internal fun restore(context: Context) {
         val prefs = context.getSharedPreferences("rapid_tracking_runtime", Context.MODE_PRIVATE)
         val message = prefs.getString("status", "중지됨") ?: "중지됨"
@@ -35,12 +37,22 @@ object RapidTracking {
             "SNS 요청 제한 · 대기 후 다시 확인해요", "일시 오류 · 잠시 후 다시 확인해요",
             "마지막 기록을 유지하고 있어요"
         )
-        // A new process has no running service. Restore its record, never restart it.
+        // Restore state truthfully. Only a retained premium request can later resume the service.
         val restoredMessage = if (prefs.getBoolean("running", false) || legacyRunning) {
             if (PremiumWidgetTestAccess.isEnabled(context)) "위젯 추적이 중단됐어요. 앱에서 다시 시작해주세요."
             else "빠른 추적이 중단됐어요. 앱에서 다시 시작해주세요."
         } else message
         update(context, false, restoredMessage, prefs.getLong("lastSuccessAt", 0).takeIf { it > 0 })
+    }
+    internal suspend fun recoverRequested(context: Context): TrackingRecoveryResult {
+        if (!PremiumWidgetTestAccess.isRequested(context)) return TrackingRecoveryResult.INACTIVE
+        val eligible = context.appGraph.repository.accounts().any {
+            RefreshPolicy.supportsCountRefresh(it) && !it.status.blocksAutomaticRetry
+        }
+        return TrackingRecovery({ PremiumWidgetTestAccess.mode(context) },
+            { PremiumWidgetTestAccess.isRequested(context) }, { state.value.running },
+            { context.startForegroundService(Intent(context, RapidTrackingService::class.java).setAction(RapidTrackingService.ACTION_RECOVER)) })
+            .run(hasEligibleAccount = eligible)
     }
     internal fun update(context: Context, running: Boolean, message: String, successAt: Long? = state.value.lastSuccessAt) {
         val prefs = context.getSharedPreferences("rapid_tracking_runtime", Context.MODE_PRIVATE)
@@ -83,6 +95,7 @@ class RapidTrackingService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNotificationMessage: String? = null
     private var mode = TrackingMode.FAST
+    private var finishing = false
     private val notifications get() = getSystemService(NotificationManager::class.java)
 
     override fun onCreate() {
@@ -125,10 +138,12 @@ class RapidTrackingService : Service() {
         }
         getSharedPreferences("rapid_tracking_runtime", MODE_PRIVATE).edit { putString("trackingMode", mode.name) }
         PremiumWidgetTestAccess.markStarted(this)
+        while (RapidTracking.changes.tryReceive().isSuccess) { /* Discard signals preceding this actual start. */ }
         RapidTracking.update(this, true, "첫 수집을 확인하고 있어요")
+        finishing = false
         tracking = scope.launch {
-            try {
-                val stopped = CountTrackingLoop(mode, SystemClock::elapsedRealtime, System::currentTimeMillis,
+            runTrackingSession(stopping = { finishing }, run = {
+                CountTrackingLoop(mode, SystemClock::elapsedRealtime, System::currentTimeMillis,
                     isOffline = { NetworkAvailability.isDefinitelyOffline(this@RapidTrackingService) },
                     readCounts = { appGraph.repository.widgetOverviews().map { TrackingCount(it.account, it.latest?.observedAt) } },
                     refresh = { appGraph.coordinator.refresh(it.key, background = true) },
@@ -147,18 +162,17 @@ class RapidTrackingService : Service() {
                         publishNotification(message)
                     },
                     awaitNetwork = { remaining ->
-                        // Callback failures use a bounded fallback; successful callbacks need no polling while offline.
-                        val wait = if (networkCallback == null) minOf(INTERVAL, remaining ?: INTERVAL) else remaining
-                        if (wait == null) networkAvailable.receive()
-                        else withTimeoutOrNull(wait.coerceAtLeast(1)) { networkAvailable.receive() }
-                    }, wait = { delay(it) }).run()
+                        // A registered callback can still be missed. Recheck availability without an SNS request.
+                        val fallback = if (networkCallback == null) INTERVAL else 5 * INTERVAL
+                        awaitTrackingSignal(RapidTracking.changes, networkAvailable, minOf(fallback, remaining ?: fallback))
+                    }, wait = { awaitTrackingSignal(RapidTracking.changes, timeoutMillis = it) }).run()
+            }, onStop = { stopped ->
                 finish(when (stopped) {
                     TrackingLoopStop.TIME_LIMIT -> "빠른 추적 시간이 끝났어요. 앱에서 다시 시작할 수 있어요."
                     TrackingLoopStop.NO_ACCOUNTS -> "추적할 SNS 계정을 연결한 뒤 시작해주세요."
                     TrackingLoopStop.CONNECTION_REQUIRED -> "연결 상태를 확인한 뒤 다시 시작해주세요."
-                })
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { finish("추적이 중단됐어요. 마지막 기록을 보존했어요.", preserveRequest = true) }
+                }, preserveRequest = stopped == TrackingLoopStop.CONNECTION_REQUIRED)
+            }, onInterrupted = { finish("추적이 중단돼 자동 복구를 기다리고 있어요. 마지막 기록은 유지해요.", preserveRequest = true) })
         }
         return restartPolicy()
     }
@@ -170,9 +184,12 @@ class RapidTrackingService : Service() {
     }
 
     private fun finish(message: String, preserveRequest: Boolean = false) {
+        finishing = true
         if (!preserveRequest || mode != TrackingMode.PREMIUM_WIDGET_TEST) {
             PremiumWidgetTestAccess.endRequest(this)
             TrackingRecoveryScheduler.cancel(this)
+        } else {
+            TrackingRecoveryScheduler.schedule(this)
         }
         RapidTracking.update(this, false, message)
         tracking?.cancel()
@@ -181,6 +198,8 @@ class RapidTrackingService : Service() {
     }
 
     override fun onDestroy() {
+        val interrupted = !finishing && PremiumWidgetTestAccess.isRequested(this)
+        finishing = true
         scope.cancel()
         networkCallback?.let { callback ->
             runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback) }
@@ -188,7 +207,10 @@ class RapidTrackingService : Service() {
         networkCallback = null
         networkAvailable.close()
         appGraph.collector.releaseProfileResources()
-        if (RapidTracking.state.value.running) RapidTracking.update(this, false, "중지됨")
+        if (interrupted) {
+            RapidTracking.update(this, false, "추적이 중단돼 자동 복구를 기다리고 있어요. 마지막 기록은 유지해요.")
+            TrackingRecoveryScheduler.schedule(this)
+        } else if (RapidTracking.state.value.running) RapidTracking.update(this, false, "중지됨")
         super.onDestroy()
     }
 

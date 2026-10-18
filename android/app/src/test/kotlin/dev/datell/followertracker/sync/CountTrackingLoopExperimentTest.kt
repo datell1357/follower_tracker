@@ -36,6 +36,7 @@ class CountTrackingLoopExperimentTest {
         var behavior: (Provider, Int) -> CollectionFailure? = { _, _ -> null }
         var beforeRequest: (Provider) -> Unit = {}
         var afterWait: () -> Unit = {}
+        var earlyWakeEvery: Long? = null
 
         private fun advance(millis: Long) {
             require(millis >= 0)
@@ -77,10 +78,36 @@ class CountTrackingLoopExperimentTest {
                 awaitNetwork = { remaining ->
                     networkWaits++
                     advance(minOf(offlineEnd - elapsed, remaining ?: Long.MAX_VALUE))
-                }, wait = { advance(it); afterWait() })
+                }, wait = { advance(minOf(it, earlyWakeEvery ?: it)); afterWait() })
             val job = launch(start = CoroutineStart.UNDISPATCHED) { stopped = loop.run() }
             job.join()
         }
+    }
+
+    @Test fun foregroundWakeupsCannotTurnOneMinuteTrackingIntoRepeatedRequests() {
+        val e = Experiment().apply { cost = 0; earlyWakeEvery = 1_000 }
+        e.runFor(3 * minute)
+        for (provider in Provider.entries) {
+            assertEquals(listOf(0L, minute, 2 * minute), e.requests.getValue(provider))
+        }
+    }
+
+    @Test fun aReconnectedAccountIsReadWithoutWaitingForAnotherAccountsLongCooldown() {
+        val e = Experiment().apply {
+            cost = 0; earlyWakeEvery = minute
+            for (provider in Provider.entries) rows[provider] = rows.getValue(provider).let { row ->
+                row.copy(account = row.account.copy(status = if (provider == Provider.INSTAGRAM) SyncStatus.RATE_LIMITED else SyncStatus.REAUTH_REQUIRED,
+                    nextAllowedAt = if (provider == Provider.INSTAGRAM) wall + 10 * minute else null))
+            }
+            afterWait = {
+                if (elapsed == minute) rows[Provider.X] = rows.getValue(Provider.X).let {
+                    it.copy(account = it.account.copy(status = SyncStatus.READY, nextAllowedAt = null))
+                }
+            }
+        }
+        e.runFor(2 * minute)
+        assertEquals(listOf(minute), e.requests.getValue(Provider.X))
+        assertTrue(e.requests.getValue(Provider.INSTAGRAM).isEmpty())
     }
 
     @Test fun allFiveProvidersRunFor24VirtualHoursWithoutTheAppOrDuplicateCycles() {

@@ -27,6 +27,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
     private val idle = mutableMapOf<Provider, IdleBrowser>()
     private val mutex = Mutex()
     private var generation = 0L
+    private var active: Pair<Provider, Job>? = null
     private val script by lazy { context.assets.open("web-session-capture.js").bufferedReader().use { it.readText() } }
 
     /** Called on Main when tracking stops, a session changes, or an account disconnects. */
@@ -34,6 +35,10 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
         generation++
         val keys = idle.keys.filter { provider == null || provider == it }
         for (key in keys) idle.remove(key)?.web?.destroy()
+    }
+    suspend fun cancelSession(provider: Provider) = withContext(Dispatchers.Main.immediate) {
+        active?.takeIf { it.first == provider }?.second?.cancelAndJoin()
+        release(provider)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -66,6 +71,8 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             loaded.completeExceptionally(error)
             web.stopLoading()
         }
+        val operation = currentCoroutineContext()[Job]!!
+        active = account.provider to operation
         try {
             WebView.setWebContentsDebuggingEnabled(false)
             web.settings.apply {
@@ -175,6 +182,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             currentCoroutineContext().ensureActive()
             throw failure ?: pendingCaptureFailure ?: CollectionFailure(if (loaded.isCompleted) SyncStatus.FORMAT_CHANGED else SyncStatus.OFFLINE)
         } finally {
+            if (active?.second === operation) active = null
             web.stopLoading()
             val keep = retain && succeeded && currentCoroutineContext().isActive && generation == acquiredGeneration &&
                 runCatching { sessions.metadata(account.provider)?.savedAt == binding.sessionVersion &&

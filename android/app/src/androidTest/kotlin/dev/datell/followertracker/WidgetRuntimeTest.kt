@@ -111,6 +111,23 @@ class WidgetRuntimeTest {
             assertTrue(text.contains("${compactObservationTime(owner.latest!!.observedAt)} 수집"))
         }
     }
+    @Test fun aOneCellWidgetIncludesFollowingAndChangeWithoutAnExtraPanel() = runBlocking {
+        val original = row(Provider.INSTAGRAM, followers = 950)
+        val owner = original.copy(history = original.history.map { it.copy(following = 740) })
+        for (side in listOf(88, 160)) {
+            val labels = render(listOf(owner), DpSize(side.dp, side.dp), "widget-following-$side.png")
+            assertTrue(labels.contains("팔로잉 740"))
+            assertTrue(labels.any { it.contains("+3") })
+            assertTrue(labels.any { it.contains(compactObservationTime(owner.latest!!.observedAt)) })
+        }
+    }
+
+    @Test fun anUnknownFollowingCountUsesTheActualPreviousFollowerCountInsteadOfZero() = runBlocking {
+        val owner = row(Provider.TIKTOK, followers = 950)
+        val labels = render(listOf(owner), DpSize(88.dp, 88.dp), "widget-previous-count.png")
+        assertTrue(labels.contains("이전 947"))
+        assertFalse(labels.any { it.startsWith("팔로잉") })
+    }
 
     @Test fun largeSystemTypeKeepsSmallWidgetValuesInsideTheHost() = runBlocking {
         for (scale in listOf(1.5f, 2f)) for (size in listOf(DpSize(40.dp, 40.dp), DpSize(88.dp, 88.dp), sizes.first())) {

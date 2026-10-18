@@ -18,6 +18,12 @@ class SessionStore(context: Context, private val cipher: DataCipher, preferences
     private val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
     private val metadataCache = mutableMapOf<Provider, Pair<String, SessionMetadata>>()
+    /** A provider-local fence. Logging out or replacing its session invalidates in-flight writes. */
+    @Synchronized
+    fun guard(provider: Provider): () -> Boolean {
+        val saved = preferences.getString(provider.name, null)
+        return sessionWriteGuard(saved) { preferences.getString(provider.name, null) }
+    }
     @Synchronized
     fun save(provider: Provider, metadata: SessionMetadata) {
         val encrypted = cipher.seal(json.encodeToString(metadata).toByteArray(Charsets.UTF_8))
@@ -71,9 +77,13 @@ class SessionStore(context: Context, private val cipher: DataCipher, preferences
         CookieManager.getInstance().flush()
     }
     @Synchronized
-    fun disconnect(provider: Provider) {
+    fun invalidate(provider: Provider) {
         check(preferences.edit().remove(provider.name).commit())
         metadataCache.remove(provider)
+    }
+    @Synchronized
+    fun disconnect(provider: Provider) {
+        invalidate(provider)
         val manager = CookieManager.getInstance()
         val paths = listOf("/", "/api/", "/api/v1/", "/accounts/", "/login/")
         val known = when (provider) {

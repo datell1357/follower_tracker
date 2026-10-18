@@ -5,7 +5,9 @@ import FollowerCore
 
 enum StorageFailure: Error { case unavailable, keychain(OSStatus), database, corrupted }
 
-struct KeychainStore {
+typealias SessionWriteGuard = @Sendable () throws -> Bool
+
+struct KeychainStore: Sendable {
     private func query(_ name: String) -> [String: Any] {
         var result: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "dev.datell.followertracker", kSecAttrAccount as String: name]
@@ -69,7 +71,15 @@ actor SessionVault {
         try keychain.read("session-" + provider.rawValue).map { try JSONDecoder().decode(SavedSession.self, from: $0) }
     }
     func save(_ provider: Provider, _ session: SavedSession) throws {
-        try withSessionLock(provider) { try persist(provider, session) }
+        try withSessionLock(provider) {
+            try keychain.write("session-version-" + provider.rawValue, Data(UUID().uuidString.utf8))
+            try persist(provider, session)
+        }
+    }
+    func captureGuard(_ provider: Provider) throws -> SessionWriteGuard {
+        let keychain = self.keychain, name = "session-version-" + provider.rawValue
+        let version = try keychain.read(name)
+        return { try keychain.read(name) == version }
     }
     private func persist(_ provider: Provider, _ session: SavedSession) throws {
         let allowed = session.cookies.filter { cookie in
@@ -95,7 +105,12 @@ actor SessionVault {
             try persist(provider, session)
         }
     }
-    func remove(_ provider: Provider) throws { try withSessionLock(provider) { try keychain.remove("session-" + provider.rawValue) } }
+    func remove(_ provider: Provider) throws {
+        try withSessionLock(provider) {
+            try keychain.write("session-version-" + provider.rawValue, Data(UUID().uuidString.utf8))
+            try keychain.remove("session-" + provider.rawValue)
+        }
+    }
     private func withSessionLock<T>(_ provider: Provider, operation: () throws -> T) throws -> T {
         let group = Bundle.main.object(forInfoDictionaryKey: "SharedAppGroup") as? String ?? "group.dev.datell.followertracker"
         guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else { throw StorageFailure.unavailable }

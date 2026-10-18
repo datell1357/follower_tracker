@@ -20,27 +20,29 @@ struct TrackerWidgetContent: View {
         }
     }
     private func accountTile(_ row: AccountOverview) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                mark(row, side: 28)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(row.account.provider.title).font(.system(size: 11, weight: .bold))
-                    Text("@" + row.account.username).font(.system(size: 9)).opacity(0.9)
-                }.lineLimit(1)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                mark(row, side: 20)
+                Text("@" + row.account.username).font(.system(size: 10)).opacity(0.9).lineLimit(1)
             }
             Spacer(minLength: 0)
             Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—")
-                .font(.system(size: 38, weight: .bold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.35).lineLimit(1)
+                .font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.35).lineLimit(1)
             HStack(spacing: 8) {
                 Text("팔로워").opacity(0.9)
                 Text(TrackerStyle.change(row)).fontWeight(.semibold)
             }.font(.system(size: 11))
+            if let following = row.latest?.following {
+                Text("팔로잉 " + TrackerStyle.count(following)).font(.system(size: 10)).opacity(0.9).lineLimit(1).minimumScaleFactor(0.65)
+            } else if let previous = row.previous {
+                Text("이전 " + TrackerStyle.count(previous.followers)).font(.system(size: 10)).opacity(0.9).lineLimit(1).minimumScaleFactor(0.65)
+            }
             if let compared = row.comparisonAt {
                 Text(TrackerStyle.observationTime(compared, compact: true) + " 대비").font(.system(size: 8)).opacity(0.9).lineLimit(1)
             }
             Spacer(minLength: 0)
             Text(TrackerStyle.widgetStatus(row)).font(.system(size: 9)).opacity(0.9).lineLimit(2)
-        }.foregroundStyle(.white).padding(15)
+        }.foregroundStyle(.white).padding(12)
         .accessibilityElement(children: .combine)
     }
     private var overview: some View {

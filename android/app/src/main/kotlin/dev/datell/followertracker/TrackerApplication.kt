@@ -20,7 +20,7 @@ class AppGraph(context: Context) {
         .addMigrations(TrackerDatabase.MIGRATION_2_3).build(), DataCipher())
     val sessions = SessionStore(context, DataCipher())
     val collector = SessionCollector(sessions, context.applicationContext)
-    val coordinator = SyncCoordinator(context, repository, collector)
+    val coordinator = SyncCoordinator(context, repository, collector, sessionGuard = sessions::guard)
 }
 
 val Context.appGraph: AppGraph get() = (applicationContext as TrackerApplication).graph
