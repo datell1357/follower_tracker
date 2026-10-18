@@ -1,5 +1,20 @@
 <resources>
     <string name="app_name">팔로워 트래커</string>
-    <string name="widget_description">팔로워 수와 최근 변화를 홈 화면에서 확인하세요.</string>
+    <string name="widget_account_name">내 계정 · 1×1</string>
+    <string name="widget_overview_name">소셜 모아보기 · 대형</string>
+    <string name="widget_description">SNS 하나를 가장 작게. 팔로워 수와 수집 시각을 확인하세요.</string>
+    <string name="widget_overview_description">연결된 모든 SNS의 팔로워·증감·수집 시각. 계정이 많으면 스크롤하세요.</string>
     <string name="widget_loading">마지막 기록을 불러오고 있어요</string>
+    <string name="widget_preview_title">소셜 모아보기</string>
+    <string name="widget_preview_badge">미리보기</string>
+    <string name="widget_preview_count" translatable="false">1.2만</string>
+    <string name="widget_preview_row_count" translatable="false">12,480</string>
+    <string name="widget_preview_row_detail">팔로워 · 예시</string>
+    <string name="widget_provider_instagram" translatable="false">Instagram</string>
+    <string name="widget_provider_tiktok" translatable="false">TikTok</string>
+    <string name="widget_provider_x" translatable="false">X</string>
+    <string name="widget_provider_facebook" translatable="false">Facebook</string>
+    <string name="widget_provider_reddit" translatable="false">Reddit</string>
+    <string name="widget_waiting">로딩</string>
+    <string name="widget_empty_count" translatable="false">—</string>
 </resources>

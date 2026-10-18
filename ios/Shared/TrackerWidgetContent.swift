@@ -1,56 +1,99 @@
 import SwiftUI
 
-enum TrackerWidgetSize: Equatable { case small, medium, large }
+// Two products, also used by the in-app gallery.
+enum TrackerWidgetSize: Equatable { case small, large }
 
-/// Shared by the real extension and the app's preview, using the same saved records.
 struct TrackerWidgetContent: View {
     let rows: [AccountOverview]
     var storageError = false
     var size: TrackerWidgetSize = .small
-    private var single: Bool { size == .small || rows.count == 1 }
+    private var single: Bool { size == .small }
     var body: some View {
-        VStack(alignment: .leading, spacing: single ? 6 : (size == .medium ? 4 : 8)) {
-            if !single || storageError || rows.isEmpty { Text("팔로워 트래커").font(.caption.weight(.bold)).foregroundStyle(TrackerStyle.blue) }
-            if storageError {
-                Text("기록을 읽지 못했어요").font(.headline)
-                Text("앱에서 확인해주세요").font(.caption).foregroundStyle(TrackerStyle.muted)
-            } else if rows.isEmpty {
-                Text("SNS를 연결해보세요").font(.headline)
-                Text("눌러서 앱 열기").font(.caption).foregroundStyle(TrackerStyle.muted)
-                Spacer(minLength: 0)
-            } else if single {
-                let row = rows[0]
-                Text(row.account.provider.title + " · @" + row.account.username).font(.caption2).foregroundStyle(TrackerStyle.muted).lineLimit(1)
-                Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—")
-                    .font(.system(size: 32, weight: .bold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.6).lineLimit(1)
-                Text("팔로워 · " + TrackerStyle.change(row)).font(.caption2).foregroundStyle(TrackerStyle.changeColor(row.change))
-                if let comparedAt = row.comparisonAt {
-                    Text("비교 " + TrackerStyle.observationTime(comparedAt, compact: true)).font(.system(size: 10)).foregroundStyle(TrackerStyle.muted).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                Text(TrackerStyle.widgetStatus(row)).font(.system(size: 10)).foregroundStyle(TrackerStyle.muted).lineLimit(2)
-            } else {
-                ForEach(Array(rows.prefix(size == .large ? 5 : 3))) { row in
-                    VStack(spacing: 0) {
-                        HStack {
-                            Text(row.account.provider.title).font(.system(size: 12, weight: .semibold))
-                            Spacer(minLength: 6)
-                            Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—")
-                                .font(.system(size: size == .medium ? 18 : 21, weight: .bold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.5).lineLimit(1)
-                        }
-                        HStack {
-                            Text(TrackerStyle.widgetStatus(row)).font(.system(size: 10)).foregroundStyle(TrackerStyle.muted).lineLimit(1)
-                            Spacer(minLength: 6)
-                            Text(TrackerStyle.change(row) + (row.comparisonAt.map { " · " + TrackerStyle.observationTime($0, compact: true) + " 대비" } ?? ""))
-                                .font(.system(size: 10)).foregroundStyle(TrackerStyle.changeColor(row.change)).lineLimit(1)
-                        }
-                    }
-                }
-                if size == .large { Spacer(minLength: 0) }
+        Group {
+            if !storageError, single, let row = rows.first { accountTile(row) }
+            else { overview }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background {
+            if single, !storageError, let row = rows.first { ProviderBrand(provider: row.account.provider).widgetBackground }
+            else { LinearGradient(colors: [TrackerStyle.surface, TrackerStyle.background], startPoint: .topLeading, endPoint: .bottomTrailing) }
+        }
+    }
+    private func accountTile(_ row: AccountOverview) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                mark(row, side: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.account.provider.title).font(.system(size: 11, weight: .bold))
+                    Text("@" + row.account.username).font(.system(size: 9)).opacity(0.9)
+                }.lineLimit(1)
             }
-        }.foregroundStyle(TrackerStyle.ink).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Spacer(minLength: 0)
+            Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—")
+                .font(.system(size: 38, weight: .bold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.35).lineLimit(1)
+            HStack(spacing: 8) {
+                Text("팔로워").opacity(0.9)
+                Text(TrackerStyle.change(row)).fontWeight(.semibold)
+            }.font(.system(size: 11))
+            if let compared = row.comparisonAt {
+                Text(TrackerStyle.observationTime(compared, compact: true) + " 대비").font(.system(size: 8)).opacity(0.9).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Text(TrackerStyle.widgetStatus(row)).font(.system(size: 9)).opacity(0.9).lineLimit(2)
+        }.foregroundStyle(.white).padding(15)
+        .accessibilityElement(children: .combine)
+    }
+    private var overview: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(single ? "내 계정" : "소셜 모아보기").font(.system(size: 17, weight: .bold))
+                    if !rows.isEmpty { Text("팔로워 · 이전 수집 대비").font(.system(size: 9)).foregroundStyle(TrackerStyle.muted) }
+                }
+                Spacer(minLength: 4)
+                if !rows.isEmpty { Text("\(rows.count)개 계정").font(.system(size: 10, weight: .medium)).padding(.horizontal, 9).padding(.vertical, 5).background(TrackerStyle.surface, in: Capsule()) }
+            }
+            if storageError || rows.isEmpty {
+                Spacer(minLength: 0)
+                Text(storageError ? "기록을 읽지 못했어요" : "SNS를 연결해보세요").font(.headline)
+                Text(storageError ? "앱에서 확인해주세요" : "눌러서 앱 열기").font(.caption).foregroundStyle(TrackerStyle.muted)
+            } else {
+                // Personal accounts: one connection per supported provider. No prefix truncation.
+                ForEach(rows) { row in overviewRow(row) }
+            }
+            Spacer(minLength: 0)
+        }.foregroundStyle(TrackerStyle.ink).padding(14)
+    }
+    private func overviewRow(_ row: AccountOverview) -> some View {
+        let brand = ProviderBrand(provider: row.account.provider)
+        return VStack(spacing: 2) {
+            HStack(spacing: 8) {
+                mark(row, side: 25)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.account.provider.title).font(.system(size: 11, weight: .bold)).foregroundStyle(brand.accent)
+                    Text("@" + row.account.username).font(.system(size: 9)).foregroundStyle(TrackerStyle.muted)
+                }.lineLimit(1)
+                Spacer(minLength: 5)
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—").font(.system(size: 20, weight: .bold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.4).lineLimit(1)
+                    Text(TrackerStyle.change(row)).font(.system(size: 9, weight: .medium)).foregroundStyle(TrackerStyle.changeColor(row.change)).lineLimit(1)
+                }
+            }
+            HStack(spacing: 4) {
+                Text(TrackerStyle.widgetStatus(row))
+                Spacer(minLength: 0)
+                if let compared = row.comparisonAt { Text(TrackerStyle.observationTime(compared, compact: true) + " 대비") }
+            }.font(.system(size: 8)).foregroundStyle(TrackerStyle.muted).lineLimit(1).minimumScaleFactor(0.7)
+        }.padding(.horizontal, 9).padding(.vertical, 5).background(brand.background, in: RoundedRectangle(cornerRadius: 12))
+            .accessibilityElement(children: .combine)
+    }
+    private func mark(_ row: AccountOverview, side: CGFloat) -> some View {
+        let brand = ProviderBrand(provider: row.account.provider)
+        return Image(brand.assetName).resizable().renderingMode(.original).scaledToFit()
+            .frame(width: row.account.provider == .reddit ? side : side * 0.66, height: row.account.provider == .reddit ? side : side * 0.66)
+            .frame(width: side, height: side).background(brand.iconBackground).clipShape(RoundedRectangle(cornerRadius: side * 0.29)).accessibilityHidden(true)
     }
 }
 
-#Preview("미연결 위젯") { TrackerWidgetContent(rows: []).padding(16).frame(width: 170, height: 170).background(TrackerStyle.surface) }
-#Preview("저장 오류 위젯") { TrackerWidgetContent(rows: [], storageError: true, size: .medium).padding(16).frame(width: 340, height: 170).background(TrackerStyle.surface) }
+#Preview("내 계정 · 미연결") { TrackerWidgetContent(rows: []).frame(width: 170, height: 170) }
+#Preview("모아보기 · 저장 오류") { TrackerWidgetContent(rows: [], storageError: true, size: .large).frame(width: 340, height: 360) }

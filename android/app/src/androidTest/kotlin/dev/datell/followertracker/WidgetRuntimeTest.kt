@@ -1,6 +1,8 @@
 package dev.datell.followertracker
 
 import android.content.Context
+import android.content.res.Configuration
+import android.appwidget.AppWidgetHostView
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
@@ -8,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
+import android.widget.ListView
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.ExperimentalGlanceRemoteViewsApi
@@ -29,7 +32,7 @@ import kotlin.math.roundToInt
 @RunWith(AndroidJUnit4::class)
 class WidgetRuntimeTest {
     private val context: Context get() = InstrumentationRegistry.getInstrumentation().targetContext
-    private val sizes = listOf(DpSize(160.dp, 160.dp), DpSize(300.dp, 180.dp), DpSize(300.dp, 300.dp), DpSize(160.dp, 300.dp))
+    private val sizes = listOf(DpSize(160.dp, 160.dp), DpSize(300.dp, 180.dp), DpSize(300.dp, 360.dp), DpSize(160.dp, 300.dp))
 
     @Test fun emptyWidgetsShowConnectionGuidanceAtEverySize() = runBlocking {
         sizes.forEachIndexed { index, size ->
@@ -44,6 +47,15 @@ class WidgetRuntimeTest {
         assertTrue(text.any { it.contains("기록을 읽지 못했어요") })
         assertFalse(text.contains("SNS 연결하기"))
         assertFalse(text.contains("0"))
+    }
+    @Test fun oneCellEmptyAndUnreadableWidgetsKeepTheirGuidanceInsideTheHost() = runBlocking {
+        for (scale in listOf(1f, 2f)) for (side in listOf(40, 64, 88)) {
+            val size = DpSize(side.dp, side.dp)
+            val empty = render(emptyList(), size, "widget-one-cell-empty-$side-$scale.png", fontScale = scale)
+            assertEquals(listOf("SNS 연결", "앱 열기"), empty)
+            val failed = render(null, size, "widget-one-cell-unreadable-$side-$scale.png", fontScale = scale)
+            assertEquals(listOf("읽기 오류", "앱 열기"), failed)
+        }
     }
     @Test fun failedRefreshKeepsTheLastCountAndChangeAtEverySize() = runBlocking {
         for (status in listOf(SyncStatus.REAUTH_REQUIRED, SyncStatus.OFFLINE)) {
@@ -69,15 +81,72 @@ class WidgetRuntimeTest {
             assertFalse(text.any { it.contains("방금 갱신") || it.contains("시간 전 갱신") })
         }
         val paused = render(listOf(stale.copy(account = stale.account.copy(status = SyncStatus.RATE_LIMITED))), sizes.first(), "widget-last-observation-paused.png")
-        assertTrue(paused.any { it.contains(observed) && it.startsWith("갱신 대기") })
+        assertTrue(paused.contains(observed))
+        assertTrue(paused.any { it.startsWith("갱신 대기") })
     }
-    @Test fun mediumAndLargeWidgetsFitThreeAndFiveAccounts() = runBlocking {
+    @Test fun overviewShowsAllFiveProvidersWithoutAThreeAccountCutoff() = runBlocking {
         val rows = Provider.entries.map { row(it) }
-        val medium = render(rows, sizes[1], "widget-medium.png")
-        rows.take(3).forEach { assertTrue(medium.contains(it.account.provider.title)) }
-        rows.drop(3).forEach { assertFalse(medium.contains(it.account.provider.title)) }
-        val large = render(rows, sizes[2], "widget-large.png")
-        rows.forEach { assertTrue(large.contains(it.account.provider.title)) }
+        val large = render(rows, sizes[2], "widget-overview-five.png")
+        rows.forEach { assertTrue("Missing ${it.account.provider.title}", large.contains(it.account.provider.title)) }
+        assertTrue(large.contains("5개 계정"))
+    }
+
+    @Test fun oneCellWidgetsKeepTheProviderCountAndActualTimeWithoutClipping() = runBlocking {
+        for (provider in Provider.entries) {
+            for (size in listOf(DpSize(40.dp, 40.dp), DpSize(64.dp, 72.dp), DpSize(88.dp, 88.dp))) {
+                val owner = row(provider, followers = 1_234_567_890)
+                val text = render(listOf(owner), size,
+                    "widget-one-cell-${provider.name}-${size.width.value.toInt()}.png")
+                assertTrue(text.contains("12.34억"))
+                assertTrue(text.contains(compactObservationTime(owner.latest!!.observedAt)))
+            }
+        }
+    }
+
+    @Test fun overviewKeepsTheFailureReasonAndLastActualObservationForEachAccount() = runBlocking {
+        val rows = listOf(row(Provider.INSTAGRAM, SyncStatus.REAUTH_REQUIRED), row(Provider.TIKTOK, SyncStatus.OFFLINE))
+        val text = render(rows, sizes[2], "widget-overview-last-success.png")
+        rows.forEach { owner ->
+            assertTrue(text.contains(owner.account.status.label))
+            assertTrue(text.contains("${compactObservationTime(owner.latest!!.observedAt)} 수집"))
+        }
+    }
+
+    @Test fun largeSystemTypeKeepsSmallWidgetValuesInsideTheHost() = runBlocking {
+        for (scale in listOf(1.5f, 2f)) for (size in listOf(DpSize(40.dp, 40.dp), DpSize(88.dp, 88.dp), sizes.first())) {
+            val text = render(listOf(row(Provider.FACEBOOK, followers = 1_234_567_890)), size,
+                "widget-font-$scale-${size.width.value.toInt()}.png", fontScale = scale)
+            assertTrue(text.any { it == "12.34억" || it == "1,234,567,890" })
+        }
+    }
+
+    @Test fun scrollingOverviewContainsEveryConnectionIncludingAccountsBeyondFive() = runBlocking {
+        val rows = Provider.entries.map { row(it) } + (1..2).map { index ->
+            val original = row(Provider.FACEBOOK)
+            original.copy(account = original.account.copy(stableId = "fixture_extra_$index", username = "extra_$index"))
+        }
+        val size = DpSize(300.dp, 180.dp)
+        val composition = GlanceRemoteViews().compose(context, size = size) { TrackerWidgetContent(rows) }
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val root = composition.remoteViews.apply(context, AppWidgetHostView(context))
+            fun list(node: View): ListView? {
+                if (node is ListView) return node
+                if (node is ViewGroup) for (i in 0 until node.childCount) list(node.getChildAt(i))?.let { return it }
+                return null
+            }
+            val collection = checkNotNull(list(root)) { "Short overview must use a scrolling collection" }
+            val adapter = checkNotNull(collection.adapter) { "Collection data must be available" }
+            assertEquals("No account may be truncated", rows.size, adapter.count)
+            val expected = rows.map { it.account.identityLabel }.toSet()
+            val labels = mutableSetOf<String>()
+            fun read(node: View) {
+                if (node is TextView) labels += node.text.toString()
+                if (node is ViewGroup) for (i in 0 until node.childCount) read(node.getChildAt(i))
+            }
+            repeat(adapter.count) { index -> read(adapter.getView(index, null, FrameLayout(context))) }
+            assertTrue("Every account must be reachable through the collection", labels.containsAll(expected))
+            assertTrue(labels.containsAll(Provider.entries.map { it.title }))
+        }
     }
 
     @Test fun longFollowerCountsAreNotEllipsizedAtAnySize() = runBlocking {
@@ -108,8 +177,8 @@ class WidgetRuntimeTest {
             original.copy(history = listOf(original.history.first().copy(observedAt = original.history.last().observedAt - (index + 1) * 86_400_000L), original.history.last()))
         }
         val small = render(listOf(rows.first()), sizes[0], "widget-comparison-small.png")
-        assertTrue(small.contains("비교 ${compactObservationTime(rows.first().comparisonAt!!)}"))
-        for ((index, size) in listOf(sizes[1], sizes[2]).withIndex()) {
+        assertTrue(small.contains("${compactObservationTime(rows.first().comparisonAt!!)} 대비"))
+        for ((index, size) in listOf(sizes[2]).withIndex()) {
             val labels = render(rows, size, "widget-comparison-multiple-$index.png")
             rows.forEach { owner -> assertTrue(labels.any { it.contains("${compactObservationTime(owner.comparisonAt!!)} 대비") }) }
         }
@@ -136,9 +205,10 @@ class WidgetRuntimeTest {
         return checkNotNull(find(view, 0)) { "Count is missing from the rendered widget" }
     }
 
-    private suspend fun render(rows: List<AccountOverview>?, size: DpSize, name: String,
+    private suspend fun render(rows: List<AccountOverview>?, size: DpSize, name: String, fontScale: Float? = null,
         verifyView: ((View, Int, Int) -> Unit)? = null): List<String> {
-        val composition = GlanceRemoteViews().compose(context, size = size) { TrackerWidgetContent(rows) }
+        val context = fontScale?.let { scale -> this.context.createConfigurationContext(Configuration(this.context.resources.configuration).apply { this.fontScale = scale }) } ?: this.context
+        val composition = GlanceRemoteViews().compose(context, size = size) { TrackerWidgetContent(rows, singleAccount = rows?.size == 1) }
         var text = emptyList<String>()
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val view = composition.remoteViews.apply(context, FrameLayout(context))
@@ -148,6 +218,18 @@ class WidgetRuntimeTest {
             view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
             view.layout(0, 0, width, height)
+            val directory = File(context.getExternalFilesDir(null), "qa").apply { mkdirs() }
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(bitmap))
+            File(directory, name).outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            bitmap.recycle()
+            val diagnostics = mutableListOf("size=$size;density=$density;fontScale=${context.resources.configuration.fontScale}")
+            fun describe(node: View) {
+                if (node is TextView && node.text.isNotBlank()) diagnostics += "${node.text}:width=${node.width};height=${node.height};textSize=${node.textSize};measuredText=${node.paint.measureText(node.text.toString())};padding=${node.compoundPaddingLeft},${node.compoundPaddingRight};ellipsis=${node.layout?.getEllipsisCount(0)}"
+                if (node is ViewGroup) for (i in 0 until node.childCount) describe(node.getChildAt(i))
+            }
+            describe(view)
+            File(directory, "$name.layout.txt").writeText(diagnostics.joinToString("\n"))
             val labels = mutableListOf<String>()
             fun inspect(node: View, parentTop: Int) {
                 val top = parentTop + node.top
@@ -160,20 +242,15 @@ class WidgetRuntimeTest {
                     val visible = Rect()
                     assertTrue("Widget text is hidden by its parent: ${node.text}", node.getLocalVisibleRect(visible))
                     assertEquals("Widget text is clipped vertically: ${node.text}", node.height, visible.height())
-                    if (node.text.toString() in setOf("123,456", "1,234,567,890") || node.text.startsWith("비교 ") || node.text.contains(" 대비")) {
+                    if (node.text.toString() in setOf("123,456", "1,234,567,890", "12.34억") || node.text.contains(" 대비")) {
                         val layout = checkNotNull(node.layout)
-                        for (line in 0 until layout.lineCount) assertEquals("Count and comparison date must be fully visible", 0, layout.getEllipsisCount(line))
+                        for (line in 0 until layout.lineCount) assertEquals("Count and comparison date must be fully visible: ${node.text}", 0, layout.getEllipsisCount(line))
                     }
                 }
                 if (node is ViewGroup) for (index in 0 until node.childCount) inspect(node.getChildAt(index), top)
             }
             inspect(view, 0)
             text = labels
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            view.draw(Canvas(bitmap))
-            val directory = File(context.getExternalFilesDir(null), "qa").apply { mkdirs() }
-            File(directory, name).outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
-            bitmap.recycle()
             verifyView?.invoke(view, width, height)
         }
         return text

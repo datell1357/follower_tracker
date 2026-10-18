@@ -21,6 +21,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.state.getAppWidgetState
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.Account
 import dev.datell.followertracker.ui.ProviderMark
@@ -36,6 +39,8 @@ class WidgetConfigurationActivity : ComponentActivity() {
         setResult(RESULT_CANCELED)
         val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
         if (id == AppWidgetManager.INVALID_APPWIDGET_ID) { finish(); return }
+        val kind = WidgetPinning.kindForId(this, id) ?: run { finish(); return }
+        val overview = kind == WidgetKind.OVERVIEW
         setContent { TrackerTheme {
             var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
             var selected by rememberSaveable { mutableStateOf<String?>(null) }
@@ -49,8 +54,12 @@ class WidgetConfigurationActivity : ComponentActivity() {
                 loading = true; loadError = false
                 try {
                     accounts = appGraph.repository.accounts()
-                    if (!initialized) selected = getSharedPreferences("widget_preferences", MODE_PRIVATE).getString("accountKey", null)
-                    selected = selected?.takeIf { key -> accounts.any { it.key == key } }
+                    if (!initialized) {
+                        val glanceId = GlanceAppWidgetManager(this@WidgetConfigurationActivity).getGlanceIdBy(id)
+                        val saved = getAppWidgetState(this@WidgetConfigurationActivity, PreferencesGlanceStateDefinition, glanceId)
+                        selected = saved[WidgetAccountKey] ?: getSharedPreferences("widget_preferences", MODE_PRIVATE).getString("accountKey", null)
+                    }
+                    selected = selected?.takeIf { key -> accounts.any { it.key == key } } ?: accounts.firstOrNull()?.key
                     initialized = true
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { loadError = true }
@@ -60,25 +69,25 @@ class WidgetConfigurationActivity : ComponentActivity() {
                 Column(Modifier.fillMaxSize().systemBarsPadding()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { finish() }) { Icon(Icons.Outlined.Close, "위젯 추가 취소") }
-                        Text("위젯에 표시할 계정", style = MaterialTheme.typography.titleLarge)
+                        Text(if (overview) "모아보기 위젯" else "위젯에 표시할 계정", style = MaterialTheme.typography.titleLarge)
                     }
                     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        item { InfoPanel("홈 화면에 맞게", "작은 위젯은 한 계정, 넓은 위젯은 여러 계정을 표시해요. 마지막 수집 시각도 함께 볼 수 있어요.", icon = Icons.Outlined.Widgets) }
+                        item { InfoPanel(if (overview) "모든 SNS를 한곳에" else "한 계정을 가장 작게", if (overview) "연결된 모든 계정의 팔로워·변화·수집 시각을 표시해요. 계정이 많으면 위젯 안에서 스크롤할 수 있어요." else "1×1 크기로 추가할 수 있어요. SNS 색상과 팔로워 수를 표시하고, 크기를 늘리면 증감과 계정 정보도 보여요.", icon = Icons.Outlined.Widgets) }
                         if (loading) item { CircularProgressIndicator() }
                         if (loadError) item {
                             Text("저장된 계정을 읽지 못했어요. 기존 데이터를 보존했어요.", color = MaterialTheme.colorScheme.error)
                             OutlinedButton(onClick = { loadRequest++ }) { Text("다시 읽기") }
                         }
                         if (!loading && !loadError) {
-                            item { ConfigurationOption("모든 계정", "위젯 크기에 맞춰 표시해요", null, selected == null, !saving) { selected = null } }
+                            if (overview) item { ConfigurationOption("모든 계정", "새로 연결한 계정도 자동으로 포함해요", null, true, false) {} }
                             items(accounts, key = { it.key }) { account ->
-                                ConfigurationOption(account.connectionTitle, account.identityLabel, account, selected == account.key, !saving) { selected = account.key }
+                                ConfigurationOption(account.connectionTitle, account.identityLabel, account, overview || selected == account.key, !saving && !overview) { selected = account.key }
                             }
-                            if (accounts.isEmpty()) item { Text("아직 연결된 계정이 없어요. 위젯을 추가한 뒤 앱에서 SNS를 연결해주세요.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            if (accounts.isEmpty()) item { Text("아직 연결된 계정이 없어요. 앱에서 SNS를 연결한 뒤 위젯 편집에서 표시할 계정을 선택해주세요.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                         if (saveError) item { Text("위젯을 저장하지 못했어요. 다시 시도해주세요.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
                     }
-                    Button(onClick = { saving = true; saveError = false; configure(id, selected) { saving = false; saveError = true } },
+                    Button(onClick = { saving = true; saveError = false; configure(id, if (overview) null else selected, kind) { saving = false; saveError = true } },
                         enabled = !saving && !loading && !loadError, modifier = Modifier.fillMaxWidth().padding(20.dp).heightIn(min = 48.dp)) {
                         Text(if (saving) "추가하는 중" else "선택한 구성으로 추가")
                     }
@@ -86,9 +95,9 @@ class WidgetConfigurationActivity : ComponentActivity() {
             }
         } }
     }
-    private fun configure(id: Int, key: String?, failure: () -> Unit) = lifecycleScope.launch {
+    private fun configure(id: Int, key: String?, kind: WidgetKind, failure: () -> Unit) = lifecycleScope.launch {
         try {
-            check(WidgetPinning.configure(this@WidgetConfigurationActivity, id, key))
+            check(WidgetPinning.configure(this@WidgetConfigurationActivity, id, key, kind))
             setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id))
             finish()
         } catch (cancelled: CancellationException) { throw cancelled }

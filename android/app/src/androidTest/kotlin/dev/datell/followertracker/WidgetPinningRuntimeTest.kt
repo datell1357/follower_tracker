@@ -8,6 +8,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.datell.followertracker.widget.WidgetPinnedReceiver
 import dev.datell.followertracker.widget.WidgetPinning
+import dev.datell.followertracker.widget.TrackerWidgetReceiver
+import dev.datell.followertracker.widget.OverviewWidgetReceiver
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -15,6 +17,19 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class WidgetPinningRuntimeTest {
+    @Test fun launcherOffersExactlyTheSingleAndOverviewProviders() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val providers = AppWidgetManager.getInstance(context).installedProviders.filter { it.provider.packageName == context.packageName }
+        assertEquals(setOf(ComponentName(context, TrackerWidgetReceiver::class.java), ComponentName(context, OverviewWidgetReceiver::class.java)), providers.map { it.provider }.toSet())
+        if (Build.VERSION.SDK_INT >= 31) {
+            val single = providers.single { it.provider.className == TrackerWidgetReceiver::class.java.name }
+            val overview = providers.single { it.provider.className == OverviewWidgetReceiver::class.java.name }
+            assertEquals(1, single.targetCellWidth); assertEquals(1, single.targetCellHeight)
+            assertEquals(4, overview.targetCellWidth); assertEquals(4, overview.targetCellHeight)
+            assertNull("Overview includes every account without configuration", overview.configure)
+        }
+    }
+
     @Test fun pendingPinRequestsDoNotOverwriteOneAnothersCallbacks() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val callbacks = listOf(WidgetPinning.callback(context, "fixture-first"),

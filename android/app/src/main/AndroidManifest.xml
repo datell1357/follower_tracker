@@ -28,9 +28,13 @@
         </activity>
         <receiver android:name=".widget.WidgetPinnedReceiver" android:exported="false" />
         <service android:name=".sync.RapidTrackingService" android:exported="false" android:foregroundServiceType="dataSync" />
-        <receiver android:name=".widget.TrackerWidgetReceiver" android:exported="true">
+        <receiver android:name=".widget.TrackerWidgetReceiver" android:label="@string/widget_account_name" android:exported="true">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/tracker_widget_info" />
+        </receiver>
+        <receiver android:name=".widget.OverviewWidgetReceiver" android:label="@string/widget_overview_name" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/overview_widget_info" />
         </receiver>
     </application>
 </manifest>

@@ -19,6 +19,17 @@ struct ProviderBrand {
             return (adaptive(0xA93600, 0xFFB088), adaptive(0xFFEBE0, 0x39251E), adaptive(0xFFF5EF, 0x2E2521), [fixed(0xFF4500), fixed(0xFF8717)])
         }
     }
+    var widgetBackground: LinearGradient {
+        let values: [UInt32]
+        switch provider {
+        case .instagram: values = [0x552A91, 0x942A67, 0x993A2C]
+        case .tiktok: values = [0x103739, 0x131922, 0x462033]
+        case .x: values = [0x343A44, 0x161A21, 0x0C0F14]
+        case .facebook: values = [0x174FBF, 0x123E9B, 0x112551]
+        case .reddit: values = [0xA93608, 0x94300D, 0x582413]
+        }
+        return LinearGradient(colors: values.map { TrackerStyle.adaptive($0, $0) }, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
     var accent: Color { tones.accent }
     var background: LinearGradient { LinearGradient(colors: [tones.start, tones.end], startPoint: .topLeading, endPoint: .bottomTrailing) }
     var stripe: LinearGradient { LinearGradient(colors: tones.stripe, startPoint: .leading, endPoint: .trailing) }

@@ -6,7 +6,7 @@ import FollowerCore
 enum AccountChoice: String, AppEnum {
     case all, instagram, tiktok, x, facebook, reddit
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "표시할 계정"
-    static var caseDisplayRepresentations: [AccountChoice: DisplayRepresentation] = [.all: "모든 계정", .instagram: "Instagram", .tiktok: "TikTok", .x: "X", .facebook: "Facebook", .reddit: "Reddit"]
+    static var caseDisplayRepresentations: [AccountChoice: DisplayRepresentation] = [.all: "첫 연결 계정", .instagram: "Instagram", .tiktok: "TikTok", .x: "X", .facebook: "Facebook", .reddit: "Reddit"]
     var provider: Provider? { switch self { case .all: nil; case .instagram: .instagram; case .tiktok: .tiktok; case .x: .x; case .facebook: .facebook; case .reddit: .reddit } }
 }
 struct TrackerConfiguration: WidgetConfigurationIntent {
@@ -20,12 +20,17 @@ struct TrackerEntry: TimelineEntry {
     var storageError = false
 }
 struct TrackerTimeline: AppIntentTimelineProvider {
+    var allAccounts = false
+    private func records(_ repository: TrackerRepository, _ configuration: TrackerConfiguration) async throws -> [AccountOverview] {
+        let rows = try await repository.widgetOverviews(provider: configuration.account.provider)
+        return allAccounts ? rows : Array(rows.prefix(1))
+    }
     func placeholder(in context: Context) -> TrackerEntry { TrackerEntry(date: Date(), rows: []) }
     func snapshot(for configuration: TrackerConfiguration, in context: Context) async -> TrackerEntry { await entry(configuration) }
     func timeline(for configuration: TrackerConfiguration, in context: Context) async -> Timeline<TrackerEntry> {
         do {
             let repository = try TrackerRepository(), sync = SyncService(repository: repository)
-            let rows = try await repository.widgetOverviews(provider: configuration.account.provider)
+            let rows = try await records(repository, configuration)
             // A bounded native attempt. WidgetKit decides when this code is scheduled.
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
@@ -43,7 +48,7 @@ struct TrackerTimeline: AppIntentTimelineProvider {
     private func entry(_ configuration: TrackerConfiguration) async -> TrackerEntry {
         do {
             let repository = try TrackerRepository()
-            let rows = try await repository.widgetOverviews(provider: configuration.account.provider)
+            let rows = try await records(repository, configuration)
             return TrackerEntry(date: Date(), rows: rows)
         } catch { return TrackerEntry(date: Date(), rows: [], storageError: true) }
     }
@@ -53,16 +58,47 @@ struct TrackerWidgetView: View {
     @Environment(\.widgetFamily) private var family
     var body: some View {
         TrackerWidgetContent(rows: entry.rows, storageError: entry.storageError,
-            size: family == .systemSmall ? .small : family == .systemLarge ? .large : .medium)
-            .containerBackground(TrackerStyle.surface, for: .widget)
+            size: family == .systemSmall ? .small : .large)
+            .containerBackground(.clear, for: .widget)
             .widgetURL(URL(string: "followertracker://dashboard"))
     }
 }
-@main
 struct FollowerTrackerWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "FollowerTrackerWidget", intent: TrackerConfiguration.self, provider: TrackerTimeline()) { TrackerWidgetView(entry: $0) }
-            .configurationDisplayName("팔로워 트래커").description("팔로워 수와 변화를 홈 화면에서 확인해요.")
-            .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+            .configurationDisplayName("내 계정").description("SNS 하나를 가장 작은 위젯으로 확인해요.")
+            .supportedFamilies([.systemSmall]).contentMarginsDisabled()
+    }
+}
+
+struct OverviewConfiguration: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "소셜 모아보기"
+    static var description = IntentDescription("연결된 모든 SNS를 함께 표시해요.")
+}
+struct OverviewTimeline: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> TrackerEntry { TrackerEntry(date: Date(), rows: []) }
+    func snapshot(for configuration: OverviewConfiguration, in context: Context) async -> TrackerEntry {
+        let choice = TrackerConfiguration()
+        choice.account = .all
+        return await TrackerTimeline(allAccounts: true).snapshot(for: choice, in: context)
+    }
+    func timeline(for configuration: OverviewConfiguration, in context: Context) async -> Timeline<TrackerEntry> {
+        let choice = TrackerConfiguration()
+        choice.account = .all
+        return await TrackerTimeline(allAccounts: true).timeline(for: choice, in: context)
+    }
+}
+struct OverviewTrackerWidget: Widget {
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: "OverviewTrackerWidget", intent: OverviewConfiguration.self, provider: OverviewTimeline()) { TrackerWidgetView(entry: $0) }
+            .configurationDisplayName("소셜 모아보기").description("모든 계정의 팔로워·증감·수집 시각을 한눈에 확인해요.")
+            .supportedFamilies([.systemLarge]).contentMarginsDisabled()
+    }
+}
+@main
+struct FollowerTrackerWidgets: WidgetBundle {
+    var body: some Widget {
+        FollowerTrackerWidget()
+        OverviewTrackerWidget()
     }
 }

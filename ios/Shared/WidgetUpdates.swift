@@ -10,6 +10,7 @@ actor WidgetUpdates {
         pending = Task {
             try? await Task.sleep(for: .seconds(2))
             WidgetCenter.shared.reloadTimelines(ofKind: "FollowerTrackerWidget")
+            WidgetCenter.shared.reloadTimelines(ofKind: "OverviewTrackerWidget")
             pending = nil
         }
     }

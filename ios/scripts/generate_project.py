@@ -85,7 +85,7 @@ def target(name, sources, resource_files, product, extension=False, extra_phases
     return add("target:" + name, f'isa = PBXNativeTarget; buildConfigurationList = {configuration}; buildPhases = {array([sources_id, frameworks, resources_id] + (extra_phases or []))}; buildRules = (); dependencies = {array(dependencies or [])}; name = {name}; packageProductDependencies = {array([dependency])}; productName = {name}; productReference = {product}; productType = {quote(product_type)};')
 
 
-widget_target = target("FollowerTrackerWidget", shared + widget, [(path, ref) for path, ref in resources.items() if path.endswith(".xcprivacy")], product_widget, extension=True)
+widget_target = target("FollowerTrackerWidget", shared + widget, [(path, ref) for path, ref in resources.items() if path.endswith((".xcprivacy", ".xcassets"))], product_widget, extension=True)
 proxy = add("widget-proxy", f'isa = PBXContainerItemProxy; containerPortal = {identifier("project")}; proxyType = 1; remoteGlobalIDString = {widget_target}; remoteInfo = FollowerTrackerWidget;')
 dependency = add("widget-dependency", f'isa = PBXTargetDependency; target = {widget_target}; targetProxy = {proxy};')
 embed_file = add("embed-widget", f'isa = PBXBuildFile; fileRef = {product_widget}; settings = {{ ATTRIBUTES = (RemoveHeadersOnCopy,); }};')

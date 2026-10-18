@@ -13,6 +13,7 @@ import dev.datell.followertracker.sync.PremiumWidgetTestAccess
 import dev.datell.followertracker.sync.RapidTracking
 import dev.datell.followertracker.sync.RapidTrackingService
 import dev.datell.followertracker.widget.TrackerWidgetReceiver
+import dev.datell.followertracker.widget.OverviewWidgetReceiver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -31,8 +32,9 @@ class PremiumWidgetTestConfiguration {
         val context = instrumentation.targetContext
         assertTrue(BuildConfig.DEBUG && Build.VERSION.SDK_INT >= 34)
         assertFalse("Stop tracking before changing its test entitlement", RapidTracking.state.value.running)
-        val widgets = AppWidgetManager.getInstance(context)
-            .getAppWidgetIds(ComponentName(context, TrackerWidgetReceiver::class.java)).size
+        val manager = AppWidgetManager.getInstance(context)
+        val widgets = listOf(TrackerWidgetReceiver::class.java, OverviewWidgetReceiver::class.java)
+            .sumOf { manager.getAppWidgetIds(ComponentName(context, it)).size }
         assertTrue("Install a home widget before the widget-only soak", widgets > 0)
         withContext(Dispatchers.IO) {
             WorkManager.getInstance(context).cancelUniqueWork("qa-live-metrics-once").result.get(10, TimeUnit.SECONDS)

@@ -12,6 +12,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.core.graphics.ColorUtils
@@ -100,10 +101,47 @@ class DesignRuntimeTest {
         rule.setContent { Frame("홈 위젯") { WidgetScreen(state(instagram, tiktok), {}) } }
         rule.onNodeWithText("sample_music", substring = true).performScrollTo()
         rule.onNodeWithTag("widget-option-TikTok").performClick()
-        val inPreview = hasAnyAncestor(hasTestTag("widget-preview"))
-        rule.onNode(hasText("@sample_music") and inPreview, useUnmergedTree = true).performScrollTo().assertIsDisplayed()
-        rule.onNode(hasText("@sample_studio") and inPreview, useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithTag("widget-preview").performScrollTo()
+        rule.onNodeWithContentDescription("위젯 미리보기: TikTok @sample_music").assertExists()
+        rule.onNodeWithContentDescription("위젯 미리보기: Instagram @sample_studio").assertDoesNotExist()
+        rule.onNodeWithText("미리보기를 불러오지 못했어요").assertDoesNotExist()
         capture("design-widget-preview.png")
+    }
+
+    @Test fun overviewPreviewIncludesEveryAccountAfterChoosingOneForTheSmallWidget() {
+        val instagram = row()
+        val tiktok = row(Provider.TIKTOK).let { it.copy(account = it.account.copy(username = "sample_music")) }
+        rule.setContent { Frame("홈 위젯") { WidgetScreen(state(instagram, tiktok), {}) } }
+        rule.onNodeWithTag("widget-option-TikTok").performScrollTo().performClick()
+        rule.onNodeWithText("모아보기 · 대형").performScrollTo().performClick()
+        rule.onNodeWithTag("widget-preview").performScrollTo()
+        rule.onNodeWithContentDescription("위젯 미리보기: Instagram @sample_studio, TikTok @sample_music").assertExists()
+        rule.onNodeWithTag("widget-option-TikTok").assertDoesNotExist()
+        rule.onNodeWithText("미리보기를 불러오지 못했어요").assertDoesNotExist()
+        capture("design-widget-overview.png")
+    }
+
+    @Test fun widgetDesignBoardRendersAllProvidersAndBothWidgetKinds() {
+        val counts = listOf(12_480L, 8_720L, 1_206L, 24_300L, 386L)
+        val rows = Provider.entries.mapIndexed { index, provider ->
+            val original = row(provider)
+            original.copy(history = original.history.map { it.copy(followers = it.followers - 12_480 + counts[index]) })
+        }
+        rule.setContent { Frame("위젯 디자인 · 예시 데이터") {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("내 계정 · 1×1", style = MaterialTheme.typography.titleSmall)
+                rows.chunked(3).forEach { group ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        group.forEach { owner -> NativeWidgetPreview(listOf(owner), true, DpSize(88.dp, 88.dp), Modifier.size(88.dp)) }
+                    }
+                }
+                Text("소셜 모아보기 · 모든 계정", style = MaterialTheme.typography.titleSmall)
+                NativeWidgetPreview(rows, false, DpSize(300.dp, 360.dp), Modifier.size(300.dp, 360.dp))
+            }
+        } }
+        rule.onNodeWithContentDescription("위젯 미리보기: " + rows.joinToString { "${it.account.connectionTitle} ${it.account.identityLabel}" }).assertExists()
+        rule.onNodeWithText("미리보기를 불러오지 못했어요").assertDoesNotExist()
+        capture("design-widget-two-kinds.png")
     }
 
     @Test fun smallWidthLargeTypeKeepsTrackingControlsWithoutIntervalChoices() {
