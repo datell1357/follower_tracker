@@ -399,3 +399,11 @@
 - 최종 Android core 45개·app Debug/Release 각 99개, Debug·테스트 APK·Release/R8·두 lint를 통과했다. lint 오류 0개·기존 경고 각 8개다. 공유 수집 스크립트 60개·Swift core 50개·iOS Debug 테스트 타깃 빌드·서명 없는 Release 빌드도 통과했고 iOS 프로젝트 재생성이 동일함을 확인했다.
 - macOS의 별도 패키지에서 실제 공유 SQLite 저장소·SyncService와 XCTest 16개를 통과했다. 성공·수집/저장 실패·취소 뒤의 로그아웃 유지와 기존 수치·관계·다른 SNS 보존을 검사했다. OS의 Keychain·암호화·네트워크 상태는 대역이며 실제 기기·자격 증명을 사용하지 않는다. 기준 커밋에서도 실패하던 형식 오류 fixture는 실제 저장되는 15분 재시도 기한을 추가하고 만료 뒤 재개 검사도 추가해 차단 assertion을 유지했다.
 - Android의 새 로그아웃 경쟁·다른 SNS 지속 및 소형 표시 회귀와 iOS의 새 저장 회귀는 네이티브 검사 타깃으로 컴파일했다. 실제 화면·쿠키 정리·재부팅/업데이트 후 서비스와 SNS 후속 수집은 아직 기기 미실행이다. 검증 로그·harness·APK는 Git에서 제외한다. [변경 원인·검증·실기기 경계](CONTINUITY_AND_LOGOUT.md)
+
+## 2026-10-19 로그인 경로·Instagram 초기 수집 보완
+
+- 사용자가 보고한 TikTok의 연동 로그인 차단, Google 2차 인증 후 복귀 차단, Instagram 로그인 뒤 요청 제한과 Facebook 인증을 코드에서 조사했다. USB 기기는 연결돼 있지 않았으며 개인 계정·쿠키·기록을 변경하거나 화면을 조작하지 않았다.
+- TikTok 공식 공개 로그인 번들에서 추가 소셜 인증 경로를 확인했다. 기존 코드가 정상 인증 호스트를 차단하는 Android 회귀와, 공유 캡처가 Instagram의 서버 JSON을 놓쳐 API의 429 응답을 받는 Node 회귀를 각각 실패시킨 뒤 수정했다. 공개 소스·응답과 빌드 로그는 `.local`에만 보관하며 Git에 포함하지 않는다.
+- Android TikTok의 Facebook·LINE·Kakao·X/Twitter·VK·보조 인증 주소를 로그인 전용으로 허용한다. HTTPS fallback만 따르는 앱 링크 처리, 빈 OAuth 문서의 fragment와 부모·현재 출처 보존, 민감 값 없는 차단 도메인 표시를 추가했다. 쿠키 수집 호스트·다른 SNS의 허용 범위·TLS 검사는 유지한다.
+- Instagram은 최초 15초간 로컬 페이지를 읽어 늦게 준비된 정확한 수치로 즉시 연결할 수 있게 했다. `data-sjs` JSON과 본인 ID를 확인하고, API가 필요하면 확인된 본인 사용자명으로 기존 웹 프로필 경로를 한 번 사용한다. 실제 429와 서버의 재시도 기한은 우회하지 않는다. Facebook 로그인·2차 인증 경로에서는 자동 수집·프로필 이동을 하지 않는다.
+- 공유 캡처 63개·Android core 45개·app Debug/Release 각 105개·Swift core 52개, Android Debug/테스트 APK·Release/R8·두 lint와 iOS Debug 테스트 타깃·서명 없는 Release 빌드를 검사했다. 실제 SNS·기기 실행은 하지 않았으며 새 Android 인증 복귀·지연 JSON fixture도 컴파일까지만 검증했다. [현재 코드와 실제 인증의 검증 경계](WEBVIEW_LOGIN.md#2026-10-19-tiktok-인증-이동instagram-초기-수집-보완)

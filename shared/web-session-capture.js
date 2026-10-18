@@ -14,10 +14,10 @@
     if (typeof value === "number" && Number.isSafeInteger(value)) return String(value);
     return null;
   }
-  function jsonRoots(doc, facebookPage = false) {
+  function jsonRoots(doc, includeServerData = false) {
     let remaining = MAX_JSON_BYTES;
     const roots = [];
-    const selector = 'script[type="application/json"],script#__UNIVERSAL_DATA_FOR_REHYDRATION__,script#SIGI_STATE' + (facebookPage ? ',script[data-sjs]' : '');
+    const selector = 'script[type="application/json"],script#__UNIVERSAL_DATA_FOR_REHYDRATION__,script#SIGI_STATE' + (includeServerData ? ',script[data-sjs]' : '');
     for (const node of doc.querySelectorAll(selector)) {
       const text = node.textContent || "";
       remaining -= text.length;
@@ -243,7 +243,7 @@
   }
   function capture(provider, expectedID, suppliedDocument) {
     const doc = suppliedDocument || document;
-    const roots = jsonRoots(doc, provider === "FACEBOOK");
+    const roots = jsonRoots(doc, provider === "FACEBOOK" || provider === "INSTAGRAM");
     if (provider === "INSTAGRAM") {
       if (!expectedID || !/^[0-9]+$/.test(expectedID)) return { error: "identity_missing" };
       const isOwner = value => textID(value.pk ?? value.id) === expectedID && value.username;
@@ -372,7 +372,10 @@
       const local = capture(provider, expectedID, doc);
       if (!local.error || local.profileURL || local.error === 'identity_missing') return local;
     }
-    const path = provider === 'INSTAGRAM' ? '/api/v1/users/' + expectedID + '/info/' : '/api/me.json';
+    const owner = provider === 'INSTAGRAM' ? findRecord(jsonRoots(doc, true), value =>
+      textID(value.pk ?? value.id) === expectedID && typeof value.username === 'string' && /^[A-Za-z0-9._]{1,30}$/.test(value.username)) : null;
+    const path = provider !== 'INSTAGRAM' ? '/api/me.json' : owner ?
+      '/api/v1/users/web_profile_info/?username=' + encodeURIComponent(owner.username) : '/api/v1/users/' + expectedID + '/info/';
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
@@ -405,10 +408,11 @@
           return { error: /login/i.test(message) ? 'reauth_required' : root.challenge || /challenge/i.test(message) ? 'check_required' :
             /wait|rate/i.test(message) ? 'rate_limited' : 'format_changed' };
         }
-        const user = root.user;
+        const user = owner ? root.data?.user ?? root.user : root.user;
         if (!user || textID(user.pk ?? user.id) !== expectedID) return { error: 'own_profile_required' };
         return result(provider, expectedID, user.username, user.full_name,
-          page.origin + '/' + encodeURIComponent(user.username) + '/', user.follower_count, user.following_count, 'instagram-webview-session');
+          page.origin + '/' + encodeURIComponent(user.username) + '/', user.follower_count ?? user.edge_followed_by?.count,
+          user.following_count ?? user.edge_follow?.count, 'instagram-webview-session');
       }
       const user = root.data || root, id = textID(user.id);
       if (!id || !user.name) return { error: 'reauth_required' };

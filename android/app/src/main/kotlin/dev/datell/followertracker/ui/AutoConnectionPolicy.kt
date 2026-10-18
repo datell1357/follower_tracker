@@ -3,14 +3,17 @@ package dev.datell.followertracker.ui
 import dev.datell.followertracker.core.*
 import java.net.URI
 
-class AutoConnectionPolicy {
+class AutoConnectionPolicy(private val localReadGraceMillis: Long = 0) {
     private var attemptedPage: String? = null
+    private var observedPage: String? = null
+    private var localReadUntil: Long = 0
     private var retryCount = 0
     var nextAllowedAt: Long = 0
         private set
 
     fun begin(pageKey: String, now: Long): Boolean {
-        if (attemptedPage == pageKey || now < nextAllowedAt) return false
+        if (observedPage != pageKey) { observedPage = pageKey; localReadUntil = now + localReadGraceMillis }
+        if (now < localReadUntil || attemptedPage == pageKey || now < nextAllowedAt) return false
         attemptedPage = pageKey
         return true
     }
@@ -31,7 +34,7 @@ class AutoConnectionPolicy {
 fun canAutoConnect(provider: Provider, url: String, authenticated: Boolean, loading: Boolean, busy: Boolean): Boolean {
     if (!authenticated || loading || busy || !provider.allows(url)) return false
     val path = runCatching { URI(url).path.lowercase() }.getOrDefault("")
-    return !Regex("(^|/)(login|challenge|checkpoint|two_factor|two-factor|twofactor)(/|$)").containsMatchIn(path)
+    return !Regex("(^|/)(login(?:\\.php)?|challenge|checkpoint|two_factor|two-factor|twofactor|two_step_verification|auth_platform)(/|$)").containsMatchIn(path)
 }
 
 fun connectionFailureMessage(failure: CollectionFailure): String = when (failure.status) {

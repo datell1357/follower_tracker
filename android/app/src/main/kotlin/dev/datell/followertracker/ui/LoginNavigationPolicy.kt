@@ -27,10 +27,29 @@ fun loginDestination(url: String): LoginDestination {
 
 /** TikTok's optional native-app handoff is consumed while the signed-in website remains open. */
 fun isOptionalTikTokAppLink(provider: Provider, sourceUrl: String, targetUrl: String): Boolean {
-    if (provider != Provider.TIKTOK || !provider.allows(sourceUrl)) return false
+    if (provider != Provider.TIKTOK || !(provider.allows(sourceUrl) ||
+        loginNavigation(provider, sourceUrl) == LoginNavigation.AUTHENTICATE && loginDestination(sourceUrl).host == "inapp.tiktokv.com")) return false
     val uri = runCatching { URI(targetUrl) }.getOrNull() ?: return false
     return uri.scheme in setOf("snssdk1340", "snssdk1233", "snssdk1180") &&
         uri.host in setOf("aweme", "user") && uri.userInfo == null && uri.port == -1
+}
+
+/** Only internal empty documents, including an OAuth popup's fragment, are exempt from HTTPS. */
+fun isLoginBlankPage(url: String): Boolean = runCatching {
+    val uri = URI(url)
+    uri.scheme == "about" && uri.rawSchemeSpecificPart == "blank"
+}.getOrDefault(false)
+
+/** Consume an app handoff by opening its verified HTTPS fallback, without launching a native intent. */
+fun loginBrowserFallback(provider: Provider, sourceUrl: String, targetUrl: String): String? {
+    if (loginNavigation(provider, sourceUrl) == LoginNavigation.BLOCK || targetUrl.length > 16_384) return null
+    val intent = runCatching { URI(targetUrl) }.getOrNull() ?: return null
+    if (intent.scheme != "intent" || intent.userInfo != null || intent.port != -1) return null
+    val parts = intent.rawFragment?.split(';') ?: return null
+    if (parts.firstOrNull() != "Intent" || parts.lastOrNull() != "end") return null
+    val encoded = parts.filter { it.startsWith("S.browser_fallback_url=") }.singleOrNull()?.substringAfter('=') ?: return null
+    val fallback = runCatching { URLDecoder.decode(encoded.replace("+", "%2B"), "UTF-8") }.getOrNull() ?: return null
+    return fallback.takeIf { loginNavigation(provider, it) != LoginNavigation.BLOCK }
 }
 
 /** Facebook supplies an HTTPS profile or named Page fallback for a native-app handoff. */
@@ -106,6 +125,8 @@ fun loginNavigation(provider: Provider, url: String): LoginNavigation {
     fun belongsTo(domain: String) = host == domain || host.endsWith(".$domain")
     if (provider == Provider.INSTAGRAM && belongsTo("facebook.com")) return LoginNavigation.ALLOW
     if (provider == Provider.X && belongsTo("twitter.com")) return LoginNavigation.ALLOW
+    if (provider == Provider.TIKTOK && (belongsTo("facebook.com") || belongsTo("twitter.com") || belongsTo("x.com") || belongsTo("vk.com") || host in setOf(
+        "access.line.me", "kauth.kakao.com", "accounts.kakao.com", "inapp.tiktokv.com"))) return LoginNavigation.AUTHENTICATE
     if (host == "accounts.google.com" || host == "appleid.apple.com") return LoginNavigation.AUTHENTICATE
     return LoginNavigation.BLOCK
 }

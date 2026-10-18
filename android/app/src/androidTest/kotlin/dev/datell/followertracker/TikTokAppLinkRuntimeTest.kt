@@ -2,6 +2,7 @@ package dev.datell.followertracker
 
 import android.view.WindowManager
 import androidx.activity.compose.setContent
+import androidx.lifecycle.Lifecycle
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -93,6 +94,29 @@ class TikTokAppLinkRuntimeTest {
             assertEquals(LoginDestination("snssdk1340", "user.example.test"), browser.blockedDestination)
             assertNotNull(browser.notice)
         }
+    }
+    @Test fun alternateAuthenticationPagesPassTheProductionNavigationBoundary() = runBlocking {
+        for (url in listOf("https://www.facebook.com/dialog/oauth", "https://access.line.me/oauth2/v2.1/authorize",
+            "https://kauth.kakao.com/oauth/authorize", "https://accounts.kakao.com/login/", "https://inapp.tiktokv.com/login/",
+            "https://api.twitter.com/oauth/authenticate", "https://api.x.com/oauth/authorize", "https://oauth.vk.com/authorize")) {
+            instrumentation.runOnMainSync { loadLoginFixture(checkNotNull(browser.active), url, "<html><body>Authentication fixture</body></html>") }
+            await { browser.active?.url == url && !browser.loading }
+            instrumentation.runOnMainSync { assertNull(browser.notice); assertNull(browser.blockedDestination) }
+        }
+    }
+    @Test fun returningFromAnApprovalPreservesTheBrowserAndUsesOnlyItsVerifiedFallback() = runBlocking {
+        val authentication = "https://accounts.google.com/ServiceLogin"
+        instrumentation.runOnMainSync { loadLoginFixture(checkNotNull(browser.active), authentication, "<html><body>Approval fixture</body></html>") }
+        await { browser.active?.url == authentication && !browser.loading }
+        val original = browser.active
+        scenario.moveToState(Lifecycle.State.CREATED); scenario.moveToState(Lifecycle.State.RESUMED)
+        instrumentation.runOnMainSync { assertSame(original, browser.active) }
+        evaluate("location.href='about:blank#fixture';null;")
+        await { browser.active?.url == "about:blank#fixture" && !browser.loading }
+        val target = "intent://authentication/#Intent;scheme=auth;S.browser_fallback_url=${java.net.URLEncoder.encode(authentication, "UTF-8")};end"
+        evaluate("location.href=${JSONObject.quote(target)};null;")
+        await { browser.active?.url == authentication && !browser.loading }
+        instrumentation.runOnMainSync { assertSame(original, browser.active); assertNull(browser.notice); assertNull(browser.blockedDestination) }
     }
 
     private suspend fun evaluate(script: String): String {

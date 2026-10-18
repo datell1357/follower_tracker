@@ -143,6 +143,42 @@ class LoginNavigationPolicyTest {
             }
         }
     }
+    @Test fun tiktokAlternateLoginAndVerificationOriginsAreNotCollectionOrigins() {
+        for (url in listOf("https://www.facebook.com/dialog/oauth", "https://m.facebook.com/login.php",
+            "https://access.line.me/oauth2/v2.1/authorize", "https://kauth.kakao.com/oauth/authorize",
+            "https://accounts.kakao.com/login/", "https://inapp.tiktokv.com/login/",
+            "https://api.twitter.com/oauth/authenticate", "https://api.x.com/oauth/authorize", "https://x.com/i/flow/login", "https://oauth.vk.com/authorize")) {
+            assertEquals(url, LoginNavigation.AUTHENTICATE, loginNavigation(Provider.TIKTOK, url))
+            assertFalse(Provider.TIKTOK.allows(url))
+            assertFalse(canAutoConnect(Provider.TIKTOK, url, true, false, false))
+        }
+    }
+    @Test fun tiktokAlternateAuthDoesNotAllowSiblingOrLookalikeHosts() {
+        for (url in listOf("https://access.line.me.example.test/", "https://unrelated.line.me/",
+            "https://kauth.kakao.com.example.test/", "https://unrelated.kakao.com/", "http://access.line.me/",
+            "https://private@accounts.kakao.com/", "https://inapp.tiktokv.com:8443/", "https://mcs.tiktokv.com/",
+            "https://api.x.com.example.test/", "https://oauth.vk.com.example.test/", "https://twitter.com:8443/"))
+            assertEquals(url, LoginNavigation.BLOCK, loginNavigation(Provider.TIKTOK, url))
+        assertEquals(LoginNavigation.BLOCK, loginNavigation(Provider.REDDIT, "https://access.line.me/"))
+    }
+    @Test fun authenticationAppHandoffsOnlyFollowASingleVerifiedHttpsFallback() {
+        fun intent(fallback: String) = "intent://auth/#Intent;scheme=auth;S.browser_fallback_url=${java.net.URLEncoder.encode(fallback, "UTF-8")};end"
+        val source = "https://accounts.google.com/v3/signin/challenge/"
+        for (fallback in listOf("https://accounts.google.com/signin/challenge/?fixture=a+b", "https://www.tiktok.com/login"))
+            assertEquals(fallback, loginBrowserFallback(Provider.TIKTOK, source, intent(fallback)))
+        for (fallback in listOf("https://accounts.google.com.example.test/", "http://accounts.google.com/",
+            "https://private@www.tiktok.com/", "https://www.tiktok.com:8443/", "javascript:alert(1)", "intent://auth/", "about:blank"))
+            assertNull(loginBrowserFallback(Provider.TIKTOK, source, intent(fallback)))
+        assertNull(loginBrowserFallback(Provider.TIKTOK, "https://example.test/", intent("https://www.tiktok.com/")))
+        assertNull(loginBrowserFallback(Provider.TIKTOK, source, "intent://auth/#Intent;S.browser_fallback_url=https%3A%2F%2Fwww.tiktok.com;S.browser_fallback_url=https%3A%2F%2Faccounts.google.com;end"))
+        assertNull(loginBrowserFallback(Provider.TIKTOK, source, "intent://auth/#Intent;S.browser_fallback_url=%ZZ;end"))
+    }
+    @Test fun emptyOAuthDocumentsCanUseFragmentsWithoutAllowingOtherLocalSchemes() {
+        assertTrue(isLoginBlankPage("about:blank")); assertTrue(isLoginBlankPage("about:blank#fixture"))
+        for (url in listOf("about:srcdoc", "about:blank?fixture", "javascript:alert(1)", "data:text/html,fixture", "https://example.test/about:blank"))
+            assertFalse(isLoginBlankPage(url))
+        assertFalse(canAutoConnect(Provider.TIKTOK, "about:blank#fixture", true, false, false))
+    }
     @Test fun lookalikesInsecureUrlsAndUnrelatedDomainsCannotReceiveLoginNavigation() {
         listOf("https://facebook.com.example.test/login", "https://accounts.google.com.example.test/", "http://m.facebook.com/login",
             "https://user@m.facebook.com/login", "https://m.facebook.com:8443/login", "intent://login", "file:///login", "https://example.test/",

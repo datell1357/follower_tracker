@@ -3,6 +3,24 @@ import XCTest
 @testable import FollowerCore
 
 final class AutoConnectionTests: XCTestCase {
+    func testProfileHydrationIsLocalBeforeTheFirstNetworkAttemptAndCannotBypassRateLimits() {
+        var policy = AutoConnectionPolicy(localReadGraceMillis: 15_000)
+        XCTAssertFalse(policy.begin(pageKey: "home", now: 0))
+        XCTAssertFalse(policy.begin(pageKey: "home", now: 14_999))
+        XCTAssertTrue(policy.begin(pageKey: "home", now: 15_000))
+        XCTAssertFalse(policy.begin(pageKey: "home", now: 15_001))
+        policy.failed(CollectionFailure(.rateLimited, retryAfterSeconds: 120), now: 15_000)
+        XCTAssertFalse(policy.begin(pageKey: "profile", now: 16_000))
+        policy.requestRetry()
+        XCTAssertFalse(policy.begin(pageKey: "profile", now: 134_999))
+        XCTAssertTrue(policy.begin(pageKey: "profile", now: 135_000))
+    }
+    func testFacebookTwoStepAndLoginPhpDoNotCaptureAnIncompleteLogin() {
+        for path in ["/login.php", "/two_step_verification/authentication/", "/auth_platform/code/", "/checkpoint/"] {
+            XCTAssertFalse(canAutoConnect(.facebook, url: URL(string: "https://www.facebook.com" + path)!, authenticated: true, loading: false, busy: false))
+        }
+        XCTAssertTrue(canAutoConnect(.facebook, url: URL(string: "https://www.facebook.com/profile.php?id=42")!, authenticated: true, loading: false, busy: false))
+    }
     private func session(id: String = "42", token: String = "synthetic-fixture") -> SavedSession {
         let cookies = [("ds_user_id", id), ("sessionid", token)].map { name, value in
             CookieRecord(HTTPCookie(properties: [.name: name, .value: value, .domain: ".instagram.com", .path: "/", .secure: "TRUE"])!)

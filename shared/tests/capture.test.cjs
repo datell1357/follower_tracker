@@ -513,6 +513,49 @@ test("Instagram own profile exact links connect without an API request", async (
   doc.location.href = "https://www.instagram.com/other/";
   assert.equal(capture("INSTAGRAM", "42", doc).error, "own_profile_required");
 });
+test("Instagram hydrated data-sjs owner counts avoid the API that may be rate limited", async () => {
+  const { captureAsync } = require("../web-session-capture.js");
+  for (const followers of [0, 12345]) {
+    const doc = instagramDocument({});
+    doc.querySelectorAll = selector => selector.includes('script[data-sjs]') ? [{ textContent: JSON.stringify({
+      data: { user: { id: "42", username: "self", full_name: "Self", edge_followed_by: { count: followers }, edge_follow: { count: 4 } } }
+    }) }] : [];
+    let calls = 0;
+    const result = await captureAsync("INSTAGRAM", "42", doc, async () => { calls++; return new Response('', { status: 429 }); });
+    assert.equal(result.followers, followers);
+    assert.equal(result.following, 4);
+    assert.equal(calls, 0);
+  }
+});
+test("Instagram's verified owner uses the existing web profile endpoint once without a fallback after 429", async () => {
+  const { captureAsync } = require("../web-session-capture.js");
+  const doc = instagramDocument({ viewer: { id: "42", username: "self" } });
+  const calls = [];
+  const result = await captureAsync("INSTAGRAM", "42", doc, async (url, options) => {
+    calls.push(url);
+    assert.equal(options.credentials, 'include');
+    return new Response(JSON.stringify({ data: { user: { id: "42", username: "self", edge_followed_by: { count: 7 }, edge_follow: { count: 0 } } } }));
+  });
+  assert.deepEqual(calls, ["https://www.instagram.com/api/v1/users/web_profile_info/?username=self"]);
+  assert.equal(result.followers, 7); assert.equal(result.following, 0);
+  calls.length = 0;
+  const limited = await captureAsync("INSTAGRAM", "42", doc, async url => {
+    calls.push(url); return new Response('', { status: 429, headers: { 'Retry-After': '120' } });
+  });
+  assert.equal(limited.status, 429); assert.equal(limited.retryAfterSeconds, 120); assert.equal(calls.length, 1);
+});
+test("Instagram data-sjs never executes code or connects another owner's or a rounded record", () => {
+  const doc = instagramDocument({});
+  for (const text of [
+    JSON.stringify({ data: { user: { id: "99", username: "other", follower_count: 999 } } }),
+    JSON.stringify({ data: { user: { id: "42", username: "self", follower_count: "1.2K" } } }),
+    '{"user":(function(){throw new Error("Never execute");})()}',
+    ' '.repeat(4 * 1024 * 1024) + '{}'
+  ]) {
+    doc.querySelectorAll = selector => selector.includes('script[data-sjs]') ? [{ textContent: text }] : [];
+    assert.equal(capture("INSTAGRAM", "42", doc).error, "exact_count_missing");
+  }
+});
 test("Instagram rounded link text never becomes an exact count", () => {
   const doc = instagramDocument({ viewer: { id: "42", username: "self" } });
   const scripts = doc.querySelectorAll;

@@ -118,7 +118,7 @@ class AutoConnectionRuntimeTest {
               return Promise.resolve(new Response('',{status:429,headers:{'Retry-After':'60'}}));};</script>
             <p>Synthetic request limit</p>
         """.trimIndent())
-        waitWithMetadata(web) { rule.onAllNodesWithText("SNS가 데이터 요청을 잠시 제한했어요. 로그인 창을 유지하면 대기 시간이 지난 뒤 다시 확인해요.").fetchSemanticsNodes().isNotEmpty() }
+        waitWithMetadata(web, timeoutMillis = 25_000) { rule.onAllNodesWithText("SNS가 데이터 요청을 잠시 제한했어요. 로그인 창을 유지하면 대기 시간이 지난 뒤 다시 확인해요.").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("다시 시도").assertIsNotEnabled()
         waitForPolls()
         var count: String? = null
@@ -143,6 +143,23 @@ class AutoConnectionRuntimeTest {
             try { rule.activity.appGraph.collector.captured(Provider.INSTAGRAM, value, null); fail("Foreign account must be rejected") }
             catch (failure: CollectionFailure) { assertEquals(SyncStatus.CHECK_REQUIRED, failure.status) }
         }
+    }
+    @Test fun delayedInstagramServerDataConnectsBeforeAnyApiRequest() {
+        val web = show(Provider.INSTAGRAM)
+        cookie(Provider.INSTAGRAM, "sessionid", "synthetic-auto-session")
+        cookie(Provider.INSTAGRAM, "ds_user_id", "42")
+        document(web, "https://www.instagram.com/self/", """
+            <script>window.fixtureRequests=0;window.fetch=function(){window.fixtureRequests++;return Promise.reject(new Error('Unexpected request'));};
+            setTimeout(function(){var s=document.createElement('script');s.type='application/json';s.setAttribute('data-sjs','');
+              s.textContent=JSON.stringify({data:{user:{id:'42',username:'self',follower_count:7,following_count:0}}});
+              document.body.appendChild(s);},1500);</script>
+        """.trimIndent())
+        waitWithMetadata(web) { connections.get() == 1 }
+        assertEquals(7, JSONObject(payload!!).getInt("followers"))
+        var requests: String? = null
+        rule.runOnUiThread { web.evaluateJavascript("window.fixtureRequests") { requests = it } }
+        rule.waitUntil(5_000) { requests != null }
+        assertEquals("0", requests)
     }
     @Test fun googlePopupConnectsOnlyAfterReturningToTheSnsOwnerAndPreservesItsOpener() {
         val main = show(Provider.TIKTOK)
@@ -187,8 +204,8 @@ class AutoConnectionRuntimeTest {
         rule.waitUntil(5_000) { state != null }
         assertEquals("1", state)
     }
-    private fun waitWithMetadata(web: WebView, condition: () -> Boolean) {
-        try { rule.waitUntil(10_000, condition) }
+    private fun waitWithMetadata(web: WebView, timeoutMillis: Long = 10_000, condition: () -> Boolean) {
+        try { rule.waitUntil(timeoutMillis, condition) }
         catch (failure: Throwable) {
             rule.runOnIdle { println("SYNTHETIC_WEB_STATE progress=${web.progress} official=${Provider.entries.any { it.allows(web.url.orEmpty()) }} authenticated=${Provider.entries.any { rule.activity.appGraph.sessions.hasAuthentication(it) }}") }
             var value: String? = null

@@ -1,5 +1,18 @@
 # Android WebView 연동 로그인
 
+## 2026-10-19 TikTok 인증 이동·Instagram 초기 수집 보완
+
+- TikTok의 로그인 전용 허용 목록에 Facebook·LINE·Kakao·X/Twitter·VK와 공식 `inapp.tiktokv.com` 보조 주소를 추가했다. Google·Apple 허용은 유지한다. [TikTok 공식 로그인 페이지](https://www.tiktok.com/login)의 공개 로그인 번들에서 LINE·Kakao·VK 주소와 소셜 로그인 종류를 확인했고, X의 현재·이전 OAuth 주소는 [공식 OAuth 문서](https://docs.x.com/fundamentals/authentication/api-reference)와 기존 공식 로그인 별칭을 기준으로 했다. 다른 SNS에 이 목록을 공통 적용하거나 수집 쿠키 호스트를 늘리지 않는다.
+- Android의 앱 전환 링크가 검증된 HTTPS `browser_fallback_url`을 제공하면 그 웹 주소로만 이어 간다. 네이티브 intent는 실행하지 않는다. 출발·도착 주소 모두 해당 SNS의 로그인 허용 범위여야 하며, 중복·잘못 인코딩된 fallback과 외부 주소는 거부한다. 같은 창에서 최대 두 fallback을 허용해 반복 이동을 막는다.
+- OAuth 창의 `about:blank#fragment`를 내부 빈 문서로 처리하고, 창의 마지막으로 허용된 HTTPS 출처와 부모 창 출처를 유지한다. 보관하는 출처는 scheme·host뿐이며 인증 경로·코드·쿼리는 복사하지 않는다. 새 정상 이동은 이전 차단 표시를 지운다. 여전히 차단되는 경우 사용자에게 도메인 또는 스킴만 표시하며, 인증 주소 원문·입력값·쿠키를 로그에 남기지 않는다.
+- Android·iOS의 Instagram 연결은 페이지마다 최초 15초 동안 로컬 문서를 우선 읽는다. 정확한 수치가 준비되면 대기 종료 전에도 바로 연결하며, 준비되지 않은 경우에만 기존 요청 예산으로 API를 사용할 수 있다. Android의 매초 로컬 읽기와 서버의 재시도 기한을 구분한다. 수동 재시도나 페이지 이동으로 실제 429 대기 시간을 줄이지 않는다.
+- 공유 캡처는 Instagram의 `script[data-sjs]` JSON도 크기·탐색 수를 제한해 읽는다. 쿠키 본인 ID와 일치하는 정확한 수만 사용하며 코드를 실행하거나 축약 수를 정수로 만들지 않는다. 본인 사용자명이 확인된 경우 API fallback은 반복 수집에서도 사용하는 웹 프로필 경로를 한 번 사용하고, 429 뒤 다른 경로로 재요청하지 않는다.
+- Facebook의 `login.php`·`two_step_verification`·`auth_platform` 화면에서는 쿠키가 있어도 자동 캡처·프로필 이동을 시작하지 않는다. 추가 인증은 사용자가 공식 화면에서 마친 뒤 계정과 수치가 확인돼야 한다.
+
+수정 전 TikTok의 정상 인증 호스트 차단과 Instagram의 준비된 서버 JSON을 놓친 뒤 API 429를 받는 실패를 합성 회귀로 재현했다. 공유 캡처 63개·Android core 45개·app Debug/Release 각 105개·Swift core 52개와 네이티브 빌드를 검사했다. Android에는 인증 호스트·앱 복귀/내부 빈 문서/fallback·지연된 Instagram JSON의 런타임 fixture를 추가하고, 기존 429 fixture는 15초 로컬 우선 정책 뒤 실제 요청을 관찰하도록 대기 예산을 조정했다. 기존 요청 수·자동 연결·대기 기한 assertion은 유지했다.
+
+USB 기기 없이 이번 런타임 fixture는 컴파일만 했으며 에뮬레이터·Studio·시뮬레이터를 실행하지 않았다. 실제 Google 2차 인증과 사용자가 경험한 차단 주소, TikTok의 로그인 방법별 완료·세션 확보, Facebook 인증 완료, Instagram의 현재 계정에 걸린 요청 제한 해제는 미검증이다. 앱의 복귀 처리와 호스트 허용 검사를 통과한 사실을 실제 SNS 인증 성공으로 확대하지 않는다.
+
 2026-10-03에 AI Quota의 현재 Android 로그인 구현을 읽고 팔로워 트래커의 공통 SNS 로그인 창에 적용했다. 참조한 파일은 `ProviderWebViewUserAgent.kt`, `ProviderLoginWebViewPolicy.kt`, `WebLoginActivity.kt`이며 참조 저장소의 HEAD는 `c0ec759d1d7d2645e010ced26f929a2c7ee4b4f9`다. AI Quota의 소스·사용자 변경·설치 상태는 수정하지 않았다.
 
 ## 로그인 창

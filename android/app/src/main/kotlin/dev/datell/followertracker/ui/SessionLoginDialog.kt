@@ -39,7 +39,7 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
     var pageAddress by remember(expectedPage?.key) { mutableStateOf(expectedPage?.profileUrl.orEmpty()) }
     val browser = loginBrowser.active
     var checking by remember { mutableStateOf(false) }
-    val policy = remember(provider) { AutoConnectionPolicy() }
+    val policy = remember(provider) { AutoConnectionPolicy(if (provider == Provider.INSTAGRAM) 15_000 else 0) }
     val navigatedProfiles = remember(provider) { mutableSetOf<String>() }
     val capturedPages = remember(provider) { mutableSetOf<String>() }
     val currentBusy by rememberUpdatedState(busy)
@@ -125,6 +125,10 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                     color = MaterialTheme.colorScheme.primary)
                 (loginBrowser.notice ?: message)?.let {
                     Text(it, Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    loginBrowser.blockedDestination?.let { target ->
+                        Text("이동하려던 사이트: " + (target.host ?: "${target.scheme ?: "알 수 없는"} 주소"),
+                            Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.labelSmall)
+                    }
                     if (!facebookPage) TextButton(onClick = { loginBrowser.notice = null; capturedPages.clear(); navigatedProfiles.clear(); policy.requestRetry() },
                         enabled = !busy && !checking && now >= policy.nextAllowedAt,
                         modifier = Modifier.padding(horizontal = 12.dp)) { Text("다시 시도") }

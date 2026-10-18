@@ -3,12 +3,16 @@ import Foundation
 /// Bounds network attempts separately from local reads of a hydrated profile.
 public struct AutoConnectionPolicy: Sendable {
     private var attemptedPage: String?
+    private var observedPage: String?
+    private var localReadUntil: Int64 = 0
+    private let localReadGraceMillis: Int64
     private var retryCount = 0
     public private(set) var nextAllowedAt: Int64 = 0
-    public init() {}
+    public init(localReadGraceMillis: Int64 = 0) { self.localReadGraceMillis = localReadGraceMillis }
 
     public mutating func begin(pageKey: String, now: Int64) -> Bool {
-        guard attemptedPage != pageKey, now >= nextAllowedAt else { return false }
+        if observedPage != pageKey { observedPage = pageKey; localReadUntil = now + localReadGraceMillis }
+        guard now >= localReadUntil, attemptedPage != pageKey, now >= nextAllowedAt else { return false }
         attemptedPage = pageKey
         return true
     }
@@ -29,7 +33,7 @@ public struct AutoConnectionPolicy: Sendable {
 public func canAutoConnect(_ provider: Provider, url: URL, authenticated: Bool, loading: Bool, busy: Bool) -> Bool {
     guard authenticated, !loading, !busy, provider.allows(url) else { return false }
     let path = url.path.removingPercentEncoding?.lowercased() ?? url.path.lowercased()
-    return path.range(of: "(^|/)(login|challenge|checkpoint|two_factor|two-factor|twofactor)(/|$)", options: .regularExpression) == nil
+    return path.range(of: "(^|/)(login(?:\\.php)?|challenge|checkpoint|two_factor|two-factor|twofactor|two_step_verification|auth_platform)(/|$)", options: .regularExpression) == nil
 }
 
 public func connectionFailureMessage(_ failure: CollectionFailure) -> String {

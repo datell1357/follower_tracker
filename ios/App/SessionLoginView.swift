@@ -26,6 +26,7 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
          restoreSession: @escaping @MainActor () async throws -> SavedSession? = { nil },
          loadPage: @escaping @MainActor (WKWebView, URL) -> Void = { web, url in web.load(URLRequest(url: url)) }) {
         self.provider = provider; host = provider.domain
+        policy = AutoConnectionPolicy(localReadGraceMillis: provider == .instagram ? 15_000 : 0)
         self.restoreSession = restoreSession; self.loadPage = loadPage
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()

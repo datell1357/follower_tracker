@@ -5,6 +5,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AutoConnectionPolicyTest {
+    @Test fun instagramHydrationReadsLocallyBeforeOneNetworkAttemptAndStillRespectsRateLimits() {
+        val policy = AutoConnectionPolicy(localReadGraceMillis = 15_000)
+        assertFalse(policy.begin("self:home", 0))
+        assertFalse(policy.begin("self:home", 14_999))
+        assertTrue(policy.begin("self:home", 15_000))
+        assertFalse(policy.begin("self:home", 15_001))
+        policy.failed(CollectionFailure(SyncStatus.RATE_LIMITED, 120), 15_000)
+        assertFalse(policy.begin("self:profile", 16_000))
+        policy.requestRetry()
+        assertFalse(policy.begin("self:profile", 134_999))
+        assertTrue(policy.begin("self:profile", 135_000))
+    }
+    @Test fun facebookTwoStepAndLoginPhpNeverStartCollectionEvenWithCookies() {
+        for (path in listOf("/login.php", "/two_step_verification/authentication/", "/auth_platform/code/", "/checkpoint/")) {
+            assertFalse(canAutoConnect(Provider.FACEBOOK, "https://www.facebook.com$path", true, false, false))
+        }
+        assertTrue(canAutoConnect(Provider.FACEBOOK, "https://www.facebook.com/profile.php?id=42", true, false, false))
+    }
     @Test fun sessionAloneDoesNotConnectBeforeLoginOrChallengeCompletes() {
         val provider = Provider.INSTAGRAM
         assertFalse(canAutoConnect(provider, provider.loginUrl, true, false, false))
