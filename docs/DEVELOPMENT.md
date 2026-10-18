@@ -75,6 +75,8 @@ OS의 강제 중지는 일반적인 앱 화면 종료와 별도 시험한다. An
 
 `TrackingSessionPolicyTest`는 일반 모드의 종료 시각과 디버그·기기별 권한·API 34 조건, Release 차단, 프리미엄 시험의 종료 조건과 중지 후 복구 거부를 검사한다. `PremiumWidgetPolicyRuntimeTest`의 3개는 디버그 manifest와 별도의 시험 SharedPreferences만 검사한다. 서비스·SNS 요청·앱 DB를 사용하지 않는다. 시간 값을 24시간으로 전달하는 검사는 실제 24시간 수집 증거가 아니다.
 
+`CountTrackingLoopExperimentTest`는 실제 서비스와 같은 `CountTrackingLoop`에 가상 시계·메모리 저장소를 연결해 24·72시간 반복, 다섯 SNS의 제한·인증·오류·취소와 느린 응답을 검사한다. `TrackingRecoveryExperimentTest`는 남은 실행 요청과 사용자 중지·OS 거절의 복구 경계를 검사한다. 이 24개 검사는 실제 SNS 요청과 기기 조작 없이 실행하며, 코드 결함의 수정 전 실패와 수정 후 결과는 [코드 실험](CODE_EXPERIMENTS.md)에 기록한다.
+
 기존 계정을 보존하는 프리미엄 위젯 시험은 수정 디버그 APK·테스트 APK를 `adb install -r`로 설치하고, 추적을 중지한 뒤 아래 설정 검사 하나만 명시적으로 실행한다. 이 설정은 로컬 시험 권한만 켜고 기존 QA 일회 작업 `qa-live-metrics-once`를 취소한다. 사용자 수집·명단 예약은 유지한다. 서비스는 시작하지 않으므로 이후 실제 앱의 **설정 → 수집 설정 → 위젯 추적 시작** 버튼으로 시작해야 한다. 실행 중에는 대상 프로세스를 재시작하는 instrumentation을 사용하지 않는다.
 
 ```sh

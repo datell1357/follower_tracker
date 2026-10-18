@@ -58,11 +58,18 @@ object RapidTracking {
     }
     fun start(context: Context) {
         PremiumWidgetTestAccess.beginRequest(context, newSession = !state.value.running)
-        try { context.startForegroundService(Intent(context, RapidTrackingService::class.java)) }
-        catch (failure: RuntimeException) { PremiumWidgetTestAccess.endRequest(context); throw failure }
+        try {
+            if (!state.value.running) TrackingRecoveryScheduler.schedule(context)
+            context.startForegroundService(Intent(context, RapidTrackingService::class.java))
+        } catch (failure: RuntimeException) {
+            PremiumWidgetTestAccess.endRequest(context)
+            TrackingRecoveryScheduler.cancel(context)
+            throw failure
+        }
     }
     fun stop(context: Context) {
         PremiumWidgetTestAccess.endRequest(context)
+        TrackingRecoveryScheduler.cancel(context)
         context.stopService(Intent(context, RapidTrackingService::class.java))
         update(context, false, "중지됨")
     }
@@ -95,11 +102,14 @@ class RapidTrackingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) { finish("중지됨"); return START_NOT_STICKY }
-        if (tracking?.isActive == true) return restartPolicy()
-        mode = PremiumWidgetTestAccess.mode(this)
-        if (!TrackingSessionPolicy.canStart(mode, intent != null, PremiumWidgetTestAccess.isRequested(this))) {
+        val recovery = intent == null || intent.action == ACTION_RECOVER
+        val requestedMode = PremiumWidgetTestAccess.mode(this)
+        // Validate even a duplicate recovery intent: a queued start must not undo an explicit stop.
+        if (!TrackingSessionPolicy.canStart(requestedMode, !recovery, PremiumWidgetTestAccess.isRequested(this))) {
             finish("중지됨"); return START_NOT_STICKY
         }
+        if (tracking?.isActive == true) return restartPolicy()
+        mode = requestedMode
         if (mode == TrackingMode.PREMIUM_WIDGET_TEST) PremiumWidgetTestAccess.beginRequest(this)
         notifications.createNotificationChannel(NotificationChannel(CHANNEL, "빠른 팔로워 추적", NotificationManager.IMPORTANCE_LOW))
         try {
@@ -110,63 +120,45 @@ class RapidTrackingService : Service() {
             else if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             else startForeground(NOTIFICATION, notification)
         } catch (_: RuntimeException) {
-            finish("빠른 추적을 시작하지 못했어요. 앱에서 다시 시작해주세요.")
+            finish("추적을 시작하지 못했어요. 앱에서 다시 시작해주세요.", preserveRequest = recovery)
             return START_NOT_STICKY
         }
         getSharedPreferences("rapid_tracking_runtime", MODE_PRIVATE).edit { putString("trackingMode", mode.name) }
         PremiumWidgetTestAccess.markStarted(this)
         RapidTracking.update(this, true, "첫 수집을 확인하고 있어요")
         tracking = scope.launch {
-            val started = SystemClock.elapsedRealtime()
             try {
-                while (isActive && TrackingSessionPolicy.canContinue(mode, SystemClock.elapsedRealtime() - started)) {
-                    if (NetworkAvailability.isDefinitelyOffline(this@RapidTrackingService)) {
+                val stopped = CountTrackingLoop(mode, SystemClock::elapsedRealtime, System::currentTimeMillis,
+                    isOffline = { NetworkAvailability.isDefinitelyOffline(this@RapidTrackingService) },
+                    readCounts = { appGraph.repository.widgetOverviews().map { TrackingCount(it.account, it.latest?.observedAt) } },
+                    refresh = { appGraph.coordinator.refresh(it.key, background = true) },
+                    onCycle = { cycle ->
+                        if (BuildConfig.DEBUG) for (row in cycle.rows) Log.d("FollowerCollection",
+                            "provider=${row.account.provider.name} rapidFresh=${row.account.key in cycle.freshKeys} " +
+                                "status=${row.account.status.name} batchFailure=${row.account.provider in cycle.failedProviders} " +
+                                "cycleElapsedMs=${cycle.elapsedMillis}")
+                        RapidTracking.update(this@RapidTrackingService, true, cycle.message,
+                            cycle.freshAt ?: RapidTracking.state.value.lastSuccessAt)
+                        publishNotification(cycle.message)
+                    },
+                    onOffline = {
                         val message = "인터넷 연결을 기다리고 있어요 · 마지막 기록 유지"
                         if (RapidTracking.state.value.message != message) RapidTracking.update(this@RapidTrackingService, true, message)
                         publishNotification(message)
-                        val remaining = TrackingSessionPolicy.remainingMillis(mode, SystemClock.elapsedRealtime() - started)
+                    },
+                    awaitNetwork = { remaining ->
                         // Callback failures use a bounded fallback; successful callbacks need no polling while offline.
                         val wait = if (networkCallback == null) minOf(INTERVAL, remaining ?: INTERVAL) else remaining
                         if (wait == null) networkAvailable.receive()
                         else withTimeoutOrNull(wait.coerceAtLeast(1)) { networkAvailable.receive() }
-                        continue
-                    }
-                    val cycleStarted = SystemClock.elapsedRealtime()
-                    val rows = appGraph.repository.widgetOverviews().filter { RefreshPolicy.supportsCountRefresh(it.account) }
-                    val available = rows.filter { !it.account.status.blocksAutomaticRetry }
-                    if (available.isEmpty()) {
-                        finish(if (rows.isEmpty()) "추적할 SNS 계정을 연결한 뒤 시작해주세요." else "연결 상태를 확인한 뒤 다시 시작해주세요.")
-                        return@launch
-                    }
-                    val failedProviders = refreshCountBatch(available.map { it.account }) {
-                        appGraph.coordinator.refresh(it.key, background = true)
-                    }
-                    val after = appGraph.repository.widgetOverviews().filter { RefreshPolicy.supportsCountRefresh(it.account) }
-                    val successful = after.filter { row ->
-                        row.account.capabilities.background == Capability.OBSERVED && row.latest != null &&
-                            row.latest!!.observedAt > (available.firstOrNull { it.account.key == row.account.key }?.latest?.observedAt ?: Long.MAX_VALUE)
-                    }
-                    val freshAt = successful.maxOfOrNull { it.latest!!.observedAt }
-                    if (BuildConfig.DEBUG) for (row in after) Log.d("FollowerCollection",
-                        "provider=${row.account.provider.name} rapidFresh=${row in successful} " +
-                            "status=${row.account.status.name} batchFailure=${row.account.provider in failedProviders} " +
-                            "cycleElapsedMs=${cycleStarted - started}")
-                    val message = countBatchMessage(after.map { it.account.status }, freshAt != null, failedProviders.isNotEmpty())
-                    if (after.isEmpty() || after.all { it.account.status.blocksAutomaticRetry }) {
-                        finish(message); return@launch
-                    }
-                    RapidTracking.update(this@RapidTrackingService, true, message, freshAt ?: RapidTracking.state.value.lastSuccessAt)
-                    publishNotification(message)
-                    val now = System.currentTimeMillis()
-                    val cooldown = after.minOfOrNull { maxOf(it.account.nextAllowedAt ?: 0,
-                        it.account.transientRetry?.nextAttemptAt ?: 0) - now } ?: 0
-                    val delayMs = maxOf(1_000L, INTERVAL - (SystemClock.elapsedRealtime() - cycleStarted), cooldown)
-                    val remaining = TrackingSessionPolicy.remainingMillis(mode, SystemClock.elapsedRealtime() - started)
-                    delay(minOf(delayMs, (remaining ?: delayMs).coerceAtLeast(1)))
-                }
-                finish("빠른 추적 시간이 끝났어요. 앱에서 다시 시작할 수 있어요.")
+                    }, wait = { delay(it) }).run()
+                finish(when (stopped) {
+                    TrackingLoopStop.TIME_LIMIT -> "빠른 추적 시간이 끝났어요. 앱에서 다시 시작할 수 있어요."
+                    TrackingLoopStop.NO_ACCOUNTS -> "추적할 SNS 계정을 연결한 뒤 시작해주세요."
+                    TrackingLoopStop.CONNECTION_REQUIRED -> "연결 상태를 확인한 뒤 다시 시작해주세요."
+                })
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { finish("빠른 추적을 중지했어요. 마지막 기록을 보존했어요.") }
+            catch (_: Exception) { finish("추적이 중단됐어요. 마지막 기록을 보존했어요.", preserveRequest = true) }
         }
         return restartPolicy()
     }
@@ -177,8 +169,11 @@ class RapidTrackingService : Service() {
         finish("기기의 실행 시간 제한으로 중지됐어요. 앱에서 다시 시작해주세요.")
     }
 
-    private fun finish(message: String) {
-        PremiumWidgetTestAccess.endRequest(this)
+    private fun finish(message: String, preserveRequest: Boolean = false) {
+        if (!preserveRequest || mode != TrackingMode.PREMIUM_WIDGET_TEST) {
+            PremiumWidgetTestAccess.endRequest(this)
+            TrackingRecoveryScheduler.cancel(this)
+        }
         RapidTracking.update(this, false, message)
         tracking?.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -216,7 +211,8 @@ class RapidTrackingService : Service() {
     }
 
     companion object {
-        const val INTERVAL = 60_000L
+        const val INTERVAL = CountTrackingLoop.INTERVAL
+        internal const val ACTION_RECOVER = "dev.datell.followertracker.RECOVER_TRACKING"
         private const val CHANNEL = "rapid-follower-tracking"
         private const val NOTIFICATION = 901
         private const val ACTION_STOP = "dev.datell.followertracker.STOP_RAPID_TRACKING"

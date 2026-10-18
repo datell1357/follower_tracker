@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: '22'
       - run: >-
-          ./gradlew :core:test :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+          ./gradlew :core:test :app:assembleDebug :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug
           :app:assembleDebugAndroidTest :app:assembleRelease :app:lintRelease --no-daemon
         working-directory: android
       - run: node --test shared/tests/capture.test.cjs
