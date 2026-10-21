@@ -29,6 +29,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: swift test --package-path ios/FollowerCore
+      - name: Shared iOS storage and HTTP contracts
+        run: swift test --package-path ios
       - run: |
           python3 ios/scripts/generate_project.py
           git diff --exit-code -- ios/FollowerTracker.xcodeproj

@@ -18,6 +18,10 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
     var now: Int64 = 0
     private var policy = AutoConnectionPolicy()
     private var navigationVersion = 0
+    private let observationFence = DocumentObservationFence()
+    private var urlObservation: NSKeyValueObservation?
+    private var activePageGuard: @Sendable () -> Bool = { false }
+    func pageObservationGuard() -> @Sendable () -> Bool { activePageGuard }
     private var capturedPages: Set<String> = []
     private var navigatedProfiles: Set<URL> = []
     private let restoreSession: @MainActor () async throws -> SavedSession?
@@ -49,12 +53,15 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
+        let fence = observationFence
+        urlObservation = webView.observe(\.url, options: [.new]) { _, _ in fence.advance() }
         webView.navigationDelegate = self; webView.uiDelegate = self; webView.isInspectable = false
     }
     func open(isBusy: @escaping @MainActor () -> Bool = { false },
               onObservation: @escaping @MainActor (SavedSession, String) async throws -> Void,
               completed: @escaping @MainActor () -> Void) {
         guard task == nil else { return }
+        observationFence.activate()
         webView.navigationDelegate = self
         task = Task {
             var expectedID: String?
@@ -81,6 +88,7 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                 now = nowMillis()
                 if let url = webView.url, !loading, !isBusy() {
                     let version = navigationVersion
+                    let pageWriteIf = observationFence.capture()
                     let cookies = await withCheckedContinuation { continuation in webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { continuation.resume(returning: $0) } }
                     let candidate = SavedSession(cookies: cookies.map(CookieRecord.init), userAgent: "", expectedID: expectedID, savedAt: nowMillis())
                     sessionReady = candidate.authenticated(provider)
@@ -113,7 +121,7 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                                     allowRequest: false, facebookPage: true, expectedPageID: expectedPage?.stableID)
                             }
                             try Task.checkCancellation()
-                            guard navigationVersion == version else { checking = false; continue }
+                            guard navigationVersion == version, pageWriteIf() else { checking = false; continue }
                             let result = try ResponseParser.objectBody(payload)
                             if let failure = ResponseParser.webCaptureFailure(result) {
                                 policy.failed(failure, now: nowMillis())
@@ -127,7 +135,8 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                                 guard session.authenticated(provider), session.identity(provider) == candidate.identity(provider) else { throw CollectionFailure(.checkRequired) }
                                 session.userAgent = try await webView.evaluateJavaScript("navigator.userAgent") as? String ?? "Mozilla/5.0"
                                 try Task.checkCancellation()
-                                guard navigationVersion == version else { checking = false; continue }
+                                guard navigationVersion == version, pageWriteIf() else { checking = false; continue }
+                                activePageGuard = pageWriteIf
                                 try await onObservation(session, payload)
                                 try Task.checkCancellation()
                                 checking = false; completed(); return
@@ -191,6 +200,7 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
     func editedPageLink() { pageRequest = nil }
     func confirmPage() { guard facebookPage, sessionReady, canRetry else { return }; pageRequest = nil; pageConfirmationRequested = true }
     func cancel() {
+        observationFence.invalidate()
         task?.cancel(); task = nil; checking = false
         webView.stopLoading(); webView.navigationDelegate = nil; webView.loadHTMLString("", baseURL: nil)
     }
@@ -202,7 +212,7 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
         if action.targetFrame == nil { webView.load(action.request); decisionHandler(.cancel, preferences) }
         else { decisionHandler(.allow, preferences) }
     }
-    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) { navigationVersion += 1; loading = true; host = webView.url?.host ?? provider.domain }
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) { observationFence.advance(); navigationVersion += 1; loading = true; host = webView.url?.host ?? provider.domain }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loading = false; ownProfile = nil; host = webView.url?.host ?? provider.domain }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { loading = false; notice = "페이지를 열지 못했어요. 연결 상태를 확인해주세요." }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { loading = false; notice = "페이지를 읽지 못했어요. 다시 확인해주세요." }
@@ -261,7 +271,7 @@ struct SessionLoginView: View {
                 if browser.loading || browser.checking || model.busy { ProgressView().progressViewStyle(.linear) }
                 LoginWebView(browser: browser)
                 if let notice = browser.notice { Text(notice).font(.caption).foregroundStyle(.red).padding(.horizontal, 20).padding(.top, 10) }
-                if browser.checking || model.busy { Text("로그인한 내 계정과 팔로워 수를 확인하고 있어요.").font(.caption).foregroundStyle(TrackerStyle.blue).padding(10) }
+                if browser.checking || model.busy { Text(facebookPage ? "선택한 페이지와 정확한 팔로워 수를 확인하고 있어요." : "로그인한 내 계정과 팔로워 수를 확인하고 있어요.").font(.caption).foregroundStyle(TrackerStyle.blue).padding(10) }
                 if let url = browser.ownProfile { Button("내 프로필 열기") { browser.notice = nil; browser.ownProfile = nil; browser.webView.load(URLRequest(url: url)) }.padding(.top, 8) }
                 if facebookPage { Button("이 페이지 연결") { browser.confirmPage() }.buttonStyle(.bordered).padding(12).disabled(!browser.sessionReady || !browser.canRetry || model.busy) }
                 else if browser.notice != nil { Button("다시 시도") { browser.requestRetry() }.buttonStyle(.bordered).padding(12).disabled(!browser.canRetry || model.busy) }
@@ -272,8 +282,11 @@ struct SessionLoginView: View {
                         Button("이전 페이지", systemImage: "chevron.left") { if browser.webView.canGoBack { browser.webView.goBack() } }.disabled(model.busy || !browser.webView.canGoBack)
                     } }
         }.presentationDetents([.large])
-            .onAppear { browser.open(isBusy: { model.busy }, onObservation: { session, payload in try await model.connect(provider, session: session, payload: payload,
-                facebookPage: facebookPage, expectedPageKey: expectedPage?.id) }, completed: { dismiss() }) }.onDisappear { browser.cancel() }
+            .onAppear { browser.open(isBusy: { model.busy }, onObservation: { session, payload in
+                let guardDocument: SessionWriteGuard = facebookPage ? browser.pageObservationGuard() : { true }
+                try await model.connect(provider, session: session, payload: payload,
+                    facebookPage: facebookPage, expectedPageKey: expectedPage?.id, writeIf: guardDocument)
+            }, completed: { dismiss() }) }.onDisappear { browser.cancel() }
     }
 }
 

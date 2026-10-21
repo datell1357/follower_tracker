@@ -125,13 +125,14 @@ actor TrackerRepository {
         try database.run("INSERT INTO accounts(key,provider,connected,payload) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET payload=excluded.payload",
             [.text(account.id), .text(account.provider.rawValue), .integer(account.connectedAt), .blob(try encoder.encode(account))])
     }
+    @discardableResult
     func saveObservation(_ account: Account, _ metric: MetricSnapshot, requireExisting: Bool = false,
-                         writeIf: SessionWriteGuard = { true }) throws {
+                         writeIf: SessionWriteGuard = { true }) throws -> Bool {
         guard account.id == metric.accountKey else { throw StorageFailure.corrupted }
-        try database.transaction {
-            guard try writeIf() else { return }
+        return try database.transaction {
+            guard try writeIf() else { return false }
             let existing = try self.account(account.id)
-            if requireExisting && (existing == nil || existing?.loggedOut == true || existing?.connectedAt != account.connectedAt) { return }
+            if requireExisting && (existing == nil || existing?.loggedOut == true || existing?.connectedAt != account.connectedAt) { return false }
             if try accounts().contains(where: { $0.conflicts(with: account) }) { throw CollectionFailure(.checkRequired) }
             var preserved = account
             preserved.transientRetry = nil
@@ -143,6 +144,7 @@ actor TrackerRepository {
             }
             try put(preserved)
             try database.run("INSERT INTO metrics(owner,observed,payload) VALUES(?,?,?)", [.text(metric.accountKey), .integer(metric.observedAt), .blob(try encoder.encode(metric))])
+            return true
         }
     }
     func updateStatus(_ key: String, _ status: SyncStatus, nextAllowedAt: Int64? = nil, expectedConnectedAt: Int64? = nil,

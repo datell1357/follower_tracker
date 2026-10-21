@@ -60,9 +60,11 @@ final class TrackerModel {
         catch is CancellationError { }
         catch { message = "명단 갱신을 마치지 못했어요. 마지막 완료된 비교를 유지했어요." }
     }
-    func connect(_ provider: Provider, session: SavedSession, payload: String?, facebookPage: Bool = false, expectedPageKey: String? = nil) async throws {
+    func connect(_ provider: Provider, session: SavedSession, payload: String?, facebookPage: Bool = false,
+                 expectedPageKey: String? = nil, writeIf: @escaping SessionWriteGuard = { true }) async throws {
         guard !busy, let repository else { throw StorageFailure.unavailable }
         busy = true; message = nil; defer { busy = false }
+        guard try writeIf() else { throw CollectionFailure(.checkRequired) }
         let accounts = try await repository.accounts()
         let pageID = try payload.flatMap { try ResponseParser.objectBody($0)["stableId"] as? String }
         let expected = accounts.first { account in
@@ -72,20 +74,28 @@ final class TrackerModel {
         }
         if facebookPage && (provider != .facebook || payload == nil) { throw CollectionFailure(.checkRequired) }
         let observation: (Account, MetricSnapshot)
+        let sessionCurrent: SessionWriteGuard
         if let payload {
             let captured = try facebookPage ? ResponseParser.capturedFacebookPage(payload, session: session, expected: expected, now: nowMillis()) :
                 ResponseParser.capturedProfile(provider, payload: payload, session: session, expected: expected, now: nowMillis())
             if let expectedPageKey, captured.0.id != expectedPageKey { throw CollectionFailure(.checkRequired) }
             var saved = session; saved.expectedID = captured.0.authenticationOwnerID
             try Task.checkCancellation()
+            guard try writeIf() else { throw CollectionFailure(.checkRequired) }
             try await SessionVault.shared.save(provider, saved)
-            observation = captured
+            sessionCurrent = try await SessionVault.shared.captureGuard(provider)
+            if facebookPage { observation = try await SessionCollector(vault: .shared).connectedFacebookPage(captured, existing: expected,
+                writeIf: { try writeIf() && sessionCurrent() }) }
+            else { observation = captured }
         } else {
             try await SessionVault.shared.save(provider, session)
+            sessionCurrent = try await SessionVault.shared.captureGuard(provider)
             observation = try await SessionCollector(vault: .shared).native(provider, expected: expected)
         }
         try Task.checkCancellation()
-        try await repository.saveObservation(observation.0, observation.1)
+        let stored = try await repository.saveObservation(observation.0, observation.1,
+            writeIf: { try writeIf() && sessionCurrent() })
+        guard stored else { throw CollectionFailure(.checkRequired) }
         await WidgetUpdates.shared.request()
         await reload()
     }

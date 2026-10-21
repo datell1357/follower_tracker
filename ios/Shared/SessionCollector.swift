@@ -7,8 +7,16 @@ private final class NoRedirect: NSObject, URLSessionTaskDelegate {
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
 }
 
-struct SessionHTTPClient {
+struct SessionHTTPDocument: Sendable {
+    let body: String
+    let url: URL
+}
+
+struct SessionHTTPClient: Sendable {
     let vault: SessionVault
+    private let loadSession: @Sendable (Provider) async throws -> SavedSession?
+    private let saveCookies: @Sendable (Provider, URL, [String: String], Int64) async throws -> Void
+    private let clockNow: @Sendable () -> ContinuousClock.Instant
     // Reuse TLS/connections across all providers. Cookies still come from the current Vault session.
     private static let pooledSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
@@ -17,13 +25,50 @@ struct SessionHTTPClient {
         configuration.timeoutIntervalForRequest = 25; configuration.timeoutIntervalForResource = 35
         return URLSession(configuration: configuration, delegate: NoRedirect(), delegateQueue: nil)
     }()
-    let transport: URLSession = SessionHTTPClient.pooledSession
+    let transport: URLSession
+    init(vault: SessionVault, transport: URLSession? = nil,
+         loadSession: (@Sendable (Provider) async throws -> SavedSession?)? = nil,
+         saveCookies: (@Sendable (Provider, URL, [String: String], Int64) async throws -> Void)? = nil,
+         clockNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }) {
+        self.vault = vault; self.transport = transport ?? Self.pooledSession
+        self.clockNow = clockNow
+        self.loadSession = loadSession ?? { try await vault.load($0) }
+        self.saveCookies = saveCookies ?? { provider, url, headers, version in
+            try await vault.responseCookies(provider, url: url, headers: headers, sessionVersion: version)
+        }
+    }
     func read(_ provider: Provider, _ url: URL, expectedID: String?, timeout: TimeInterval = 25) async throws -> String {
+        try await document(provider, url, expectedID: expectedID, timeout: timeout).body
+    }
+    func facebookPage(_ account: Account, timeout: TimeInterval) async throws -> SessionHTTPDocument {
+        try Task.checkCancellation()
+        guard account.provider == .facebook, account.accountType == .page, !account.loggedOut,
+              FacebookPageAddress.isTarget(account.profileURL), timeout.isFinite, timeout > 0, timeout <= 35 else { throw CollectionFailure(.checkRequired) }
+        guard let saved = try await loadSession(.facebook), saved.authenticated(.facebook) else { throw CollectionFailure(.reauthRequired) }
+        guard saved.identity(.facebook) == account.authenticationOwnerID else { throw CollectionFailure(.checkRequired) }
+        let deadline = clockNow().advanced(by: .seconds(timeout))
+        let result = try await document(.facebook, account.profileURL, expectedID: account.authenticationOwnerID,
+            timeout: timeout, pageID: account.stableID, hops: 2, visited: [account.profileURL], deadline: deadline)
+        guard let current = try await loadSession(.facebook), current.authenticated(.facebook),
+              current.identity(.facebook) == account.authenticationOwnerID, current.savedAt == saved.savedAt else { throw CollectionFailure(.checkRequired) }
+        guard clockNow() < deadline else { throw CollectionFailure(.offline) }
+        return result
+    }
+    private func document(_ provider: Provider, _ url: URL, expectedID: String?, timeout: TimeInterval,
+                          pageID: String? = nil, hops: Int = 0, visited: Set<URL> = [],
+                          deadline: ContinuousClock.Instant? = nil) async throws -> SessionHTTPDocument {
+        try Task.checkCancellation()
         guard provider.allows(url) else { throw CollectionFailure(.checkRequired) }
-        guard let saved = try await vault.load(provider), saved.authenticated(provider) else { throw CollectionFailure(.reauthRequired) }
+        guard let saved = try await loadSession(provider), saved.authenticated(provider) else { throw CollectionFailure(.reauthRequired) }
         if [.instagram, .x, .facebook].contains(provider), let expectedID, saved.identity(provider) != expectedID { throw CollectionFailure(.checkRequired) }
+        let remaining: TimeInterval
+        if let deadline {
+            let duration = clockNow().duration(to: deadline).components
+            remaining = Double(duration.seconds) + Double(duration.attoseconds) / 1e18
+            guard remaining > 0 else { throw CollectionFailure(.offline) }
+        } else { remaining = timeout }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-        request.httpMethod = "GET"; request.timeoutInterval = timeout
+        request.httpMethod = "GET"; request.timeoutInterval = min(timeout, remaining)
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue(saved.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json,text/html;q=0.9", forHTTPHeaderField: "Accept")
@@ -42,8 +87,22 @@ struct SessionHTTPClient {
         #endif
         do {
             let (bytes, response) = try await transport.bytes(for: request)
+            defer { bytes.task.cancel() }
             guard let response = response as? HTTPURLResponse else { throw CollectionFailure(.formatChanged) }
-            if (300..<400).contains(response.statusCode) { throw CollectionFailure(.reauthRequired) }
+            if pageID != nil, response.url != url { throw CollectionFailure(.checkRequired) }
+            if (300..<400).contains(response.statusCode) {
+                guard provider == .facebook, let pageID, hops > 0,
+                      let location = response.value(forHTTPHeaderField: "Location"),
+                      let next = FacebookPageDocument.redirect(url, location: location, pageID: pageID),
+                      !visited.contains(next) else { throw CollectionFailure(pageID == nil ? .reauthRequired : .checkRequired) }
+                var headers: [String: String] = [:]
+                response.allHeaderFields.forEach { key, value in if let key = key as? String, let value = value as? String { headers[key] = value } }
+                try await saveCookies(provider, url, headers, saved.savedAt)
+                // No body or cookies are sent to an unverified redirect destination.
+                bytes.task.cancel()
+                return try await document(provider, next, expectedID: expectedID, timeout: timeout,
+                    pageID: pageID, hops: hops - 1, visited: visited.union([next]), deadline: deadline)
+            }
             if let status = statusForHTTP(response.statusCode) {
                 let retry = response.value(forHTTPHeaderField: "Retry-After").flatMap(Int64.init).map { min(86_400, max(60, $0)) }
                 throw CollectionFailure(status, retryAfterSeconds: retry)
@@ -52,6 +111,8 @@ struct SessionHTTPClient {
             guard response.expectedContentLength <= Int64(limit) else { throw CollectionFailure(.formatChanged) }
             var data = Data()
             for try await byte in bytes {
+                if data.count & 4095 == 0 { try Task.checkCancellation() }
+                if let deadline, clockNow() >= deadline { throw CollectionFailure(.offline) }
                 if data.count >= limit { throw CollectionFailure(.formatChanged) }
                 data.append(byte)
                 #if DEBUG
@@ -61,12 +122,13 @@ struct SessionHTTPClient {
             try Task.checkCancellation()
             var headers: [String: String] = [:]
             response.allHeaderFields.forEach { key, value in if let key = key as? String, let value = value as? String { headers[key] = value } }
-            try await vault.responseCookies(provider, url: url, headers: headers, sessionVersion: saved.savedAt)
+            try await saveCookies(provider, url, headers, saved.savedAt)
             guard let body = String(data: data, encoding: .utf8) else { throw CollectionFailure(.formatChanged) }
-            return body
+            return SessionHTTPDocument(body: body, url: url)
         } catch is CancellationError { throw CancellationError() }
         catch let error as URLError where error.code == .cancelled { throw CancellationError() }
         catch let failure as CollectionFailure { throw failure }
+        catch let failure as StorageFailure { throw failure }
         catch { throw CollectionFailure(.offline) }
     }
 }
@@ -78,9 +140,16 @@ protocol SessionCollecting: Sendable {
 
 struct SessionCollector: SessionCollecting {
     let vault: SessionVault
+    private let http: SessionHTTPClient
+    private let loadSession: @Sendable (Provider) async throws -> SavedSession?
+    init(vault: SessionVault, http: SessionHTTPClient? = nil,
+         loadSession: (@Sendable (Provider) async throws -> SavedSession?)? = nil) {
+        self.vault = vault; self.http = http ?? SessionHTTPClient(vault: vault)
+        self.loadSession = loadSession ?? { try await vault.load($0) }
+    }
     func native(_ provider: Provider, expected: Account?, timeout: TimeInterval = 25) async throws -> (Account, MetricSnapshot) {
-        guard let saved = try await vault.load(provider), saved.authenticated(provider) else { throw CollectionFailure(.reauthRequired) }
-        let http = SessionHTTPClient(vault: vault)
+        try Task.checkCancellation()
+        guard let saved = try await loadSession(provider), saved.authenticated(provider) else { throw CollectionFailure(.reauthRequired) }
         let observation: (Account, MetricSnapshot)
         switch provider {
         case .instagram:
@@ -92,14 +161,57 @@ struct SessionCollector: SessionCollecting {
         case .tiktok:
             guard let expected else { throw CollectionFailure(.checkRequired) }
             observation = try ResponseParser.tiktokProfile(await http.read(provider, expected.profileURL, expectedID: expected.stableID, timeout: timeout), expectedID: expected.stableID, now: nowMillis())
-        case .x, .facebook: throw CollectionFailure(.foregroundOnly)
+        case .facebook:
+            guard let expected, expected.accountType == .page else { throw CollectionFailure(.foregroundOnly) }
+            let document = try await http.facebookPage(expected, timeout: timeout)
+            observation = try FacebookPageDocument.observation(document.body, url: document.url,
+                expected: expected, session: saved, now: nowMillis())
+        case .x: throw CollectionFailure(.foregroundOnly)
         }
         var updated = try Account(provider: provider, stableID: observation.0.stableID, username: observation.0.username,
-            displayName: observation.0.displayName, profileURL: observation.0.profileURL, connectedAt: expected?.connectedAt ?? observation.0.connectedAt)
+            displayName: observation.0.displayName, profileURL: observation.0.profileURL, connectedAt: expected?.connectedAt ?? observation.0.connectedAt,
+            accountType: observation.0.accountType, sessionOwnerID: observation.0.sessionOwnerID)
         updated.capabilities = expected?.capabilities ?? Capabilities(); updated.capabilities.count = .observed
         if updated.capabilities.background == .foregroundOnly { updated.capabilities.background = .unverified }
+        if updated.accountType == .page {
+            updated.capabilities.followers = .unavailable; updated.capabilities.following = .unavailable
+            if updated.capabilities.background != .observed { updated.capabilities.background = .unverified }
+        }
         updated.status = .ready; updated.lastAttemptAt = nowMillis()
         return (updated, observation.1)
+    }
+    /// One native verification after a successful browser capture. Unsupported responses keep that valid capture.
+    func connectedFacebookPage(_ captured: (Account, MetricSnapshot), existing: Account?,
+                               writeIf: SessionWriteGuard = { true }) async throws -> (Account, MetricSnapshot) {
+        try Task.checkCancellation()
+        guard try writeIf() else { throw CollectionFailure(.checkRequired) }
+        let account = captured.0
+        guard account.provider == .facebook, account.accountType == .page, !account.loggedOut,
+              captured.1.accountKey == account.id, captured.1.source == "facebook-webview-page",
+              existing == nil || existing?.id == account.id,
+              let before = try await loadSession(.facebook), before.authenticated(.facebook),
+              before.identity(.facebook) == account.authenticationOwnerID else { throw CollectionFailure(.checkRequired) }
+        var observation = captured
+        if let existing, let until = existing.nextAllowedAt, until > nowMillis() {
+            observation.0.nextAllowedAt = until
+            observation.0.status = existing.status == .offline ? .offline : .rateLimited
+        } else {
+            do { observation = try await native(.facebook, expected: account) }
+            catch is CancellationError { throw CancellationError() }
+            catch let failure as CollectionFailure {
+                // The fresh browser observation stays valid even if this transport cannot read the document.
+                observation.0.status = .foregroundOnly
+                observation.0.capabilities.background = .foregroundOnly
+                if let until = RefreshPolicy.serviceRetryAt(failure, failedAt: nowMillis()) {
+                    observation.0.status = failure.status; observation.0.nextAllowedAt = until
+                }
+            }
+        }
+        guard let current = try await loadSession(.facebook), current.authenticated(.facebook),
+              current.identity(.facebook) == account.authenticationOwnerID, current.savedAt == before.savedAt else { throw CollectionFailure(.checkRequired) }
+        guard try writeIf() else { throw CollectionFailure(.checkRequired) }
+        try Task.checkCancellation()
+        return observation
     }
     func captured(_ provider: Provider, payload: String, expected: Account?) async throws -> (Account, MetricSnapshot) {
         guard let saved = try await vault.load(provider) else { throw CollectionFailure(.reauthRequired) }
