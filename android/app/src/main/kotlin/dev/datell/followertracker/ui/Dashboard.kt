@@ -157,7 +157,7 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
         item {
             InfoPanel("자동 갱신", when (row.account.capabilities.background) {
                 Capability.OBSERVED -> "기기에서 백그라운드 수집에 성공했어요. 네트워크·절전·SNS 요청 제한에 따라 갱신 시각이 달라질 수 있어요."
-                Capability.FOREGROUND_ONLY -> if (row.account.accountType == AccountType.PAGE) "페이지를 열고 연결 확인을 눌러 팔로워 수를 갱신해요." else "저장된 로그인으로 공식 프로필을 다시 읽어요. 자동 수집의 성공 여부는 새 기록으로 확인해요."
+                Capability.FOREGROUND_ONLY -> "저장된 로그인으로 연결한 프로필이나 페이지를 다시 읽어요. 자동 수집의 성공 여부는 새 기록으로 확인해요."
                 Capability.UNAVAILABLE -> "이 계정의 자동 수집 경로를 사용할 수 없어요."
                 Capability.UNVERIFIED -> "연결한 뒤 예약 수집을 시도해요. 백그라운드 수집 성공은 아직 확인되지 않았어요."
             }, icon = Icons.Outlined.Schedule)

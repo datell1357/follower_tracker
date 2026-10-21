@@ -74,6 +74,8 @@ data class Account(
     val key: String get() = if (accountType == AccountType.PAGE) "${provider.name}:PAGE:$stableId" else "${provider.name}:$stableId"
     val connectionTitle: String get() = if (accountType == AccountType.PAGE) "Facebook 페이지" else provider.title
     val identityLabel: String get() = if (accountType == AccountType.PAGE) displayName else "@$username"
+    /** A selected Page is a collection target, never the person who owns the login session. */
+    val authenticationOwnerId: String get() = if (accountType == AccountType.PAGE) checkNotNull(sessionOwnerId) else stableId
     fun conflictsWith(other: Account): Boolean = provider == other.provider && accountType == AccountType.PROFILE &&
         other.accountType == AccountType.PROFILE && key != other.key
     init {

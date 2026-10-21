@@ -9,10 +9,32 @@ enum AccountChoice: String, AppEnum {
     static var caseDisplayRepresentations: [AccountChoice: DisplayRepresentation] = [.all: "첫 연결 계정", .instagram: "Instagram", .tiktok: "TikTok", .x: "X", .facebook: "Facebook", .reddit: "Reddit"]
     var provider: Provider? { switch self { case .all: nil; case .instagram: .instagram; case .tiktok: .tiktok; case .x: .x; case .facebook: .facebook; case .reddit: .reddit } }
 }
+struct TrackerAccountEntity: AppEntity {
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "연결된 계정"
+    static var defaultQuery = TrackerAccountQuery()
+    let id: String
+    let title: String
+    let identity: String
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(title)", subtitle: "\(identity)") }
+    init(_ account: Account) { id = account.id; title = account.connectionTitle; identity = account.identityLabel }
+}
+struct TrackerAccountQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [TrackerAccountEntity] {
+        let repository = try TrackerRepository()
+        return try await repository.accounts().filter { identifiers.contains($0.id) }.map(TrackerAccountEntity.init)
+    }
+    func suggestedEntities() async throws -> [TrackerAccountEntity] {
+        let repository = try TrackerRepository()
+        return try await repository.accounts().map(TrackerAccountEntity.init)
+    }
+}
 struct TrackerConfiguration: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "팔로워 트래커"
     static var description = IntentDescription("위젯에서 확인할 계정을 선택해요.")
     @Parameter(title: "표시할 계정", default: .all) var account: AccountChoice
+    @Parameter(title: "연결된 계정") var connection: TrackerAccountEntity?
+    // Retain the stored provider choice for older widgets while new configurations select an exact connection.
+    static var parameterSummary: some ParameterSummary { Summary("\(\.$connection)의 팔로워") }
 }
 struct TrackerEntry: TimelineEntry {
     let date: Date
@@ -22,8 +44,10 @@ struct TrackerEntry: TimelineEntry {
 struct TrackerTimeline: AppIntentTimelineProvider {
     var allAccounts = false
     private func records(_ repository: TrackerRepository, _ configuration: TrackerConfiguration) async throws -> [AccountOverview] {
+        if allAccounts { return try await repository.widgetOverviews() }
+        if let selected = configuration.connection { return try await repository.widgetOverviews(key: selected.id) }
         let rows = try await repository.widgetOverviews(provider: configuration.account.provider)
-        return allAccounts ? rows : Array(rows.prefix(1))
+        return Array(rows.prefix(1))
     }
     func placeholder(in context: Context) -> TrackerEntry { TrackerEntry(date: Date(), rows: []) }
     func snapshot(for configuration: TrackerConfiguration, in context: Context) async -> TrackerEntry { await entry(configuration) }

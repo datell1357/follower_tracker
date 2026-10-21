@@ -61,12 +61,22 @@ class RefreshPolicyTest {
         }
     }
 
-    @Test fun facebookPagesKeepTheirExplicitPageConfirmationFlow() {
-        val page = owner.copy(provider = Provider.FACEBOOK, profileUrl = Provider.FACEBOOK.loginUrl,
+    @Test fun anExplicitlyConnectedFacebookPageCanRefreshWithoutClaimingBackgroundSuccess() {
+        val page = owner.copy(provider = Provider.FACEBOOK, profileUrl = "https://www.facebook.com/profile.php?id=42",
             accountType = AccountType.PAGE, sessionOwnerId = "99", status = SyncStatus.FOREGROUND_ONLY,
             countTransport = CountTransport.PROFILE_BROWSER)
-        assertFalse(RefreshPolicy.usesProfileBrowser(page))
-        assertFalse(RefreshPolicy.canRefresh(page, 1, background = true))
+        assertTrue(RefreshPolicy.usesProfileBrowser(page))
+        assertTrue(RefreshPolicy.canRefresh(page, 1, background = true))
+        assertEquals("99", page.authenticationOwnerId)
+        assertEquals("42", page.copy(accountType = AccountType.PROFILE).authenticationOwnerId)
+        assertEquals(Capability.UNVERIFIED, page.capabilities.background)
+        for (status in listOf(SyncStatus.REAUTH_REQUIRED, SyncStatus.CHECK_REQUIRED))
+            assertFalse(RefreshPolicy.canRefresh(page.copy(status = status), 1, background = true))
+        val limited = page.copy(status = SyncStatus.RATE_LIMITED, nextAllowedAt = 60_001)
+        for (background in listOf(false, true)) {
+            assertFalse(RefreshPolicy.canRefresh(limited, 60_000, background))
+            assertTrue(RefreshPolicy.canRefresh(limited, 60_001, background))
+        }
     }
 
     @Test fun olderStoredAccountWithoutTransportStillDecodes() {

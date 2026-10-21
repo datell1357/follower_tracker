@@ -131,6 +131,43 @@ class CountTrackingLoopExperimentTest {
         assertEquals(1, e.maxInFlight)
     }
 
+    @Test fun facebookPersonalAndMultiplePagesKeepIndependentCadenceAndFailureStateFor24Hours() = runBlocking {
+        val personal = Account(Provider.FACEBOOK, "42", "fixture.owner",
+            profileUrl = "https://www.facebook.com/profile.php?id=42", connectedAt = 1,
+            countTransport = CountTransport.PROFILE_BROWSER, capabilities = Capabilities(background = Capability.OBSERVED))
+        fun page(id: String) = personal.copy(stableId = id, accountType = AccountType.PAGE, sessionOwnerId = "42",
+            profileUrl = "https://www.facebook.com/profile.php?id=$id")
+        val limited = page("99"); val challenged = page("88")
+        val rows = listOf(personal, limited, challenged).associate { it.key to TrackingCount(it, 1) }.toMutableMap()
+        val attempts = rows.keys.associateWith { mutableListOf<Long>() }
+        var elapsed = 0L
+        val wall = { 1_700_000_000_000L + elapsed }
+        val loop = CountTrackingLoop(TrackingMode.PREMIUM_WIDGET_TEST, { elapsed }, wall, { false },
+            readCounts = { rows.values.toList() }, refresh = { account ->
+                val calls = attempts.getValue(account.key).apply { add(elapsed) }
+                val failed = when {
+                    account.key == challenged.key -> account.copy(status = SyncStatus.CHECK_REQUIRED)
+                    account.key == limited.key && calls.size == 1 -> account.copy(status = SyncStatus.RATE_LIMITED, nextAllowedAt = wall() + 900_000)
+                    else -> null
+                }
+                rows[account.key] = if (failed != null) rows.getValue(account.key).copy(account = failed)
+                    else TrackingCount(account.copy(status = SyncStatus.READY, nextAllowedAt = null), wall())
+            }, onCycle = {}, onOffline = {}, awaitNetwork = { fail("Network is available") }, wait = {
+                elapsed += it
+                if (elapsed >= 24 * hour) throw CancellationException("End of virtual observation")
+            })
+        launch { loop.run() }.join()
+        assertEquals(1_440, attempts.getValue(personal.key).size)
+        assertEquals(1_426, attempts.getValue(limited.key).size)
+        assertEquals(15 * minute, attempts.getValue(limited.key)[1])
+        assertEquals(listOf(0L), attempts.getValue(challenged.key))
+        assertTrue(attempts.getValue(personal.key).zipWithNext().all { (a,b) -> b - a == minute })
+        assertEquals(SyncStatus.READY, rows.getValue(personal.key).account.status)
+        assertEquals(SyncStatus.READY, rows.getValue(limited.key).account.status)
+        assertEquals(SyncStatus.CHECK_REQUIRED, rows.getValue(challenged.key).account.status)
+        assertEquals(setOf("42"), rows.values.map { it.account.authenticationOwnerId }.toSet())
+    }
+
     @Test fun theOrdinaryModeStillStopsAtItsActualLoopDeadline() {
         val e = Experiment(TrackingMode.FAST)
         e.runFor(24 * hour)

@@ -13,7 +13,7 @@ struct TrackerWidgetGallery: View {
             VStack(alignment: .leading, spacing: 18) {
                 Picker("미리 볼 계정", selection: Binding(get: { validSelection }, set: { selection = $0 })) {
                     Text("첫 연결 계정").tag("all")
-                    ForEach(accounts) { row in Text(row.account.provider.title + " · @" + row.account.username).tag(row.id) }
+                    ForEach(accounts) { row in Text(row.account.connectionTitle + " · " + row.account.identityLabel).tag(row.id) }
                 }.pickerStyle(.menu).frame(minHeight: 48).disabled(accounts.isEmpty || storageError)
                 TrackerSectionTitle(title: "내 계정 · 최소 크기")
                 HStack {

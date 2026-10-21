@@ -26,7 +26,7 @@ struct RelationshipsView: View {
             LazyVStack(alignment: .leading, spacing: 16) {
                 if let selected {
                     Picker("계정", selection: Binding(get: { selected.id }, set: { key in Task { await model.select(key) } })) {
-                        ForEach(model.accounts) { row in Text(row.account.provider.title + " · @" + row.account.username).tag(row.id) }
+                        ForEach(model.accounts) { row in Text(row.account.connectionTitle + " · " + row.account.identityLabel).tag(row.id) }
                     }.pickerStyle(.menu).frame(minHeight: 48).disabled(model.busy)
                     ViewThatFits(in: .horizontal) {
                         HStack { comparisonStamp; Spacer(); refreshListsButton }

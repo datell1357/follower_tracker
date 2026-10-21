@@ -2,8 +2,8 @@ import SwiftUI
 import FollowerCore
 
 private enum TrackerSheet: Identifiable {
-    case picker, login(Provider)
-    var id: String { switch self { case .picker: "picker"; case .login(let provider): "login-" + provider.id } }
+    case picker, login(Provider), page(String?)
+    var id: String { switch self { case .picker: "picker"; case .login(let provider): "login-" + provider.id; case .page(let key): "page-" + (key ?? "new") } }
 }
 private enum HomeDestination: Hashable { case account(String) }
 private enum AccountManagementAction {
@@ -13,8 +13,8 @@ private enum AccountManagementAction {
     }
     var detail: String {
         switch self {
-        case .logout: "이 기기의 SNS 로그인 정보를 지우고 해당 SNS의 자동 수집을 멈춰요. 팔로워·관계 기록과 다른 SNS 로그인은 유지해요."
-        case .disconnect: "이 SNS의 로그인 세션과 기기에 저장한 추적·관계 기록을 삭제해요. 다시 연결하면 새 기록부터 시작해요."
+        case .logout: "이 기기의 SNS 로그인 정보를 지우고 해당 SNS의 수집을 멈춰요. 같은 SNS의 페이지에도 적용돼요. 팔로워·관계 기록과 다른 SNS 로그인은 유지해요."
+        case .disconnect: "선택한 연결의 추적·관계 기록을 삭제해요. 같은 SNS의 다른 연결과 기록은 유지해요. 마지막 연결을 해제하면 해당 SNS 로그인도 지워요."
         }
     }
 }
@@ -36,7 +36,7 @@ struct TrackerRootView: View {
                     .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("SNS 연결", systemImage: "plus") { sheet = .picker }.disabled(model.busy) } }
                     .navigationDestination(for: HomeDestination.self) { destination in
                         switch destination {
-                        case .account(let key): AccountDetailScreen(model: model, key: key, onReconnect: { sheet = .login($0) }, onLogout: { accountAction = .logout($0) })
+                        case .account(let key): AccountDetailScreen(model: model, key: key, onReconnect: reconnect, onLogout: { accountAction = .logout($0) })
                         }
                     }
             }.tabItem { Label("계정", systemImage: "person.crop.circle") }.tag("home")
@@ -48,7 +48,7 @@ struct TrackerRootView: View {
                 TrackerMoreView(accountCount: model.accounts.count).navigationTitle("설정").navigationBarTitleDisplayMode(.inline)
                     .navigationDestination(for: TrackerMorePage.self) { page in
                         switch page {
-                        case .accounts: TrackerAccountsView(accounts: model.accounts, busy: model.busy, onConnect: { sheet = .picker }, onReconnect: { sheet = .login($0) }, onDisconnect: { accountAction = .disconnect($0) }, onLogout: { accountAction = .logout($0) })
+                        case .accounts: TrackerAccountsView(accounts: model.accounts, busy: model.busy, onConnect: { sheet = .picker }, onReconnect: reconnect, onDisconnect: { accountAction = .disconnect($0) }, onLogout: { accountAction = .logout($0) })
                         case .settings: TrackerSettingsView()
                         case .support: TrackerSupportView()
                         case .help: TrackerHelpView()
@@ -63,8 +63,10 @@ struct TrackerRootView: View {
         }
         .sheet(item: $sheet) { destination in
             switch destination {
-            case .picker: ProviderPickerView(accounts: model.accounts, onSelect: { sheet = .login($0) })
+            case .picker: ProviderPickerView(accounts: model.accounts, onSelect: { sheet = .login($0) }, onPage: { sheet = .page(nil) })
             case .login(let provider): SessionLoginView(provider: provider, model: model)
+            case .page(let key): SessionLoginView(provider: .facebook, model: model, facebookPage: true,
+                expectedPage: model.accounts.first { $0.id == key }?.account)
             }
         }
         .alert(accountAction?.title ?? "계정 관리", isPresented: Binding(get: { accountAction != nil }, set: { if !$0 { accountAction = nil } }), presenting: accountAction) { action in
@@ -76,11 +78,13 @@ struct TrackerRootView: View {
         } message: { Text($0.detail) }
         .alert("확인해주세요", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) { Button("확인") { model.message = nil } } message: { Text(model.message ?? "") }
     }
+    private func reconnect(_ account: Account) { sheet = account.accountType == .page ? .page(account.id) : .login(account.provider) }
 }
 
 private struct ProviderPickerView: View {
     let accounts: [AccountOverview]
     let onSelect: (Provider) -> Void
+    let onPage: () -> Void
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
@@ -93,12 +97,22 @@ private struct ProviderPickerView: View {
                                 ProviderMark(provider: provider)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(provider.title).font(.headline).foregroundStyle(TrackerStyle.ink)
-                                    Text(accounts.contains { $0.account.provider == provider } ? "연결됨 · 로그인 페이지 열기" : "내 계정 연결").font(.caption).foregroundStyle(TrackerStyle.muted)
+                                    Text(accounts.contains { $0.account.provider == provider && $0.account.accountType == .profile } ? "연결됨 · 로그인 페이지 열기" : "내 계정 연결").font(.caption).foregroundStyle(TrackerStyle.muted)
                                 }
                                 Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(TrackerStyle.muted)
                             }.trackerPanel(padding: 18)
                         }.buttonStyle(.plain)
                     }
+                    Button(action: onPage) {
+                        HStack(spacing: 12) {
+                            ProviderMark(provider: .facebook)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Facebook 페이지").font(.headline).foregroundStyle(TrackerStyle.ink)
+                                Text("페이지로 이동한 뒤 연결 확인").font(.caption).foregroundStyle(TrackerStyle.muted)
+                            }
+                            Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(TrackerStyle.muted)
+                        }.trackerPanel(padding: 18)
+                    }.buttonStyle(.plain)
                     Text("SNS마다 읽을 수 있는 데이터가 달라요. 연결 후 각 계정의 수집 상태를 확인해주세요.").font(.caption).foregroundStyle(TrackerStyle.muted)
                 }.padding(20)
             }.background(TrackerStyle.background).navigationTitle("SNS 연결").navigationBarTitleDisplayMode(.inline)

@@ -407,3 +407,10 @@
 - Android TikTok의 Facebook·LINE·Kakao·X/Twitter·VK·보조 인증 주소를 로그인 전용으로 허용한다. HTTPS fallback만 따르는 앱 링크 처리, 빈 OAuth 문서의 fragment와 부모·현재 출처 보존, 민감 값 없는 차단 도메인 표시를 추가했다. 쿠키 수집 호스트·다른 SNS의 허용 범위·TLS 검사는 유지한다.
 - Instagram은 최초 15초간 로컬 페이지를 읽어 늦게 준비된 정확한 수치로 즉시 연결할 수 있게 했다. `data-sjs` JSON과 본인 ID를 확인하고, API가 필요하면 확인된 본인 사용자명으로 기존 웹 프로필 경로를 한 번 사용한다. 실제 429와 서버의 재시도 기한은 우회하지 않는다. Facebook 로그인·2차 인증 경로에서는 자동 수집·프로필 이동을 하지 않는다.
 - 공유 캡처 63개·Android core 45개·app Debug/Release 각 105개·Swift core 52개, Android Debug/테스트 APK·Release/R8·두 lint와 iOS Debug 테스트 타깃·서명 없는 Release 빌드를 검사했다. 실제 SNS·기기 실행은 하지 않았으며 새 Android 인증 복귀·지연 JSON fixture도 컴파일까지만 검증했다. [현재 코드와 실제 인증의 검증 경계](WEBVIEW_LOGIN.md#2026-10-19-tiktok-인증-이동instagram-초기-수집-보완)
+
+
+## 2026-10-21 Facebook 페이지 반복 경로·iOS 연결
+
+- Android 자동 수집 정책에서 페이지가 제외되던 경계를 수정했다. 확인한 페이지를 로그인 소유자와 따로 검증하고 공식 문서 하나를 새로 읽는다. 동기 로컬 캡처, 페이지별 세션·대상 결합, 정확한 수치·서버 제한·추가 인증·다른 페이지 거부를 유지한다.
+- iOS에 별도 페이지 선택·수동 확인·저장·카드·개별 위젯 선택을 추가했다. 기존 개인 계정 JSON과 SQLite 1·2의 수치·명단·관계 기록을 보존하는 버전 3 업그레이드를 검증했다. 여러 페이지 중 하나를 해제해도 나머지 연결의 로그인과 기록을 유지한다. iOS 페이지 자동 수집은 아직 구현하지 않았다.
+- core 45개·Android app Debug/Release 각 106개·공유 캡처 63개·Swift core 57개와 실제 SQLite/SyncService의 macOS 대역 검사 18개가 통과했다. Android 개인·다중 페이지의 24시간 가상 수집과 별도 앱의 실기기 WebView 회귀 5개도 통과했다. 실제 Facebook 페이지·iOS WebKit UI·다수 페이지 대형 위젯 결과는 미검증이다. [페이지 구현과 검증 경계](FACEBOOK_PAGES.md#2026-10-21-코드기기-검증-범위)

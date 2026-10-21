@@ -59,15 +59,15 @@ suspend fun captureWebSession(web: WebView, provider: Provider, identity: String
     val initialUrl = web.url
     val slot = JSONObject.quote("__followerCapture_" + UUID.randomUUID().toString().replace("-", ""))
     val arguments = JSONObject.quote(provider.name) + "," + (identity?.let(JSONObject::quote) ?: "null")
-    val read = if (facebookPage && provider == Provider.FACEBOOK) "Promise.resolve(FollowerTrackerCapture.captureFacebookPage(" +
-        (identity?.let(JSONObject::quote) ?: "null") + "," + (expectedPageId?.let(JSONObject::quote) ?: "null") + "))"
-        else if (allowRequest) "FollowerTrackerCapture.captureAsync($arguments)"
-        else "Promise.resolve(FollowerTrackerCapture.capture($arguments))"
+    val localRead = if (facebookPage && provider == Provider.FACEBOOK) "FollowerTrackerCapture.captureFacebookPage(" +
+        (identity?.let(JSONObject::quote) ?: "null") + "," + (expectedPageId?.let(JSONObject::quote) ?: "null") + ")"
+        else "FollowerTrackerCapture.capture($arguments)"
+    val read = if (facebookPage) "Promise.resolve($localRead)" else "FollowerTrackerCapture.captureAsync($arguments)"
     try {
-        if (!allowRequest && !facebookPage) {
-            // Profile DOM capture is synchronous. Read it once in this document, without Promise slots/polling.
+        if (!allowRequest) {
+            // Personal and Page DOM capture is synchronous. Read once in this document, without Promise slots.
             val encoded = withTimeoutOrNull(22_000) {
-                web.evaluate("$script;JSON.stringify(FollowerTrackerCapture.capture($arguments));")
+                web.evaluate("$script;JSON.stringify($localRead);")
             } ?: throw CollectionFailure(SyncStatus.OFFLINE)
             if (!provider.allows(web.url.orEmpty())) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
             // A same-origin route change can be normal hydration. Discard this document's result and re-read locally.
@@ -94,7 +94,7 @@ suspend fun captureWebSession(web: WebView, provider: Provider, identity: String
     } catch (_: JSONException) {
         throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
     } finally {
-        if ((allowRequest || facebookPage) && provider.allows(web.url.orEmpty())) web.evaluateJavascript("delete globalThis[$slot]", null)
+        if (allowRequest && provider.allows(web.url.orEmpty())) web.evaluateJavascript("delete globalThis[$slot]", null)
     }
 }
 

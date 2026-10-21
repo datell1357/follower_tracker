@@ -21,9 +21,19 @@ private final class SQLiteDatabase {
         sqlite3_busy_timeout(handle, 5_000)
         try run("PRAGMA foreign_keys=ON")
         try run("PRAGMA journal_mode=WAL")
-        try transaction {
-            let version = try scalar("PRAGMA user_version")
-            for statement in try TrackerSchema.migrationStatements(from: version) { try run(statement) }
+        // Rebuild only the parent account table; existing metric/relationship rows and their keys stay intact.
+        // Disabling FK checks outside the transaction avoids ON DELETE CASCADE during the parent replacement.
+        if try scalar("PRAGMA user_version") != TrackerSchema.version {
+            try run("PRAGMA foreign_keys=OFF")
+            do {
+                try transaction {
+                    let version = try scalar("PRAGMA user_version")
+                    let statements = try TrackerSchema.migrationStatements(from: version)
+                    for statement in statements { try run(statement) }
+                    if !statements.isEmpty, try scalar("SELECT COUNT(*) FROM pragma_foreign_key_check") != 0 { throw StorageFailure.corrupted }
+                }
+                try run("PRAGMA foreign_keys=ON")
+            } catch { sqlite3_close(handle); handle = nil; throw error }
         }
     }
     deinit { sqlite3_close(handle) }
@@ -99,8 +109,8 @@ actor TrackerRepository {
         try recentMetrics(key, limit: 366)
     }
     func overviews() throws -> [AccountOverview] { try accounts().map { try AccountOverview(account: $0, history: history($0.id)) } }
-    func widgetOverviews(provider: Provider? = nil) throws -> [AccountOverview] {
-        try accounts().filter { provider == nil || $0.provider == provider }.map {
+    func widgetOverviews(provider: Provider? = nil, key: String? = nil) throws -> [AccountOverview] {
+        try accounts().filter { (provider == nil || $0.provider == provider) && (key == nil || $0.id == key) }.map {
             try AccountOverview(account: $0, history: recentMetrics($0.id, limit: 2))
         }
     }
@@ -119,7 +129,7 @@ actor TrackerRepository {
             guard try writeIf() else { return }
             let existing = try self.account(account.id)
             if requireExisting && existing?.connectedAt != account.connectedAt { return }
-            if let occupied = try accounts().first(where: { $0.provider == account.provider }), occupied.id != account.id { throw CollectionFailure(.checkRequired) }
+            if try accounts().contains(where: { $0.conflicts(with: account) }) { throw CollectionFailure(.checkRequired) }
             var preserved = account
             preserved.transientRetry = nil
             if let existing { preserved.relationshipStatus = existing.relationshipStatus }

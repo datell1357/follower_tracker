@@ -1,9 +1,9 @@
 package dev.datell.followertracker.core
 
 object RefreshPolicy {
-    fun usesProfileBrowser(account: Account): Boolean = account.accountType == AccountType.PROFILE &&
-        (account.countTransport == CountTransport.PROFILE_BROWSER || account.status == SyncStatus.FOREGROUND_ONLY ||
-            account.capabilities.count == Capability.FOREGROUND_ONLY)
+    fun usesProfileBrowser(account: Account): Boolean =
+        account.countTransport == CountTransport.PROFILE_BROWSER || account.status == SyncStatus.FOREGROUND_ONLY ||
+            account.capabilities.count == Capability.FOREGROUND_ONLY
 
     fun supportsCountRefresh(account: Account): Boolean = usesProfileBrowser(account) ||
         (account.accountType == AccountType.PROFILE &&

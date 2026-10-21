@@ -23,7 +23,7 @@ struct TrackerWidgetContent: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 mark(row, side: 20)
-                Text("@" + row.account.username).font(.system(size: 10)).opacity(0.9).lineLimit(1)
+                Text(row.account.identityLabel).font(.system(size: 10)).opacity(0.9).lineLimit(1)
             }
             Spacer(minLength: 0)
             Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—")
@@ -60,7 +60,7 @@ struct TrackerWidgetContent: View {
                 Text(storageError ? "기록을 읽지 못했어요" : "SNS를 연결해보세요").font(.headline)
                 Text(storageError ? "앱에서 확인해주세요" : "눌러서 앱 열기").font(.caption).foregroundStyle(TrackerStyle.muted)
             } else {
-                // Personal accounts: one connection per supported provider. No prefix truncation.
+                // Connections include explicitly selected Pages with distinct keys and labels.
                 ForEach(rows) { row in overviewRow(row) }
             }
             Spacer(minLength: 0)
@@ -72,8 +72,8 @@ struct TrackerWidgetContent: View {
             HStack(spacing: 8) {
                 mark(row, side: 25)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(row.account.provider.title).font(.system(size: 11, weight: .bold)).foregroundStyle(brand.accent)
-                    Text("@" + row.account.username).font(.system(size: 9)).foregroundStyle(TrackerStyle.muted)
+                    Text(row.account.connectionTitle).font(.system(size: 11, weight: .bold)).foregroundStyle(brand.accent)
+                    Text(row.account.identityLabel).font(.system(size: 9)).foregroundStyle(TrackerStyle.muted)
                 }.lineLimit(1)
                 Spacer(minLength: 5)
                 VStack(alignment: .trailing, spacing: 0) {

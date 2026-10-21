@@ -11,6 +11,8 @@ import dev.datell.followertracker.BuildConfig
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.ui.captureWebSession
 import dev.datell.followertracker.ui.facebookCollectionFallback
+import dev.datell.followertracker.ui.facebookPageDesktopUrl
+import dev.datell.followertracker.ui.facebookPageUserAgent
 import dev.datell.followertracker.ui.isOptionalTikTokAppLink
 import dev.datell.followertracker.ui.webCaptureFailure
 import kotlinx.coroutines.*
@@ -44,16 +46,22 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
     @SuppressLint("SetJavaScriptEnabled")
     suspend fun read(account: Account, userAgent: String, retain: Boolean = false): String = mutex.withLock {
       withContext(Dispatchers.Main.immediate) {
-        if (account.accountType != AccountType.PROFILE || !account.provider.allows(account.profileUrl))
+        if (!account.provider.allows(account.profileUrl))
             throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
-        if (!sessions.hasAuthentication(account.provider) || sessions.identity(account.provider) != account.stableId)
+        if (!sessions.hasAuthentication(account.provider) || sessions.identity(account.provider) != account.authenticationOwnerId)
             throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
+        val facebookPage = account.accountType == AccountType.PAGE
+        // Use one fresh Page document per cycle, with the same representation as manual confirmation.
+        // Its URL and captured Page ID remain bound to the user's original explicit selection.
+        val profileUrl = if (facebookPage) facebookPageDesktopUrl(account.profileUrl)
+            ?: throw CollectionFailure(SyncStatus.CHECK_REQUIRED) else account.profileUrl
+        val collectionAgent = if (facebookPage) facebookPageUserAgent(userAgent) ?: userAgent else userAgent
         val loaded = CompletableDeferred<Unit>()
         var failure: CollectionFailure? = null
         var pendingCaptureFailure: CollectionFailure? = null
         val binding = Binding(account.provider, account.key, account.connectedAt,
             sessions.metadata(account.provider)?.savedAt ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED),
-            userAgent, account.profileUrl)
+            collectionAgent, profileUrl)
         val previous = idle.remove(account.provider)
         if (BuildConfig.DEBUG) Log.d("FollowerCollection", "provider=${account.provider.name} " +
             "profileBrowser=${if (previous?.binding == binding) "reused" else "created"}")
@@ -78,7 +86,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             web.settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
-                userAgentString = userAgent
+                userAgentString = collectionAgent
                 useWideViewPort = true
                 loadWithOverviewMode = true
                 // Revalidate the document below; immutable scripts/fonts can use the HTTP cache.
@@ -99,7 +107,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                     val path = runCatching { java.net.URI(url.orEmpty()).path.orEmpty() }.getOrDefault("")
                     if (!account.provider.allows(url.orEmpty())) fail(CollectionFailure(SyncStatus.CHECK_REQUIRED),
                         if (url == "about:blank") "START_BLANK" else "START_ORIGIN")
-                    else if (Regex("(^|/)(login|challenge|checkpoint|two_factor)(/|$)", RegexOption.IGNORE_CASE).containsMatchIn(path))
+                    else if (AUTH_PATH.containsMatchIn(path))
                         fail(CollectionFailure(if (path.contains("login", true)) SyncStatus.REAUTH_REQUIRED else SyncStatus.CHECK_REQUIRED), "START_AUTH")
                 }
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -118,7 +126,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                         return true
                     }
                     if (!account.provider.allows(url)) { fail(CollectionFailure(SyncStatus.CHECK_REQUIRED), "NAVIGATION_ORIGIN"); return true }
-                    if (Regex("(^|/)(login|challenge|checkpoint|two_factor)(/|$)", RegexOption.IGNORE_CASE).containsMatchIn(path)) {
+                    if (AUTH_PATH.containsMatchIn(path)) {
                         fail(CollectionFailure(if (path.contains("login", true)) SyncStatus.REAUTH_REQUIRED else SyncStatus.CHECK_REQUIRED), "NAVIGATION_AUTH")
                         return true
                     }
@@ -152,23 +160,28 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                 View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY))
             web.layout(0, 0, metrics.widthPixels, metrics.heightPixels)
             web.onResume()
-            web.loadUrl(account.profileUrl, mapOf("Cache-Control" to "no-cache"))
+            web.loadUrl(profileUrl, mapOf("Cache-Control" to "no-cache"))
             withTimeout(35_000) { loaded.await() }
             val payload = withTimeout(15_000) {
                 while (true) {
                     failure?.let { throw it }
                     currentCoroutineContext().ensureActive()
                     if (!sessions.hasAuthentication(account.provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
-                    if (sessions.identity(account.provider) != account.stableId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
-                    val payload = captureWebSession(web, account.provider, account.stableId, script, allowRequest = false)
+                    if (sessions.identity(account.provider) != account.authenticationOwnerId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+                    val payload = captureWebSession(web, account.provider, account.authenticationOwnerId, script,
+                        allowRequest = false, facebookPage = facebookPage, expectedPageId = account.stableId.takeIf { facebookPage })
                     failure?.let { throw it }
                     val result = JSONObject(payload)
                     if (!result.has("error")) return@withTimeout payload
-                    val error = webCaptureFailure(result, sessionIdentityAvailable = true) ?: CollectionFailure(SyncStatus.FORMAT_CHANGED)
+                    val retryable = result.optString("error") in setOf("exact_count_missing", "own_profile_required",
+                        "owner_context_missing", "identity_missing", "document_changed") ||
+                        facebookPage && result.optString("error") in setOf("page_required", "page_identity_missing", "rounded_count_only")
+                    val error = if (facebookPage && retryable) CollectionFailure(SyncStatus.FORMAT_CHANGED)
+                        else webCaptureFailure(result, sessionIdentityAvailable = true) ?: CollectionFailure(SyncStatus.FORMAT_CHANGED)
                     pendingCaptureFailure = error
                     // onPageFinished can precede client-side routing/profile hydration. Re-read the fresh
                     // document locally; never load alternate endpoints or turn missing data into zero.
-                    if (result.optString("error") !in setOf("exact_count_missing", "own_profile_required", "owner_context_missing", "identity_missing", "document_changed")) {
+                    if (!retryable) {
                         fail(error, "CAPTURE"); throw error
                     }
                     delay(1_000)
@@ -186,7 +199,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             web.stopLoading()
             val keep = retain && succeeded && currentCoroutineContext().isActive && generation == acquiredGeneration &&
                 runCatching { sessions.metadata(account.provider)?.savedAt == binding.sessionVersion &&
-                    sessions.identity(account.provider) == account.stableId }.getOrDefault(false)
+                    sessions.identity(account.provider) == account.authenticationOwnerId }.getOrDefault(false)
             if (keep) {
                 // Keep the instance, never an active SNS page or an old count. No global pauseTimers().
                 val blank = CompletableDeferred<Boolean>()
@@ -215,5 +228,9 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             CookieManager.getInstance().flush()
         }
       }
+    }
+
+    private companion object {
+        val AUTH_PATH = Regex("(^|/)(login(?:\\.php)?|challenge|checkpoint|two_factor|two-factor|twofactor|two_step_verification|auth_platform)(/|$)", RegexOption.IGNORE_CASE)
     }
 }

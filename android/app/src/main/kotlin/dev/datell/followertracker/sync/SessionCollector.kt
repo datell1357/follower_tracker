@@ -31,12 +31,13 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
         if (expected != null && RefreshPolicy.usesProfileBrowser(expected)) {
             val browser = profileBrowser ?: throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
             val captured = captured(provider, browser.read(expected, metadata.userAgent,
-                retain = RapidTracking.state.value.running), expected)
+                retain = RapidTracking.state.value.running), expected, facebookPage = expected.accountType == AccountType.PAGE)
             currentCoroutineContext().ensureActive()
             return captured.first.copy(status = SyncStatus.READY, countTransport = CountTransport.PROFILE_BROWSER,
                 capabilities = captured.first.capabilities.copy(count = Capability.OBSERVED,
                     background = expected.capabilities.background.takeIf { it != Capability.FOREGROUND_ONLY } ?: Capability.UNVERIFIED)) to
-                captured.second.copy(observedAt = System.currentTimeMillis(), source = "${provider.name.lowercase()}-profile-browser")
+                captured.second.copy(observedAt = System.currentTimeMillis(), source =
+                    if (expected.accountType == AccountType.PAGE) "facebook-page-browser" else "${provider.name.lowercase()}-profile-browser")
         }
         val observation = when (provider) {
             Provider.INSTAGRAM -> {

@@ -18,6 +18,7 @@ class FacebookPageTest {
         val (page, metric) = ResponseParser.facebookPageCapture(payload, "42", null, 10)
         assertEquals("FACEBOOK:PAGE:99", page.key)
         assertEquals("42", page.sessionOwnerId)
+        assertEquals("42", page.authenticationOwnerId)
         assertEquals(AccountType.PAGE, page.accountType)
         assertEquals("Facebook 페이지", page.connectionTitle)
         assertEquals("Fixture Page", page.identityLabel)
@@ -25,7 +26,8 @@ class FacebookPageTest {
         assertNull(metric.following)
         assertEquals(SyncStatus.FOREGROUND_ONLY, page.status)
         assertEquals(Capability.UNAVAILABLE, page.capabilities.followers)
-        assertFalse(RefreshPolicy.canRefresh(page, 10, background = true))
+        assertTrue(RefreshPolicy.canRefresh(page, 10, background = true))
+        assertEquals(Capability.FOREGROUND_ONLY, page.capabilities.background)
         assertEquals(page, Json.decodeFromString<Account>(Json.encodeToString(page)))
     }
     @Test fun pageUpdatePreservesConnectionAndRejectsDifferentTarget() {

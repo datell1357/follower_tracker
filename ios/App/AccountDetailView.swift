@@ -18,12 +18,12 @@ enum TrackerTrendRange: String, CaseIterable {
 struct AccountDetailScreen: View {
     let model: TrackerModel
     let key: String
-    let onReconnect: (Provider) -> Void
+    let onReconnect: (Account) -> Void
     let onLogout: (Provider) -> Void
     var body: some View {
         Group {
             if let row = model.accounts.first(where: { $0.id == key }) {
-                AccountDetailView(row: row, busy: model.busy, onRefresh: { Task { await model.refresh(key) } }, onReconnect: { onReconnect(row.account.provider) }, onLogout: { onLogout(row.account.provider) })
+                AccountDetailView(row: row, busy: model.busy, onRefresh: { Task { await model.refresh(key) } }, onReconnect: { onReconnect(row.account) }, onLogout: { onLogout(row.account.provider) })
             } else {
                 EmptyCard("계정을 찾을 수 없어요", "연결 상태를 홈에서 다시 확인해주세요.").padding(20)
             }
@@ -47,7 +47,7 @@ struct AccountDetailView: View {
                     ProviderMark(provider: row.account.provider)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(row.account.displayName).font(.title3.bold())
-                        Text(row.account.provider.title + " · @" + row.account.username).font(.caption).foregroundStyle(TrackerStyle.muted)
+                        Text(row.account.connectionTitle + " · " + row.account.identityLabel).font(.caption).foregroundStyle(TrackerStyle.muted)
                     }
                 }.padding(.vertical, 8)
                 VStack(alignment: .leading, spacing: 10) {
@@ -100,11 +100,11 @@ struct AccountDetailView: View {
     private func recordTime(_ metric: MetricSnapshot) -> some View { Text(TrackerStyle.observationTime(metric.observedAt)).font(.caption).foregroundStyle(TrackerStyle.muted) }
     private func recordCount(_ metric: MetricSnapshot) -> some View { Text(TrackerStyle.count(metric.followers)).font(.subheadline.weight(.semibold)).monospacedDigit() }
     private var refreshButton: some View { Button(busy ? "갱신 중" : "지금 갱신", action: onRefresh).buttonStyle(TrackerPrimaryButtonStyle()).disabled(busy || row.account.status == .foregroundOnly) }
-    private var reconnectButton: some View { Button("로그인 페이지", action: onReconnect).font(.subheadline.weight(.semibold)).frame(minHeight: 48).disabled(busy) }
+    private var reconnectButton: some View { Button(row.account.accountType == .page ? "페이지 열고 갱신" : "로그인 페이지", action: onReconnect).font(.subheadline.weight(.semibold)).frame(minHeight: 48).disabled(busy) }
     private var backgroundDetail: String {
         switch row.account.capabilities.background {
         case .observed: "기기에서 백그라운드 수집이 실행됐어요. 실제 갱신 시각은 운영체제와 연결 상태에 따라 달라져요."
-        case .foregroundOnly: "현재 이 계정은 로그인 페이지에서 내 프로필을 열어 갱신해요."
+        case .foregroundOnly: row.account.accountType == .page ? "페이지를 열고 연결 확인을 눌러 갱신해요. 위젯은 마지막 정상 수집값을 보여줘요." : "현재 이 계정은 로그인 페이지에서 내 프로필을 열어 갱신해요."
         case .unavailable: "이 계정의 자동 수집 경로를 사용할 수 없어요. 마지막으로 읽은 기록을 표시해요."
         case .unverified: "예약 수집과 위젯에서 갱신을 시도해요. 이 계정의 백그라운드 성공은 아직 확인되지 않았어요."
         }

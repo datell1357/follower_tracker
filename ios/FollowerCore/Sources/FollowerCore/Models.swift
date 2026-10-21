@@ -85,6 +85,8 @@ public struct TransientRetryState: Codable, Equatable, Sendable {
     }
 }
 
+public enum AccountType: String, Codable, Sendable { case profile = "PROFILE", page = "PAGE" }
+
 public struct Account: Codable, Identifiable, Equatable, Sendable {
     public let provider: Provider
     public let stableID: String
@@ -98,14 +100,45 @@ public struct Account: Codable, Identifiable, Equatable, Sendable {
     public var nextAllowedAt: Int64?
     public var transientRetry: TransientRetryState?
     public var relationshipStatus: SyncStatus?
-    public var id: String { "\(provider.rawValue):\(stableID)" }
+    public let accountType: AccountType
+    public let sessionOwnerID: String?
+    public var id: String { accountType == .page ? "\(provider.rawValue):PAGE:\(stableID)" : "\(provider.rawValue):\(stableID)" }
+    public var connectionTitle: String { accountType == .page ? "Facebook 페이지" : provider.title }
+    public var identityLabel: String { accountType == .page ? displayName : "@" + username }
+    public var authenticationOwnerID: String { accountType == .page ? sessionOwnerID! : stableID }
+    public func conflicts(with other: Account) -> Bool {
+        provider == other.provider && accountType == .profile && other.accountType == .profile && id != other.id
+    }
     public init(provider: Provider, stableID: String, username: String, displayName: String,
-                profileURL: URL, connectedAt: Int64) throws {
+                profileURL: URL, connectedAt: Int64, accountType: AccountType = .profile, sessionOwnerID: String? = nil) throws {
         guard !stableID.isEmpty, !username.isEmpty, provider.allows(profileURL) else {
             throw CollectionFailure(.checkRequired)
         }
+        if accountType == .page {
+            guard provider == .facebook, stableID.range(of: "^[0-9]+$", options: .regularExpression) != nil,
+                  sessionOwnerID?.range(of: "^[0-9]+$", options: .regularExpression) != nil else { throw CollectionFailure(.checkRequired) }
+        }
         self.provider = provider; self.stableID = stableID; self.username = username
         self.displayName = displayName; self.profileURL = profileURL; self.connectedAt = connectedAt
+        self.accountType = accountType; self.sessionOwnerID = sessionOwnerID
+    }
+    private enum CodingKeys: String, CodingKey {
+        case provider, stableID, username, displayName, profileURL, connectedAt, status, capabilities
+        case lastAttemptAt, nextAllowedAt, transientRetry, relationshipStatus, accountType, sessionOwnerID
+    }
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(provider: values.decode(Provider.self, forKey: .provider), stableID: values.decode(String.self, forKey: .stableID),
+            username: values.decode(String.self, forKey: .username), displayName: values.decode(String.self, forKey: .displayName),
+            profileURL: values.decode(URL.self, forKey: .profileURL), connectedAt: values.decode(Int64.self, forKey: .connectedAt),
+            accountType: values.decodeIfPresent(AccountType.self, forKey: .accountType) ?? .profile,
+            sessionOwnerID: values.decodeIfPresent(String.self, forKey: .sessionOwnerID))
+        status = try values.decodeIfPresent(SyncStatus.self, forKey: .status) ?? .ready
+        capabilities = try values.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? Capabilities()
+        lastAttemptAt = try values.decodeIfPresent(Int64.self, forKey: .lastAttemptAt)
+        nextAllowedAt = try values.decodeIfPresent(Int64.self, forKey: .nextAllowedAt)
+        transientRetry = try values.decodeIfPresent(TransientRetryState.self, forKey: .transientRetry)
+        relationshipStatus = try values.decodeIfPresent(SyncStatus.self, forKey: .relationshipStatus)
     }
 }
 

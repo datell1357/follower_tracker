@@ -48,8 +48,8 @@ struct AccountCard: View {
             HStack(spacing: 12) {
                 ProviderMark(provider: row.account.provider)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(row.account.provider.title).font(.headline)
-                    Text("@" + row.account.username).font(.caption).foregroundStyle(TrackerStyle.muted).lineLimit(1)
+                    Text(row.account.connectionTitle).font(.headline)
+                    Text(row.account.identityLabel).font(.caption).foregroundStyle(TrackerStyle.muted).lineLimit(1)
                     if row.account.status != .ready && row.account.status != .refreshing {
                         Text(row.account.status.label).font(.caption.weight(.semibold)).foregroundStyle(TrackerStyle.muted)
                         if row.account.status == .rateLimited, let until = row.account.nextAllowedAt {

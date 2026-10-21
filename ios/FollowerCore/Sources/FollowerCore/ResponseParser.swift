@@ -38,6 +38,7 @@ public enum ResponseParser {
         if let failure = webCaptureFailure(root) { throw failure }
         guard session.authenticated(provider) else { throw CollectionFailure(.reauthRequired) }
         guard root["provider"] as? String == provider.rawValue else { throw CollectionFailure(.checkRequired) }
+        guard root["accountType"] as? String != AccountType.page.rawValue, expected?.accountType != .page else { throw CollectionFailure(.checkRequired) }
         guard root["precision"] as? String == "EXACT", let id = root["stableId"] as? String,
               let name = root["username"] as? String, let profile = root["profileURL"] as? String,
               let url = URL(string: profile), let source = root["source"] as? String else { throw CollectionFailure(.formatChanged) }
@@ -71,6 +72,37 @@ public enum ResponseParser {
         account.lastAttemptAt = now
         return (account, try MetricSnapshot(accountKey: account.id, observedAt: now, followers: followers,
             following: following, source: source))
+    }
+
+    /// Called only for the Page explicitly selected by the user. Session and target identities stay separate.
+    public static func capturedFacebookPage(_ payload: String, session: SavedSession, expected: Account?, now: Int64) throws -> (Account, MetricSnapshot) {
+        let root = try objectBody(payload)
+        if let failure = webCaptureFailure(root) { throw failure }
+        guard session.authenticated(.facebook), let owner = session.identity(.facebook) else { throw CollectionFailure(.reauthRequired) }
+        guard root["provider"] as? String == Provider.facebook.rawValue,
+              root["accountType"] as? String == AccountType.page.rawValue,
+              root["sessionOwnerId"] as? String == owner,
+              let id = root["stableId"] as? String, id != owner, id.range(of: "^[0-9]+$", options: .regularExpression) != nil,
+              expected == nil || expected?.provider == .facebook && expected?.accountType == .page && expected?.stableID == id else {
+            throw CollectionFailure(.checkRequired)
+        }
+        guard root["source"] as? String == "facebook-webview-page", root["precision"] as? String == Precision.exact.rawValue,
+              let name = root["username"] as? String, let display = root["displayName"] as? String,
+              let profile = root["profileURL"] as? String, let url = URL(string: profile),
+              let number = root["followers"] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              let followers = exactDisplayedCount(number.stringValue), followers <= 9_007_199_254_740_991 else {
+            throw CollectionFailure(.formatChanged)
+        }
+        let address = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        guard Provider.facebook.allows(url), address?.path == "/profile.php", address?.percentEncodedQuery == "id=\(id)", address?.fragment == nil else {
+            throw CollectionFailure(.checkRequired)
+        }
+        var page = try Account(provider: .facebook, stableID: id, username: name, displayName: display, profileURL: url,
+            connectedAt: expected?.connectedAt ?? now, accountType: .page, sessionOwnerID: owner)
+        page.status = .foregroundOnly; page.lastAttemptAt = now
+        page.capabilities.count = .foregroundOnly; page.capabilities.background = .foregroundOnly
+        page.capabilities.followers = .unavailable; page.capabilities.following = .unavailable
+        return (page, try MetricSnapshot(accountKey: page.id, observedAt: now, followers: followers, following: nil, source: "facebook-webview-page"))
     }
     public static func instagramProfile(_ body: String, expectedID: String?, now: Int64) throws -> (Account, MetricSnapshot) {
         let root = try objectBody(body)

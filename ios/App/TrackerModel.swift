@@ -55,14 +55,23 @@ final class TrackerModel {
         catch is CancellationError { }
         catch { message = "명단 갱신을 마치지 못했어요. 마지막 완료된 비교를 유지했어요." }
     }
-    func connect(_ provider: Provider, session: SavedSession, payload: String?) async throws {
+    func connect(_ provider: Provider, session: SavedSession, payload: String?, facebookPage: Bool = false, expectedPageKey: String? = nil) async throws {
         guard !busy, let repository else { throw StorageFailure.unavailable }
         busy = true; message = nil; defer { busy = false }
-        let expected = try await repository.accounts().first { $0.provider == provider }
+        let accounts = try await repository.accounts()
+        let pageID = try payload.flatMap { try ResponseParser.objectBody($0)["stableId"] as? String }
+        let expected = accounts.first { account in
+            guard account.provider == provider else { return false }
+            if facebookPage { return account.accountType == .page && (expectedPageKey.map { account.id == $0 } ?? (account.stableID == pageID)) }
+            return account.accountType == .profile
+        }
+        if facebookPage && (provider != .facebook || payload == nil) { throw CollectionFailure(.checkRequired) }
         let observation: (Account, MetricSnapshot)
         if let payload {
-            let captured = try ResponseParser.capturedProfile(provider, payload: payload, session: session, expected: expected, now: nowMillis())
-            var saved = session; saved.expectedID = captured.0.stableID
+            let captured = try facebookPage ? ResponseParser.capturedFacebookPage(payload, session: session, expected: expected, now: nowMillis()) :
+                ResponseParser.capturedProfile(provider, payload: payload, session: session, expected: expected, now: nowMillis())
+            if let expectedPageKey, captured.0.id != expectedPageKey { throw CollectionFailure(.checkRequired) }
+            var saved = session; saved.expectedID = captured.0.authenticationOwnerID
             try Task.checkCancellation()
             try await SessionVault.shared.save(provider, saved)
             observation = captured
@@ -80,8 +89,9 @@ final class TrackerModel {
         busy = true; defer { busy = false }
         do {
             guard let account = try await repository.account(key) else { return }
-            try await SessionVault.shared.remove(account.provider)
             try await repository.disconnect(key)
+            let remaining = try await repository.accounts()
+            if !remaining.contains(where: { $0.provider == account.provider }) { try await SessionVault.shared.remove(account.provider) }
             await reload(); await WidgetUpdates.shared.request()
         } catch { message = "연결 해제를 마치지 못했어요. 다시 확인해주세요." }
     }

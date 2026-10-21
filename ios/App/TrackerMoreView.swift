@@ -41,7 +41,7 @@ struct TrackerMoreView: View {
 struct TrackerAccountsView: View {
     let accounts: [AccountOverview]
     let busy: Bool
-    let onConnect: () -> Void, onReconnect: (Provider) -> Void, onDisconnect: (String) -> Void, onLogout: (Provider) -> Void
+    let onConnect: () -> Void, onReconnect: (Account) -> Void, onDisconnect: (String) -> Void, onLogout: (Provider) -> Void
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -52,8 +52,8 @@ struct TrackerAccountsView: View {
                         HStack(spacing: 12) {
                             ProviderMark(provider: row.account.provider)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(row.account.provider.title).font(.headline)
-                                Text("@" + row.account.username).font(.caption).foregroundStyle(TrackerStyle.muted).lineLimit(1)
+                                Text(row.account.connectionTitle).font(.headline)
+                                Text(row.account.identityLabel).font(.caption).foregroundStyle(TrackerStyle.muted).lineLimit(1)
                             }
                         }
                         Text(row.account.status.label + " · " + TrackerStyle.collectedAt(row.latest?.observedAt, compact: true)).font(.caption).foregroundStyle(TrackerStyle.muted)
@@ -67,7 +67,7 @@ struct TrackerAccountsView: View {
             }.padding(20).foregroundStyle(TrackerStyle.ink)
         }.background(TrackerStyle.background).navigationTitle("연결된 계정").navigationBarTitleDisplayMode(.inline)
     }
-    private func reconnect(_ row: AccountOverview) -> some View { Button("로그인 페이지") { onReconnect(row.account.provider) }.font(.subheadline.weight(.semibold)).tint(TrackerStyle.color(row.account.provider)).frame(minHeight: 48) }
+    private func reconnect(_ row: AccountOverview) -> some View { Button(row.account.accountType == .page ? "페이지 갱신" : "로그인 페이지") { onReconnect(row.account) }.font(.subheadline.weight(.semibold)).tint(TrackerStyle.color(row.account.provider)).frame(minHeight: 48) }
     private func disconnect(_ row: AccountOverview) -> some View { Button("연결 해제", role: .destructive) { onDisconnect(row.id) }.font(.subheadline).frame(minHeight: 48) }
     private func logout(_ row: AccountOverview) -> some View { Button("로그아웃") { onLogout(row.account.provider) }.font(.subheadline).frame(minHeight: 48) }
 }

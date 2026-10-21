@@ -33,11 +33,13 @@ final class AutoConnectionRuntimeTests: XCTestCase {
         """
     }
     private func start(html: String, authenticated: Bool = true, url: URL? = nil,
+                       provider: Provider = .instagram, facebookPage: Bool = false, expectedPage: Account? = nil, savedSession: SavedSession? = nil,
                        onObservation: @escaping @MainActor (SavedSession, String) async throws -> Void,
                        completed: @escaping @MainActor () -> Void = {}) -> LoginBrowser {
-        let saved = authenticated ? session() : nil
+        let saved = authenticated ? savedSession ?? session() : nil
         let page = url ?? profile
-        let browser = LoginBrowser(provider: .instagram, restoreSession: { saved }, loadPage: { web, _ in web.loadHTMLString(html, baseURL: page) })
+        let browser = LoginBrowser(provider: provider, facebookPage: facebookPage, expectedPage: expectedPage,
+            restoreSession: { saved }, loadPage: { web, _ in web.loadHTMLString(html, baseURL: page) })
         self.browser = browser
         let view = UIViewController()
         view.loadViewIfNeeded()
@@ -114,5 +116,47 @@ final class AutoConnectionRuntimeTests: XCTestCase {
         XCTAssertFalse(browser.canRetry)
         browser.cancel()
         await fulfillment(of: [connected], timeout: 2)
+    }
+    private func pageSession() -> SavedSession {
+        SavedSession(cookies: [("c_user", "42"), ("xs", "synthetic-page-session")].map { name, value in
+            CookieRecord(HTTPCookie(properties: [.name: name, .value: value, .domain: ".facebook.com", .path: "/", .secure: "TRUE"])!)
+        }, userAgent: "fixture", expectedID: "42", savedAt: 1)
+    }
+    private func pageHTML(_ id: String) -> String {
+        """
+        <html><head><link rel="canonical" href="https://www.facebook.com/profile.php?id=\(id)">
+        <meta property="al:android:url" content="fb://page/\(id)"></head><body>
+        <header><h1>Fixture Page</h1><span>0 followers</span><span>Page · Brand</span></header>
+        <script>globalThis.fixtureRequests=0;globalThis.fetch=function(){fixtureRequests++;throw new Error('No request expected');};</script>
+        </body></html>
+        """
+    }
+    func testFacebookPageRequiresExplicitConfirmationAndKeepsTheLoginOwnerSeparate() async throws {
+        var observations = 0
+        let browser = start(html: pageHTML("99"), url: URL(string: "https://www.facebook.com/profile.php?id=99")!,
+            provider: .facebook, facebookPage: true, savedSession: pageSession(), onObservation: { session, payload in
+                let (page, count) = try ResponseParser.capturedFacebookPage(payload, session: session, expected: nil, now: 10)
+                XCTAssertEqual(page.id, "FACEBOOK:PAGE:99"); XCTAssertEqual(page.authenticationOwnerID, "42")
+                XCTAssertEqual(count.followers, 0); XCTAssertNil(count.following)
+                observations += 1
+            })
+        try await waitUntil { !browser.loading && browser.sessionReady }
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertEqual(observations, 0)
+        browser.confirmPage()
+        try await waitUntil { observations == 1 }
+        let count = try await requests(browser)
+        XCTAssertEqual(count, 0)
+    }
+    func testExistingFacebookPageCannotBeReplacedByAnotherSelectedPage() async throws {
+        let expected = try Account(provider: .facebook, stableID: "99", username: "fixture.page", displayName: "Fixture Page",
+            profileURL: URL(string: "https://www.facebook.com/profile.php?id=99")!, connectedAt: 1, accountType: .page, sessionOwnerID: "42")
+        var observations = 0
+        let browser = start(html: pageHTML("88"), url: URL(string: "https://www.facebook.com/profile.php?id=88")!,
+            provider: .facebook, facebookPage: true, expectedPage: expected, savedSession: pageSession(), onObservation: { _, _ in observations += 1 })
+        try await waitUntil { !browser.loading && browser.sessionReady }
+        browser.confirmPage()
+        try await waitUntil { browser.notice?.contains("기존에 연결한 페이지") == true }
+        XCTAssertEqual(observations, 0)
     }
 }
