@@ -142,11 +142,14 @@ final class FacebookPageDocumentTests: XCTestCase {
     }
     func testCommentsTemplatesExecutableScriptsAndFormValuesAreNotJSONSources() throws {
         let payload = try script(record(999))
-        let html = #"<link rel="canonical" href="/profile.php?id=99">"# +
-            "<!--" + payload + "--><template>" + payload + "</template><style>/*" + payload + "*/</style>" +
-            ["textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript"].map { "<\($0)>" + payload + "</\($0)>" }.joined() +
-            "<script>" + String(decoding: try JSONSerialization.data(withJSONObject: record(999)), as: UTF8.self) + "</script>" +
+        let inactiveTags = ["textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript"]
+        let inactiveMarkup = inactiveTags.map { "<\($0)>\(payload)</\($0)>" }.joined()
+        let executableJSON = String(decoding: try JSONSerialization.data(withJSONObject: record(999)), as: UTF8.self)
+        let html = [#"<link rel="canonical" href="/profile.php?id=99">"#,
+            "<!--\(payload)-->", "<template>\(payload)</template>", "<style>/*\(payload)*/</style>",
+            inactiveMarkup, "<script>\(executableJSON)</script>",
             #"<input type='password' value='<script type="application/json">{"__typename":"Page","id":"99","name":"Fake","followers_count":999}</script>'>"#
+        ].joined()
         assertFailure(html, status: .foregroundOnly)
         assertFailure(#"<link rel="canonical" href="/profile.php?id=99"><plaintext>"# + payload, status: .foregroundOnly)
         XCTAssertEqual(try read(html + script(record(3), attributes: #"data-note="a > b" data-sjs TYPE='application/json'"#)).1.followers, 3)
