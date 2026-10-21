@@ -1,4 +1,5 @@
 import SwiftUI
+import FollowerCore
 
 // Two products, also used by the in-app gallery.
 enum TrackerWidgetSize: Equatable { case small, large }
@@ -7,6 +8,9 @@ struct TrackerWidgetContent: View {
     let rows: [AccountOverview]
     var storageError = false
     var size: TrackerWidgetSize = .small
+    var pageIndex = 0
+    var onPage: ((Int) -> Void)? = nil
+    var widgetControls = false
     private var single: Bool { size == .small }
     var body: some View {
         Group {
@@ -46,7 +50,12 @@ struct TrackerWidgetContent: View {
         .accessibilityElement(children: .combine)
     }
     private var overview: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        GeometryReader { geometry in
+            overview(page: WidgetPageLayout(itemCount: rows.count, requestedPage: pageIndex, height: geometry.size.height))
+        }
+    }
+    private func overview(page: WidgetPageLayout) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(single ? "내 계정" : "소셜 모아보기").font(.system(size: 17, weight: .bold))
@@ -61,10 +70,29 @@ struct TrackerWidgetContent: View {
                 Text(storageError ? "앱에서 확인해주세요" : "눌러서 앱 열기").font(.caption).foregroundStyle(TrackerStyle.muted)
             } else {
                 // Connections include explicitly selected Pages with distinct keys and labels.
-                ForEach(rows) { row in overviewRow(row) }
+                ForEach(Array(rows[page.range])) { row in overviewRow(row) }
+                if page.pageCount > 1 {
+                    HStack {
+                        pageButton("이전 계정", symbol: "chevron.left", target: page.index - 1, enabled: page.hasPrevious)
+                        Spacer(minLength: 4)
+                        Text("\(page.index + 1) / \(page.pageCount)").font(.system(size: 11, weight: .medium))
+                            .accessibilityLabel("\(page.pageCount)쪽 중 \(page.index + 1)쪽")
+                        Spacer(minLength: 4)
+                        pageButton("다음 계정", symbol: "chevron.right", target: page.index + 1, enabled: page.hasNext)
+                    }
+                }
             }
             Spacer(minLength: 0)
         }.foregroundStyle(TrackerStyle.ink).padding(14)
+    }
+    @ViewBuilder private func pageButton(_ title: String, symbol: String, target: Int, enabled: Bool) -> some View {
+        if widgetControls {
+            Button(intent: OverviewWidgetPageIntent(page: target)) { Image(systemName: symbol).frame(width: 44, height: 44) }
+                .buttonStyle(.plain).disabled(!enabled).accessibilityLabel(title)
+        } else {
+            Button { onPage?(target) } label: { Image(systemName: symbol).frame(width: 44, height: 44) }
+                .buttonStyle(.plain).disabled(!enabled || onPage == nil).accessibilityLabel(title)
+        }
     }
     private func overviewRow(_ row: AccountOverview) -> some View {
         let brand = ProviderBrand(provider: row.account.provider)
@@ -86,7 +114,7 @@ struct TrackerWidgetContent: View {
                 Spacer(minLength: 0)
                 if let compared = row.comparisonAt { Text(TrackerStyle.observationTime(compared, compact: true) + " 대비") }
             }.font(.system(size: 8)).foregroundStyle(TrackerStyle.muted).lineLimit(1).minimumScaleFactor(0.7)
-        }.padding(.horizontal, 9).padding(.vertical, 5).background(brand.background, in: RoundedRectangle(cornerRadius: 12))
+        }.padding(.horizontal, 9).padding(.vertical, 4).background(brand.background, in: RoundedRectangle(cornerRadius: 12))
             .accessibilityElement(children: .combine)
     }
     private func mark(_ row: AccountOverview, side: CGFloat) -> some View {

@@ -40,6 +40,7 @@ struct TrackerEntry: TimelineEntry {
     let date: Date
     let rows: [AccountOverview]
     var storageError = false
+    var overviewPage = 0
 }
 struct TrackerTimeline: AppIntentTimelineProvider {
     var allAccounts = false
@@ -73,7 +74,7 @@ struct TrackerTimeline: AppIntentTimelineProvider {
         do {
             let repository = try TrackerRepository()
             let rows = try await records(repository, configuration)
-            return TrackerEntry(date: Date(), rows: rows)
+            return TrackerEntry(date: Date(), rows: rows, overviewPage: allAccounts ? TrackerSettings.overviewPage : 0)
         } catch { return TrackerEntry(date: Date(), rows: [], storageError: true) }
     }
 }
@@ -82,7 +83,8 @@ struct TrackerWidgetView: View {
     @Environment(\.widgetFamily) private var family
     var body: some View {
         TrackerWidgetContent(rows: entry.rows, storageError: entry.storageError,
-            size: family == .systemSmall ? .small : .large)
+            size: family == .systemSmall ? .small : .large, pageIndex: entry.overviewPage,
+            widgetControls: family == .systemLarge)
             .containerBackground(.clear, for: .widget)
             .widgetURL(URL(string: "followertracker://dashboard"))
     }

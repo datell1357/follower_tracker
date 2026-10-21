@@ -6,6 +6,7 @@ struct TrackerWidgetGallery: View {
     var busy = false
     let onConnect: () -> Void
     @SceneStorage("tracker.widgetPreviewAccount") private var selection = "all"
+    @State private var overviewPage = 0
     private var validSelection: String { accounts.contains { $0.id == selection } ? selection : "all" }
     private var rows: [AccountOverview] { validSelection == "all" ? Array(accounts.prefix(1)) : accounts.filter { $0.id == validSelection } }
     var body: some View {
@@ -23,7 +24,8 @@ struct TrackerWidgetGallery: View {
                     Spacer()
                 }.dynamicTypeSize(.medium)
                 TrackerSectionTitle(title: "소셜 모아보기 · 대형")
-                TrackerWidgetContent(rows: accounts, storageError: storageError, size: .large).frame(height: 360)
+                TrackerWidgetContent(rows: accounts, storageError: storageError, size: .large, pageIndex: overviewPage,
+                    onPage: { overviewPage = $0 }).frame(height: 360)
                     .clipShape(RoundedRectangle(cornerRadius: 24)).dynamicTypeSize(.medium)
                 Text("숫자와 함께 마지막 실제 수집 시각을 확인하세요.").font(.caption).foregroundStyle(TrackerStyle.muted)
                 TrackerSectionTitle(title: "위젯 추가하기")
