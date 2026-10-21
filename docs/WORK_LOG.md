@@ -458,3 +458,8 @@
 - iOS의 로그인 주소 정책이 Google·Apple과 TikTok의 외부 인증 주소를 차단하는 두 검사 실패를 재현했다. 기존 Android의 로그인 전용 허용 목록을 반영하고 SNS 수집 주소·쿠키 보관·본인 ID·자동 캡처 경계를 유지했다. Google·Apple 주소는 정확한 호스트만 허용하며 TikTok 전용 주소를 다른 SNS에 공통 적용하지 않는다.
 - 유사 도메인·인증정보 포함 URL·비 HTTPS·비표준 포트·외부 인증 페이지 캡처 거부를 포함한 Swift core 73개와 실제 SQLite·SyncService의 macOS 대역 검사 24개가 통과했다. iOS Debug 검사 타깃·서명 없는 Release 앱/위젯 빌드도 통과했다. Android 소스·기기·APK는 변경하지 않았다.
 - 이 검사는 로그인 주소 정책의 회귀이며 실제 iOS Google·Apple·TikTok 인증 성공, 팝업 복귀·세션 확보 또는 새 페이지 연결의 실기기 결과를 뜻하지 않는다. Google의 embedded user-agent 제한과 실제 인증 경계는 [WebView 로그인](WEBVIEW_LOGIN.md#2026-10-22-ios-외부-인증-주소-허용)에 구분했다.
+
+## 2026-10-22 페이지 연결 메뉴·상세 안내 일치
+
+- Android·iOS의 SNS 선택 메뉴에 남아 있던 `페이지로 이동한 뒤 연결 확인`을 페이지 링크 입력·연결 버튼 안내로 바꿨다. iOS 페이지 상세의 존재하지 않는 `연결 확인` 버튼 안내도 실제 `이 페이지 연결` 이름으로 맞췄다. UI/UX 문서의 Android 빠른 추적 대상에도 이미 구현된 Facebook 페이지를 반영했다.
+- 문구 변경의 Android Debug·QA 앱/검사 APK·lint와 iOS Debug 앱/위젯 빌드를 통과했다. lint 오류 0개·기존 경고 16개이며 새 APK는 기존 설치본과 업데이트 서명이 일치한다. 동작을 반복하는 단위 검사는 추가하지 않았다. 자료 보존 설치·새 페이지 동선의 실제 화면·반복 수집은 ADB 연결이 없어 미실행이다.

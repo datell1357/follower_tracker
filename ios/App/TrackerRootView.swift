@@ -108,7 +108,7 @@ private struct ProviderPickerView: View {
                             ProviderMark(provider: .facebook)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Facebook 페이지").font(.headline).foregroundStyle(TrackerStyle.ink)
-                                Text("페이지로 이동한 뒤 연결 확인").font(.caption).foregroundStyle(TrackerStyle.muted)
+                                Text("페이지 링크를 입력하고 연결을 눌러주세요").font(.caption).foregroundStyle(TrackerStyle.muted)
                             }
                             Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(TrackerStyle.muted)
                         }.trackerPanel(padding: 18)

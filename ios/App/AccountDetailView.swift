@@ -106,7 +106,7 @@ struct AccountDetailView: View {
     private var backgroundDetail: String {
         switch row.account.capabilities.background {
         case .observed: "기기에서 백그라운드 수집이 실행됐어요. 실제 갱신 시각은 운영체제와 연결 상태에 따라 달라져요."
-        case .foregroundOnly: row.account.accountType == .page ? "페이지를 열고 연결 확인을 눌러 갱신해요. 위젯은 마지막 정상 수집값을 보여줘요." : "현재 이 계정은 로그인 페이지에서 내 프로필을 열어 갱신해요."
+        case .foregroundOnly: row.account.accountType == .page ? "페이지를 연 뒤 ‘이 페이지 연결’을 눌러 갱신해요. 위젯은 마지막 정상 수집값을 보여줘요." : "현재 이 계정은 로그인 페이지에서 내 프로필을 열어 갱신해요."
         case .unavailable: "이 계정의 자동 수집 경로를 사용할 수 없어요. 마지막으로 읽은 기록을 표시해요."
         case .unverified: "예약 수집과 위젯에서 갱신을 시도해요. 이 계정의 백그라운드 성공은 아직 확인되지 않았어요."
         }

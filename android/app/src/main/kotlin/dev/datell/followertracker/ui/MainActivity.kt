@@ -147,7 +147,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
                     modifier = Modifier.clickableSafe { picking = false; model.dismissMessage(); login = LoginRequest(provider) })
             }
                 if (provider == Provider.FACEBOOK) item(key = "facebook-page") {
-                    ListItem(headlineContent = { Text("Facebook 페이지") }, supportingContent = { Text("페이지로 이동한 뒤 연결 확인") },
+                    ListItem(headlineContent = { Text("Facebook 페이지") }, supportingContent = { Text("페이지 링크를 입력하고 연결을 눌러주세요") },
                         leadingContent = { ProviderMark(Provider.FACEBOOK) },
                         trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
                         modifier = Modifier.clickableSafe { picking = false; model.dismissMessage(); login = LoginRequest(Provider.FACEBOOK, facebookPage = true) })
