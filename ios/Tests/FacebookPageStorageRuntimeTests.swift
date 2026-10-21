@@ -4,6 +4,50 @@ import FollowerCore
 @testable import FollowerTracker
 
 final class FacebookPageStorageRuntimeTests: XCTestCase {
+    func testExplicitLogoutHidesCardsAndWidgetsAndFreshLoginRestoresOnlyItsHistory() async throws {
+        let repository = try TrackerRepository(databaseURL: location())
+        let personal = try account("42", page: false), page = try account("99", page: true)
+        let other = try Account(provider: .reddit, stableID: "fixture", username: "sample", displayName: "Sample",
+            profileURL: URL(string: "https://www.reddit.com/user/sample/")!, connectedAt: 3)
+        for owner in [personal, page, other] { try await repository.saveObservation(owner, metric(owner, at: 1_000, count: 95)) }
+        try await repository.updateStatus(personal.id, .reauthRequired)
+        let expired = try await repository.accounts()
+        XCTAssertEqual(expired.count, 3, "Session expiry must keep the reconnect card")
+        try await repository.markLoggedOut(.facebook)
+        let connected = try await repository.accounts(), overviews = try await repository.overviews(), widgets = try await repository.widgetOverviews()
+        XCTAssertEqual(connected.map(\.id), [other.id]); XCTAssertEqual(overviews.map(\.id), [other.id]); XCTAssertEqual(widgets.map(\.id), [other.id])
+        for owner in [personal, page] {
+            let retained = try await repository.account(owner.id), history = try await repository.history(owner.id)
+            let selectedWidget = try await repository.widgetOverviews(key: owner.id)
+            XCTAssertTrue(retained?.loggedOut == true); XCTAssertEqual(retained?.connectedAt, owner.connectedAt)
+            XCTAssertEqual(history.map(\.observedAt), [1_000]); XCTAssertTrue(selectedWidget.isEmpty)
+        }
+        try await repository.saveObservation(personal, metric(personal, at: 2_000, count: 100), requireExisting: true)
+        let afterLateWrite = try await repository.history(personal.id)
+        XCTAssertEqual(afterLateWrite.map(\.observedAt), [1_000])
+        var freshLogin = personal; freshLogin.connectedAt = 3_000
+        try await repository.saveObservation(freshLogin, metric(personal, at: 3_000, count: 0))
+        let restored = try await repository.account(personal.id), history = try await repository.history(personal.id)
+        let restoredWidgets = try await repository.widgetOverviews(), pageWidget = try await repository.widgetOverviews(key: page.id)
+        XCTAssertFalse(try XCTUnwrap(restored).loggedOut); XCTAssertEqual(restored?.connectedAt, personal.connectedAt)
+        XCTAssertEqual(history.map(\.followers), [95, 0]); XCTAssertEqual(Set(restoredWidgets.map(\.id)), [personal.id, other.id])
+        XCTAssertTrue(pageWidget.isEmpty)
+    }
+
+    func testLogoutAllowsAnotherPersonalIdentityWithoutDeletingTheArchivedHistory() async throws {
+        let repository = try TrackerRepository(databaseURL: location())
+        let original = try account("42", page: false), replacement = try account("77", page: false)
+        try await repository.saveObservation(original, metric(original, at: 1_000, count: 5))
+        try await repository.markLoggedOut(.facebook)
+        try await repository.saveObservation(replacement, metric(replacement, at: 2_000, count: 0))
+        let connected = try await repository.accounts(), archived = try await repository.account(original.id)
+        XCTAssertEqual(connected.map(\.id), [replacement.id]); XCTAssertTrue(archived?.loggedOut == true)
+        do { try await repository.saveObservation(original, metric(original, at: 3_000, count: 5)); XCTFail("Only one active personal profile per SNS") }
+        catch let failure as CollectionFailure { XCTAssertEqual(failure.status, .checkRequired) }
+        let originalHistory = try await repository.history(original.id), replacementHistory = try await repository.history(replacement.id)
+        XCTAssertEqual(originalHistory.map(\.followers), [5]); XCTAssertEqual(replacementHistory.map(\.followers), [0])
+    }
+
     private func account(_ id: String, page: Bool) throws -> Account {
         try Account(provider: .facebook, stableID: id, username: page ? "fixture.page" : "fixture.owner", displayName: page ? "Fixture Page" : "Fixture Owner",
             profileURL: URL(string: "https://www.facebook.com/profile.php?id=\(id)")!, connectedAt: 1,

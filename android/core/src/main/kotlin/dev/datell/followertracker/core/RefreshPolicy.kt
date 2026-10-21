@@ -10,6 +10,7 @@ object RefreshPolicy {
             account.provider in setOf(Provider.INSTAGRAM, Provider.TIKTOK, Provider.REDDIT))
 
     fun canRefresh(account: Account, now: Long, background: Boolean): Boolean {
+        if (account.loggedOut) return false
         if ((account.nextAllowedAt ?: 0) > now) return false
         if (!supportsCountRefresh(account)) return false
         if (!background) return true

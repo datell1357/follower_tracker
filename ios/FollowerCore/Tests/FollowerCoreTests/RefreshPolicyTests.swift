@@ -2,6 +2,23 @@ import XCTest
 @testable import FollowerCore
 
 final class RefreshPolicyTests: XCTestCase {
+    func testExplicitLogoutBlocksManualAndAutomaticCollection() throws {
+        var archived = try account(); archived.loggedOut = true
+        for background in [false, true] { XCTAssertFalse(RefreshPolicy.canRefresh(archived, now: 1, background: background)) }
+        XCTAssertTrue(RefreshPolicy.canRefresh(try account(status: .reauthRequired), now: 1, background: false))
+    }
+
+    func testLogoutFlagRoundTripsAndDoesNotBlockAnotherPersonalLogin() throws {
+        var archived = try account(); archived.loggedOut = true
+        let restored = try JSONDecoder().decode(Account.self, from: JSONEncoder().encode(archived))
+        XCTAssertTrue(restored.loggedOut)
+        let replacement = try Account(provider: .instagram, stableID: "other", username: "other", displayName: "Other",
+            profileURL: archived.profileURL, connectedAt: 2)
+        XCTAssertTrue(try account().conflicts(with: replacement))
+        XCTAssertFalse(archived.conflicts(with: replacement))
+        XCTAssertFalse(replacement.conflicts(with: archived))
+    }
+
     private func account(status: SyncStatus = .ready, nextAllowedAt: Int64? = nil) throws -> Account {
         var account = try Account(provider: .instagram, stableID: "fixture", username: "sample", displayName: "Sample",
             profileURL: URL(string: "https://www.instagram.com/sample/")!, connectedAt: 1)

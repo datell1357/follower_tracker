@@ -115,7 +115,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         WidgetUpdates.request(getApplication())
         reload()
         RapidTracking.signalChange()
-        state.update { it.copy(message = "${provider.title}에서 로그아웃했어요. 수집 기록은 유지했어요.") }
+        state.update { it.copy(message = "${provider.title}에서 로그아웃했어요. 다시 로그인하면 이전 기록을 볼 수 있어요.") }
     }
     fun disconnect(key: String) = action {
         val account = graph.repository.account(key) ?: return@action

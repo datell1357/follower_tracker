@@ -95,19 +95,21 @@ public struct Account: Codable, Identifiable, Equatable, Sendable {
     public let profileURL: URL
     public var status: SyncStatus = .ready
     public var capabilities = Capabilities()
-    public let connectedAt: Int64
+    public var connectedAt: Int64
     public var lastAttemptAt: Int64?
     public var nextAllowedAt: Int64?
     public var transientRetry: TransientRetryState?
     public var relationshipStatus: SyncStatus?
     public let accountType: AccountType
     public let sessionOwnerID: String?
+    /// Explicit logout archives the connection; authentication expiry does not.
+    public var loggedOut = false
     public var id: String { accountType == .page ? "\(provider.rawValue):PAGE:\(stableID)" : "\(provider.rawValue):\(stableID)" }
     public var connectionTitle: String { accountType == .page ? "Facebook 페이지" : provider.title }
     public var identityLabel: String { accountType == .page ? displayName : "@" + username }
     public var authenticationOwnerID: String { accountType == .page ? sessionOwnerID! : stableID }
     public func conflicts(with other: Account) -> Bool {
-        provider == other.provider && accountType == .profile && other.accountType == .profile && id != other.id
+        !loggedOut && !other.loggedOut && provider == other.provider && accountType == .profile && other.accountType == .profile && id != other.id
     }
     public init(provider: Provider, stableID: String, username: String, displayName: String,
                 profileURL: URL, connectedAt: Int64, accountType: AccountType = .profile, sessionOwnerID: String? = nil) throws {
@@ -124,7 +126,7 @@ public struct Account: Codable, Identifiable, Equatable, Sendable {
     }
     private enum CodingKeys: String, CodingKey {
         case provider, stableID, username, displayName, profileURL, connectedAt, status, capabilities
-        case lastAttemptAt, nextAllowedAt, transientRetry, relationshipStatus, accountType, sessionOwnerID
+        case lastAttemptAt, nextAllowedAt, transientRetry, relationshipStatus, accountType, sessionOwnerID, loggedOut
     }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -139,6 +141,7 @@ public struct Account: Codable, Identifiable, Equatable, Sendable {
         nextAllowedAt = try values.decodeIfPresent(Int64.self, forKey: .nextAllowedAt)
         transientRetry = try values.decodeIfPresent(TransientRetryState.self, forKey: .transientRetry)
         relationshipStatus = try values.decodeIfPresent(SyncStatus.self, forKey: .relationshipStatus)
+        loggedOut = try values.decodeIfPresent(Bool.self, forKey: .loggedOut) ?? false
     }
 }
 

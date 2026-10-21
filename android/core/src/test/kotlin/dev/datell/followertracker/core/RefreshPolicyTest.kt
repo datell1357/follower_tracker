@@ -9,6 +9,22 @@ class RefreshPolicyTest {
     private val owner = Account(Provider.INSTAGRAM, "42", "fixture_owner",
         profileUrl = "https://www.instagram.com/fixture_owner/", connectedAt = 1)
 
+    @Test fun explicitLogoutBlocksManualAndAutomaticRequestsWithoutHidingSessionExpiry() {
+        val archived = owner.copy(loggedOut = true)
+        for (background in listOf(false, true)) assertFalse(RefreshPolicy.canRefresh(archived, 1, background))
+        assertTrue(RefreshPolicy.canRefresh(owner.copy(status = SyncStatus.REAUTH_REQUIRED), 1, background = false))
+    }
+
+    @Test fun logoutFlagRoundTripsAndLegacyAccountsRemainConnected() {
+        assertFalse(Json.decodeFromString<Account>(Json.encodeToString(owner)).loggedOut)
+        val archived = Json.decodeFromString<Account>(Json.encodeToString(owner.copy(loggedOut = true)))
+        assertTrue(archived.loggedOut)
+        val replacement = owner.copy(stableId = "77")
+        assertTrue(owner.conflictsWith(replacement))
+        assertFalse(archived.conflictsWith(replacement))
+        assertFalse(replacement.conflictsWith(archived))
+    }
+
     @Test fun manualAndAutomaticRefreshBothHonorRateLimitCooldown() {
         val limited = owner.copy(status = SyncStatus.RATE_LIMITED, nextAllowedAt = 60_001)
         for (background in listOf(false, true)) {

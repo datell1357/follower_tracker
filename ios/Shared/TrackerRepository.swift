@@ -101,7 +101,10 @@ actor TrackerRepository {
         try backupURL.setResourceValues(values)
         database = try SQLiteDatabase(url: directory.appendingPathComponent("Tracker.sqlite"))
     }
-    func accounts() throws -> [Account] { try database.blobs("SELECT payload FROM accounts ORDER BY connected").map { try decoder.decode(Account.self, from: $0) } }
+    func accounts() throws -> [Account] {
+        try database.blobs("SELECT payload FROM accounts ORDER BY connected")
+            .map { try decoder.decode(Account.self, from: $0) }.filter { !$0.loggedOut }
+    }
     func account(_ key: String) throws -> Account? {
         try database.blobs("SELECT payload FROM accounts WHERE key=?", [.text(key)]).first.map { try decoder.decode(Account.self, from: $0) }
     }
@@ -128,11 +131,16 @@ actor TrackerRepository {
         try database.transaction {
             guard try writeIf() else { return }
             let existing = try self.account(account.id)
-            if requireExisting && existing?.connectedAt != account.connectedAt { return }
+            if requireExisting && (existing == nil || existing?.loggedOut == true || existing?.connectedAt != account.connectedAt) { return }
             if try accounts().contains(where: { $0.conflicts(with: account) }) { throw CollectionFailure(.checkRequired) }
             var preserved = account
             preserved.transientRetry = nil
-            if let existing { preserved.relationshipStatus = existing.relationshipStatus }
+            if let existing {
+                preserved.connectedAt = existing.connectedAt
+                preserved.relationshipStatus = existing.loggedOut && existing.relationshipStatus == .reauthRequired ? nil : existing.relationshipStatus
+                preserved.capabilities.followers = existing.capabilities.followers
+                preserved.capabilities.following = existing.capabilities.following
+            }
             try put(preserved)
             try database.run("INSERT INTO metrics(owner,observed,payload) VALUES(?,?,?)", [.text(metric.accountKey), .integer(metric.observedAt), .blob(try encoder.encode(metric))])
         }
@@ -142,6 +150,7 @@ actor TrackerRepository {
         try database.transaction {
             guard try writeIf() else { return }
             guard var account = try account(key) else { return }
+            guard !account.loggedOut else { return }
             if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
             account.status = status; account.lastAttemptAt = nowMillis(); account.nextAllowedAt = nextAllowedAt
             account.transientRetry = transientRetry
@@ -153,6 +162,7 @@ actor TrackerRepository {
         try database.transaction {
             guard try writeIf() else { return }
             guard var account = try account(key) else { return }
+            guard !account.loggedOut else { return }
             if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
             account.relationshipStatus = status; try put(account)
         }
@@ -163,6 +173,7 @@ actor TrackerRepository {
         try database.transaction {
             guard try writeIf() else { return }
             guard var account = try account(followers.accountKey) else { return }
+            guard !account.loggedOut else { return }
             if let expectedConnectedAt, account.connectedAt != expectedConnectedAt { return }
             try restoreRelationshipHistory(followers.accountKey)
             try recordRelationshipChanges(followers, previous: scans(followers.accountKey, .followers).first)
@@ -219,7 +230,7 @@ actor TrackerRepository {
     func markLoggedOut(_ provider: Provider) throws {
         try database.transaction {
             for var account in try accounts() where account.provider == provider {
-                account.status = .reauthRequired; account.relationshipStatus = .reauthRequired
+                account.status = .reauthRequired; account.loggedOut = true
                 account.nextAllowedAt = nil; account.transientRetry = nil
                 try put(account)
             }

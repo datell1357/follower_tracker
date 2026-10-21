@@ -63,7 +63,7 @@ struct TrackerAccountsView: View {
                         }
                     }.providerPanel(row.account.provider).disabled(busy)
                 }
-                Text("로그아웃하면 기록은 남아요. 연결 해제는 기록도 삭제해요. 다른 개인 계정은 기존 연결을 해제한 뒤 추가하세요.").font(.caption).foregroundStyle(TrackerStyle.muted)
+                Text("로그아웃하면 목록·위젯에서 빠지고 기록은 보관돼요. 같은 계정으로 다시 로그인하면 복원돼요. 연결 해제는 선택한 연결의 기록도 삭제해요.").font(.caption).foregroundStyle(TrackerStyle.muted)
             }.padding(20).foregroundStyle(TrackerStyle.ink)
         }.background(TrackerStyle.background).navigationTitle("연결된 계정").navigationBarTitleDisplayMode(.inline)
     }

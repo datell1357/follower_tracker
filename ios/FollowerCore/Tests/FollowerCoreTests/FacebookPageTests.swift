@@ -53,6 +53,7 @@ final class FacebookPageTests: XCTestCase {
     func testLegacyAccountsKeepTheirKeysAndOnlyPersonalProfilesConflict() throws {
         let data = Data(#"{"provider":"FACEBOOK","stableID":"42","username":"fixture.owner","displayName":"Fixture Owner","profileURL":"https://www.facebook.com/profile.php?id=42","connectedAt":1}"#.utf8)
         let personal = try JSONDecoder().decode(Account.self, from: data)
+        XCTAssertFalse(personal.loggedOut)
         let page = try ResponseParser.capturedFacebookPage(payload, session: session, expected: nil, now: 10).0
         XCTAssertEqual(personal.id, "FACEBOOK:42"); XCTAssertEqual(personal.accountType, .profile)
         XCTAssertEqual(personal.authenticationOwnerID, "42"); XCTAssertNil(personal.sessionOwnerID)

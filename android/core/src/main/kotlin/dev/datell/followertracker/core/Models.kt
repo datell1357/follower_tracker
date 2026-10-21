@@ -70,13 +70,15 @@ data class Account(
     val transientRetry: TransientRetryState? = null,
     val accountType: AccountType = AccountType.PROFILE,
     val sessionOwnerId: String? = null,
+    /** Explicit logout archives the connection; authentication expiry does not. */
+    val loggedOut: Boolean = false,
 ) {
     val key: String get() = if (accountType == AccountType.PAGE) "${provider.name}:PAGE:$stableId" else "${provider.name}:$stableId"
     val connectionTitle: String get() = if (accountType == AccountType.PAGE) "Facebook 페이지" else provider.title
     val identityLabel: String get() = if (accountType == AccountType.PAGE) displayName else "@$username"
     /** A selected Page is a collection target, never the person who owns the login session. */
     val authenticationOwnerId: String get() = if (accountType == AccountType.PAGE) checkNotNull(sessionOwnerId) else stableId
-    fun conflictsWith(other: Account): Boolean = provider == other.provider && accountType == AccountType.PROFILE &&
+    fun conflictsWith(other: Account): Boolean = !loggedOut && !other.loggedOut && provider == other.provider && accountType == AccountType.PROFILE &&
         other.accountType == AccountType.PROFILE && key != other.key
     init {
         require(stableId.isNotBlank() && username.isNotBlank())

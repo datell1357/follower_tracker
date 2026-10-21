@@ -172,7 +172,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
         val logout = action as? AccountAction.Logout
         AlertDialog(onDismissRequest = { accountAction = null },
             title = { Text(logout?.let { "${it.provider.title}에서 로그아웃할까요?" } ?: "연결을 해제할까요?") },
-            text = { Text(if (logout != null) "이 기기의 SNS 로그인 정보를 지우고 해당 SNS의 자동 수집을 멈춰요. 같은 SNS의 페이지에도 적용돼요. 팔로워·관계 기록과 다른 SNS 로그인은 유지해요."
+            text = { Text(if (logout != null) "이 기기의 SNS 로그인 정보를 지우고 계정·위젯에서 해당 SNS 연결을 빼요. 같은 SNS의 페이지에도 적용돼요. 이전 기록은 보관하며 같은 계정으로 다시 로그인하면 복원돼요. 다른 SNS 로그인은 유지해요."
                 else "선택한 연결의 추적·관계 기록을 삭제해요. 같은 SNS의 다른 연결이 있으면 로그인 세션은 유지해요. 다시 연결하면 새 기록부터 시작해요.") },
             confirmButton = { TextButton(onClick = {
                 accountAction = null
