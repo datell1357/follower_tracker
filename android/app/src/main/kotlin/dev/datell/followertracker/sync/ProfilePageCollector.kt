@@ -14,6 +14,7 @@ import dev.datell.followertracker.ui.facebookCollectionFallback
 import dev.datell.followertracker.ui.facebookPageDesktopUrl
 import dev.datell.followertracker.ui.facebookPageUserAgent
 import dev.datell.followertracker.ui.isOptionalTikTokAppLink
+import dev.datell.followertracker.ui.installProfileResponseObserver
 import dev.datell.followertracker.ui.webCaptureFailure
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -67,7 +68,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             "profileBrowser=${if (previous?.binding == binding) "reused" else "created"}")
         val web = if (previous?.binding == binding) previous.web else {
             previous?.web?.destroy()
-            createWebView(context)
+            createWebView(context).also { installProfileResponseObserver(it, account.provider) }
         }
         val acquiredGeneration = generation
         val facebookFallbacks = mutableSetOf<String>()

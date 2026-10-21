@@ -21,6 +21,7 @@ import kotlin.coroutines.resume
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Before
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -35,8 +36,12 @@ class FacebookPageRefreshRuntimeTest {
         countTransport = CountTransport.PROFILE_BROWSER, accountType = AccountType.PAGE, sessionOwnerId = "42")
 
     @Before fun isolatedSession() = runBlocking {
-        assumeTrue("Never installs synthetic login cookies in the user's app", context.packageName == "dev.datell.followertracker.pagevalidation")
+        assumeTrue("Never installs synthetic login cookies in the user's app", context.packageName in
+            setOf("dev.datell.followertracker.pagevalidation", "dev.datell.followertracker.loginvalidation"))
         withContext(Dispatchers.Main) {
+            check(Provider.entries.none { context.appGraph.sessions.hasAuthentication(it) }) {
+                "Requires an empty validation store without personal SNS sessions"
+            }
             val manager = CookieManager.getInstance()
             manager.setAcceptCookie(true)
             for (value in listOf("c_user=42", "xs=synthetic-validation-session")) {
@@ -53,6 +58,12 @@ class FacebookPageRefreshRuntimeTest {
             sessions.save(Provider.FACEBOOK, SessionMetadata(agent, "42", 1))
             assertTrue(sessions.hasAuthentication(Provider.FACEBOOK))
         }
+    }
+
+    @After fun clearSyntheticSession() = runBlocking {
+        if (context.packageName in setOf("dev.datell.followertracker.pagevalidation", "dev.datell.followertracker.loginvalidation") &&
+            this@FacebookPageRefreshRuntimeTest::sessions.isInitialized)
+            withContext(Dispatchers.Main) { sessions.disconnect(Provider.FACEBOOK) }
     }
 
     private class Documents {

@@ -22,7 +22,7 @@ cd android
 
 ```sh
 swift test --package-path ios/FollowerCore
-node --test shared/tests/capture.test.cjs
+node --test shared/tests/capture.test.cjs shared/tests/observer.test.cjs
 ```
 
 이 검사는 합성 응답과 명단으로 계정 일치, 수치 정밀도, 명단 완료·실패, 관계 비교를 확인한다. 실제 로그인·네트워크 수집·위젯 실행 성공을 증명하지 않는다.

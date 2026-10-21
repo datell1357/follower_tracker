@@ -17,6 +17,8 @@
   function jsonRoots(doc, includeServerData = false) {
     let remaining = MAX_JSON_BYTES;
     const roots = [];
+    const observed = doc.defaultView?.__followerTrackerObservedProfiles;
+    if (observed?.provider === 'INSTAGRAM' && Array.isArray(observed.profiles)) roots.push({ users: observed.profiles.slice(0, 16) });
     const selector = 'script[type="application/json"],script#__UNIVERSAL_DATA_FOR_REHYDRATION__,script#SIGI_STATE' + (includeServerData ? ',script[data-sjs]' : '');
     for (const node of doc.querySelectorAll(selector)) {
       const text = node.textContent || "";

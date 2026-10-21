@@ -1,11 +1,13 @@
 package dev.datell.followertracker
 
+import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import android.webkit.CookieManager
 import android.webkit.WebView
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -17,6 +19,7 @@ import org.junit.Before
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assume.assumeTrue
 import org.junit.runner.RunWith
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -31,24 +34,30 @@ class AutoConnectionRuntimeTest {
     @Before fun requireEmptyDevice() {
         rule.runOnIdle {
             for (provider in listOf(Provider.INSTAGRAM, Provider.TIKTOK, Provider.X, Provider.FACEBOOK))
-                check(!rule.activity.appGraph.sessions.hasAuthentication(provider)) { "Requires a device without personal SNS sessions" }
+                check(!rule.activity.appGraph.sessions.hasAuthentication(provider)) { "Requires a device without personal ${provider.name} sessions" }
         }
     }
     @After fun expireSyntheticCookies() {
-        rule.runOnIdle {
-            syntheticCookies.forEach { (url, name) -> CookieManager.getInstance().setCookie(url, "$name=; Max-Age=0; Path=/; Secure") }
-            CookieManager.getInstance().flush()
+        val remaining = AtomicInteger(syntheticCookies.size)
+        rule.runOnUiThread {
+            syntheticCookies.forEach { (url, name) ->
+                CookieManager.getInstance().setCookie(url, "$name=; Max-Age=0; Path=/; Secure") { remaining.decrementAndGet() }
+            }
         }
+        rule.waitUntil(5_000) { remaining.get() == 0 }
+        rule.runOnIdle { CookieManager.getInstance().flush() }
     }
     private fun show(provider: Provider): WebView {
         rule.runOnUiThread {
             rule.activity.setContent { TrackerTheme {
-                SessionLoginDialog(provider, false, null, onDismiss = {}, onConnect = { value, _ -> payload = value; connections.incrementAndGet() })
+                SessionLoginDialog(provider, false, null, onDismiss = {}, onConnect = { value, _ -> payload = value; connections.incrementAndGet() },
+                    createBrowserView = ::blockedBrowser)
             } }
         }
         rule.waitUntil(10_000) { WindowInspector.getGlobalWindowViews().any { descendants(it).any { child -> child is WebView } } }
         return rule.runOnIdle { browser().apply { stopLoading(); settings.blockNetworkLoads = true } }
     }
+    private fun blockedBrowser(context: Context) = WebView(context).apply { settings.blockNetworkLoads = true }
     private fun cookie(provider: Provider, name: String, value: String) {
         var ready = false
         syntheticCookies += provider.loginUrl to name
@@ -107,6 +116,53 @@ class AutoConnectionRuntimeTest {
         rule.runOnUiThread { web.evaluateJavascript("window.fixtureRequests") { count = it } }
         rule.waitUntil(5_000) { count != null }
         assertEquals("0", count)
+    }
+    @Test fun instagramLogoutAndFreshLoginWindowsConnectWithNewCountsAutomatically() {
+        assumeTrue(rule.activity.packageName == "dev.datell.followertracker.loginvalidation")
+        val host = rule.activity
+        val sessions = host.appGraph.sessions
+        val open = mutableStateOf(false)
+        rule.runOnUiThread {
+            host.setContent { TrackerTheme {
+                if (open.value) SessionLoginDialog(Provider.INSTAGRAM, false, null, onDismiss = {},
+                    onConnect = { value, _ -> payload = value; connections.incrementAndGet() }, createBrowserView = ::blockedBrowser)
+            } }
+        }
+        var previous: WebView? = null
+        listOf(12345, 7, 0).forEachIndexed { index, followers ->
+            assertFalse("Validation host must stay alive through each login", host.isDestroyed)
+            rule.runOnIdle { open.value = true }
+            rule.waitUntil(10_000) { browsers().isNotEmpty() }
+            val web = rule.runOnIdle { browser().apply { stopLoading(); settings.blockNetworkLoads = true } }
+            previous?.let { assertNotSame("Re-login must use a new browser", it, web) }
+            val html = """<!doctype html><html><body>
+                <script type="application/json">{"viewer":{"id":"42","username":"self"}}</script>
+                <a href="/self/followers/">12.3K followers</a>
+                <script>window.fixtureRequests=0;fetch('/graphql/query',{method:'POST',body:'synthetic-request'})
+                  .then(r=>r.json()).then(()=>{window.fixtureRequests++});</script>
+                </body></html>""".trimIndent()
+            val responses = mapOf("https://www.instagram.com/graphql/query" to
+                """{"data":{"user":{"id":"42","username":"self","follower_count":$followers,"following_count":3}}}""")
+            rule.runOnUiThread { loadLoginFixture(web, "https://www.instagram.com/self/", html, jsonResponses = responses) }
+            waitForPolls()
+            assertEquals("Profile data alone cannot reconnect a logged-out session", index, connections.get())
+            cookie(Provider.INSTAGRAM, "sessionid", "synthetic-relogin-$index")
+            cookie(Provider.INSTAGRAM, "ds_user_id", "42")
+            // A normal authenticated navigation starts a fresh document and response observation.
+            rule.runOnUiThread { loadLoginFixture(web, "https://www.instagram.com/self/", html, jsonResponses = responses) }
+            waitWithMetadata(web) { connections.get() == index + 1 }
+            assertEquals("Each login must read its new response", followers, JSONObject(payload!!).getInt("followers"))
+            assertEquals("42", JSONObject(payload!!).getString("stableId"))
+            rule.onNodeWithText("연결 확인").assertDoesNotExist()
+            waitForPolls()
+            assertEquals(index + 1, connections.get())
+            rule.runOnIdle { open.value = false }
+            rule.waitUntil(5_000) { browsers().isEmpty() }
+            rule.runOnIdle { sessions.disconnect(Provider.INSTAGRAM) }
+            rule.waitUntil(5_000) { !sessions.hasAuthentication(Provider.INSTAGRAM) }
+            assertNull(rule.runOnIdle { sessions.metadata(Provider.INSTAGRAM) })
+            previous = web
+        }
     }
     @Test fun rateLimitWaitsWithoutRequestsAndConnectsWhenExactPageCountsAppear() {
         val web = show(Provider.INSTAGRAM)

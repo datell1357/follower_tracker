@@ -15,7 +15,8 @@ import dev.datell.followertracker.core.Provider
 import java.io.ByteArrayInputStream
 
 /** Interactive login windows share cookies and preserve window.opener for SNS OAuth callbacks. */
-class SessionLoginBrowser(private val provider: Provider, private val initialUrl: String = provider.loginUrl) {
+class SessionLoginBrowser(private val provider: Provider, private val initialUrl: String = provider.loginUrl,
+    private val createWebView: (Context) -> WebView = ::WebView) {
     init { require(provider.allows(initialUrl)) }
     var active by mutableStateOf<WebView?>(null)
         private set
@@ -83,7 +84,7 @@ class SessionLoginBrowser(private val provider: Provider, private val initialUrl
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun configuredWebView(context: Context): WebView = WebView(context).apply {
+    private fun configuredWebView(context: Context): WebView = createWebView(context).apply {
         // Percentage-height login pages need a real MATCH_PARENT viewport.
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         WebView.setWebContentsDebuggingEnabled(false)
@@ -98,6 +99,7 @@ class SessionLoginBrowser(private val provider: Provider, private val initialUrl
         settings.allowContentAccess = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         settings.safeBrowsingEnabled = true
+        installProfileResponseObserver(this, provider)
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
         webChromeClient = object : WebChromeClient() {

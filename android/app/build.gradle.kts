@@ -37,6 +37,7 @@ kotlin { jvmToolchain(21) }
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 val copySessionCapture by tasks.registering(Copy::class) {
     from(rootProject.projectDir.parentFile.resolve("shared/web-session-capture.js"))
+    from(rootProject.projectDir.parentFile.resolve("shared/web-profile-observer.js"))
     into(layout.buildDirectory.dir("generated/session-assets"))
 }
 tasks.named("preBuild") { dependsOn(copySessionCapture) }
@@ -64,6 +65,7 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.serialization.json)
     implementation(libs.okhttp)
+    implementation(libs.webkit)
     debugImplementation(libs.compose.tooling)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.compose.bom))

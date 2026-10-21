@@ -7,24 +7,27 @@ import java.io.ByteArrayInputStream
 
 /** HTTPS fixture documents exercise the production navigation boundary; no network request escapes. */
 fun loadLoginFixture(web: WebView, url: String, html: String, scriptNavigation: Boolean = false,
-    desktopHtml: String? = null, onDocument: ((Boolean) -> Unit)? = null) {
+    desktopHtml: String? = null, onDocument: ((Boolean) -> Unit)? = null, jsonResponses: Map<String, String> = emptyMap()) {
     val delegate = (web.webViewClient as? LoginPageFixtureClient)?.delegate ?: web.webViewClient
     web.stopLoading()
     web.webViewClient = LoginPageFixtureClient(delegate, url, html.toByteArray(Charsets.UTF_8),
-        desktopHtml?.toByteArray(Charsets.UTF_8), onDocument)
+        desktopHtml?.toByteArray(Charsets.UTF_8), onDocument, jsonResponses)
     web.settings.blockNetworkLoads = false
     if (scriptNavigation) web.evaluateJavascript("location.href=${org.json.JSONObject.quote(url)}", null)
     else web.loadUrl(url)
 }
 
 private class LoginPageFixtureClient(val delegate: WebViewClient, private val url: String, private val html: ByteArray,
-    private val desktopHtml: ByteArray?, private val onDocument: ((Boolean) -> Unit)?) : WebViewClient() {
+    private val desktopHtml: ByteArray?, private val onDocument: ((Boolean) -> Unit)?, private val jsonResponses: Map<String, String>) : WebViewClient() {
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
         delegate.shouldInterceptRequest(view, request)?.let { return it }
         return if (request.isForMainFrame && request.url.toString() == url) {
             val desktop = request.requestHeaders.entries.any { it.key.equals("User-Agent", true) && it.value.contains("X11; Linux x86_64") }
             onDocument?.invoke(desktop)
             WebResourceResponse("text/html", "UTF-8", 200, "OK", mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(if (desktop) desktopHtml ?: html else html))
+        } else if (!request.isForMainFrame && request.url.toString() in jsonResponses) {
+            WebResourceResponse("application/json", "UTF-8", 200, "OK", mapOf("Cache-Control" to "no-store"),
+                ByteArrayInputStream(jsonResponses.getValue(request.url.toString()).toByteArray(Charsets.UTF_8)))
         } else WebResourceResponse("text/plain", "UTF-8", 404, "No fixture", mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(byteArrayOf()))
     }
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = delegate.shouldOverrideUrlLoading(view, request)

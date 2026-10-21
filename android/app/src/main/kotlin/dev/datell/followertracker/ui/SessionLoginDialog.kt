@@ -1,5 +1,7 @@
 package dev.datell.followertracker.ui
 
+import android.content.Context
+import android.webkit.WebView
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -29,10 +31,11 @@ import dev.datell.followertracker.core.SyncStatus
 
 @Composable
 fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDismiss: () -> Unit,
-    onConnect: (String?, String) -> Unit, facebookPage: Boolean = false, expectedPage: Account? = null) {
+    onConnect: (String?, String) -> Unit, facebookPage: Boolean = false, expectedPage: Account? = null,
+    createBrowserView: (Context) -> WebView = ::WebView) {
     val context = LocalContext.current
     val loginBrowser = remember(provider, facebookPage, expectedPage?.key) {
-        SessionLoginBrowser(provider, expectedPage?.profileUrl ?: provider.loginUrl)
+        SessionLoginBrowser(provider, expectedPage?.profileUrl ?: provider.loginUrl, createBrowserView)
     }
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current

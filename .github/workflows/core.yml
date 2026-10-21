@@ -23,7 +23,7 @@ jobs:
           ./gradlew :core:test :app:assembleDebug :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug
           :app:assembleDebugAndroidTest :app:assembleRelease :app:lintRelease --no-daemon
         working-directory: android
-      - run: node --test shared/tests/capture.test.cjs
+      - run: node --test shared/tests/capture.test.cjs shared/tests/observer.test.cjs
   swift:
     runs-on: macos-15
     steps:

@@ -36,7 +36,8 @@ tests = [str(path.relative_to(ROOT)) for path in sorted((ROOT / "Tests").glob("*
 refs = {path: file(path, "sourcecode.swift") for path in shared + app + widget + tests}
 resources = {"App/Assets.xcassets": file("App/Assets.xcassets", "folder.assetcatalog"),
              "Shared/PrivacyInfo.xcprivacy": file("Shared/PrivacyInfo.xcprivacy", "text.xml"),
-             "../shared/web-session-capture.js": file("../shared/web-session-capture.js", "sourcecode.javascript")}
+             "../shared/web-session-capture.js": file("../shared/web-session-capture.js", "sourcecode.javascript"),
+             "../shared/web-profile-observer.js": file("../shared/web-profile-observer.js", "sourcecode.javascript")}
 config = file("Config/Base.xcconfig", "text.xcconfig")
 metadata = [file(path, "text.plist.entitlements" if path.endswith("entitlements") else "text.plist.xml")
             for path in ["App/Info.plist", "Widget/Info.plist", "Config/Shared.entitlements"]]

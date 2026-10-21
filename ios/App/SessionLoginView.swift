@@ -34,6 +34,11 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        if provider == .instagram, let url = Bundle.main.url(forResource: "web-profile-observer", withExtension: "js"),
+           let script = try? String(contentsOf: url, encoding: .utf8) {
+            configuration.userContentController.addUserScript(WKUserScript(source: script + ";FollowerTrackerObserver.install('INSTAGRAM');",
+                injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.navigationDelegate = self; webView.uiDelegate = self; webView.isInspectable = false
