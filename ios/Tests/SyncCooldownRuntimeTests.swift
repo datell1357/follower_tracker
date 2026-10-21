@@ -343,6 +343,132 @@ final class SyncStorageFailureRuntimeTests: XCTestCase {
     }
 }
 
+private enum BatchFixtureFailure: Sendable { case duplicateObservation, cancelled, cancelledTransport, rateLimited }
+
+private actor BatchFixtureCollector: SessionCollecting {
+    private var failure: BatchFixtureFailure?
+    let failingKey: String
+    private(set) var visited: [String] = []
+    init(failingKey: String, failure: BatchFixtureFailure) { self.failingKey = failingKey; self.failure = failure }
+    func recover() { failure = nil }
+    func native(_ provider: Provider, expected: Account?, timeout: TimeInterval) async throws -> (Account, MetricSnapshot) {
+        var account = try XCTUnwrap(expected); visited.append(account.id)
+        var observedAt = Int64(10_000 + visited.count)
+        if account.id == failingKey, let failure {
+            switch failure {
+            case .duplicateObservation: observedAt = 1_000 // Real SQLite primary-key failure; no replacement of the baseline.
+            case .cancelled: throw CancellationError()
+            case .cancelledTransport: throw URLError(.cancelled)
+            case .rateLimited: throw CollectionFailure(.rateLimited, retryAfterSeconds: 300)
+            }
+        }
+        account.status = .ready
+        return (account, try MetricSnapshot(accountKey: account.id, observedAt: observedAt, followers: 0, following: 2, source: "synthetic-batch"))
+    }
+    func relationships(_ account: Account) async throws -> (RelationshipSnapshot, RelationshipSnapshot) { throw CollectionFailure(.listIncomplete) }
+}
+
+private actor BatchStartGate {
+    private var opened = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func open() { opened = true; continuation?.resume(); continuation = nil }
+}
+
+final class SyncBatchRuntimeTests: XCTestCase {
+    private func fixture(_ failure: BatchFixtureFailure) async throws -> (TrackerRepository, [Account], BatchFixtureCollector, SyncService) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tracker-batch-qa-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let repository = try TrackerRepository(databaseURL: folder.appendingPathComponent("Tracker.sqlite"))
+        let page = try Account(provider: .facebook, stableID: "99", username: "fixture.page", displayName: "Fixture Page",
+            profileURL: URL(string: "https://www.facebook.com/profile.php?id=99")!, connectedAt: 1, accountType: .page, sessionOwnerID: "42")
+        let profiles = try Provider.allCases.enumerated().map { offset, provider in
+            try Account(provider: provider, stableID: "42", username: "fixture", displayName: "Fixture",
+                profileURL: URL(string: "https://\(provider.domain)/fixture/")!, connectedAt: Int64(offset + 2))
+        }
+        let accounts = [page] + profiles
+        for account in accounts {
+            try await repository.saveObservation(account, MetricSnapshot(accountKey: account.id, observedAt: 1_000,
+                followers: 7, following: 2, source: "synthetic-batch-baseline"))
+        }
+        let collector = BatchFixtureCollector(failingKey: page.id, failure: failure)
+        return (repository, accounts, collector, SyncService(repository: repository, collector: collector))
+    }
+
+    func testOnePagesSQLiteFailureDoesNotStopTheFiveProvidersOrPoisonTheNextPass() async throws {
+        let (repository, accounts, collector, sync) = try await fixture(.duplicateObservation)
+        let keys = accounts.map(\.id)
+        var failures: Set<String> = []
+        do { failures = try await sync.refreshAll(keys, background: true) }
+        catch { XCTFail("One connection's storage failure must not end the entire pass") }
+        XCTAssertEqual(failures, [keys[0]])
+        let visited = await collector.visited
+        XCTAssertEqual(visited, keys)
+        for (offset, account) in accounts.enumerated() {
+            let history = try await repository.history(account.id), stored = try await repository.account(account.id)
+            XCTAssertEqual(history.count, offset == 0 ? 1 : 2)
+            XCTAssertEqual(history.first?.followers, 7)
+            XCTAssertEqual(history.last?.followers, offset == 0 ? 7 : 0)
+            XCTAssertEqual(stored?.connectedAt, account.connectedAt); XCTAssertEqual(stored?.status, .ready)
+        }
+        await collector.recover()
+        let recovered = try await sync.refreshAll(keys, background: true)
+        XCTAssertTrue(recovered.isEmpty)
+        for (offset, account) in accounts.enumerated() {
+            let history = try await repository.history(account.id)
+            XCTAssertEqual(history.count, offset == 0 ? 2 : 3); XCTAssertEqual(history.last?.followers, 0)
+        }
+    }
+
+    func testServiceCooldownStaysPerConnectionWhileTheOtherProfilesKeepCollecting() async throws {
+        let (repository, accounts, collector, sync) = try await fixture(.rateLimited)
+        let keys = accounts.map(\.id)
+        let failures = try await sync.refreshAll(keys, background: true)
+        XCTAssertTrue(failures.isEmpty) // The Page's SNS failure remains in its own stored status.
+        let limited = try await repository.account(keys[0]), history = try await repository.history(keys[0])
+        XCTAssertEqual(limited?.status, .rateLimited); XCTAssertGreaterThan(limited?.nextAllowedAt ?? 0, nowMillis())
+        XCTAssertEqual(history.count, 1); XCTAssertEqual(history.last?.followers, 7)
+        let second = try await sync.refreshAll(keys, background: true), visited = await collector.visited
+        XCTAssertTrue(second.isEmpty); XCTAssertEqual(visited, keys + Array(keys.dropFirst()))
+        for account in accounts.dropFirst() {
+            let history = try await repository.history(account.id)
+            XCTAssertEqual(history.count, 3); XCTAssertEqual(history.last?.followers, 0)
+        }
+    }
+
+    func testCancellationStopsLaterAccountsAndReleasesTheActivePagesLease() async throws {
+        for failure: BatchFixtureFailure in [.cancelled, .cancelledTransport] {
+            let (repository, accounts, collector, sync) = try await fixture(failure)
+            let keys = accounts.map(\.id)
+            do { _ = try await sync.refreshAll(keys); XCTFail("Cancellation must propagate") }
+            catch is CancellationError { }
+            catch { XCTFail("Transport cancellation must be normalized as cancellation") }
+            let visited = await collector.visited
+            XCTAssertEqual(visited, [keys[0]])
+            for key in keys {
+                let history = try await repository.history(key), account = try await repository.account(key)
+                XCTAssertEqual(history.count, 1); XCTAssertEqual(history.last?.followers, 7)
+                XCTAssertEqual(account?.status, .ready)
+            }
+            let released = try await repository.claimSync(keys[0], token: "qa-after-batch-cancellation")
+            XCTAssertTrue(released)
+            try await repository.releaseSync(keys[0], token: "qa-after-batch-cancellation")
+        }
+    }
+
+    func testAnExpiredEmptyPassCannotReportSuccessfulCompletion() async throws {
+        let (_, _, _, sync) = try await fixture(.duplicateObservation)
+        let gate = BatchStartGate()
+        let work = Task { await gate.wait(); return try await sync.refreshAll([]) }
+        work.cancel(); await gate.open()
+        do { _ = try await work.value; XCTFail("An expired pass must remain cancelled even when no accounts are due") }
+        catch is CancellationError { }
+    }
+}
+
 private final class LogoutFenceFixture: @unchecked Sendable {
     private let lock = NSLock()
     private var current = true

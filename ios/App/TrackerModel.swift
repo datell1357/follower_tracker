@@ -43,8 +43,13 @@ final class TrackerModel {
     func select(_ key: String) async { selectedKey = key; report = nil; relationshipChanges = []; await reload() }
     func refresh(_ key: String? = nil) async {
         guard !busy, let sync else { return }
-        busy = true; defer { busy = false }
-        do { for row in accounts where key == nil || row.id == key { try await sync.refresh(row.id) }; await reload(); await WidgetUpdates.shared.request() }
+        busy = true; message = nil; defer { busy = false }
+        do {
+            let keys = accounts.filter { key == nil || $0.id == key }.map(\.id)
+            let failures = try await sync.refreshAll(keys)
+            await reload(); await WidgetUpdates.shared.request()
+            if !failures.isEmpty && !storageError { message = "일부 계정을 갱신하지 못했어요. 해당 계정의 마지막 기록을 유지했어요." }
+        }
         catch is CancellationError { }
         catch { message = "갱신을 마치지 못했어요. 마지막 기록을 유지했어요." }
     }

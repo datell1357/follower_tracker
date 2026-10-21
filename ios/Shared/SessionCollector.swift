@@ -149,6 +149,19 @@ actor SyncService {
         else if collector == nil { self.captureSessionGuard = { try await SessionVault.shared.captureGuard($0) } }
         else { self.captureSessionGuard = { _ in { true } } }
     }
+    /// Returns unexpected failures separately from the per-account SNS status stored by refresh.
+    func refreshAll(_ keys: [String], background: Bool = false, timeout: TimeInterval = 25) async throws -> Set<String> {
+        var failures: Set<String> = []
+        for key in keys {
+            try Task.checkCancellation()
+            do { try await refresh(key, background: background, timeout: timeout) }
+            catch is CancellationError { throw CancellationError() }
+            catch let error as URLError where error.code == .cancelled { throw CancellationError() }
+            catch { failures.insert(key) }
+        }
+        try Task.checkCancellation()
+        return failures
+    }
     func refresh(_ key: String, background: Bool = false, timeout: TimeInterval = 25) async throws {
         guard !active.contains(key), let account = try await repository.account(key) else { return }
         guard RefreshPolicy.canRefresh(account, now: nowMillis(), background: background) else { return }

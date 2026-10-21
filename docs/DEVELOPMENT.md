@@ -184,6 +184,8 @@ SHARED_KEYCHAIN_ID = dev.datell.followertracker.shared
 
 앱과 위젯이 같은 App Group DB와 Keychain 그룹을 사용한다. App Group 저장소를 열 수 없으면 오류를 표시하며, 별도 저장소에 조용히 기록하는 방식으로 공유 실패를 숨기지 않는다. 앱과 위젯의 동시에 실행되는 수집은 DB의 계정별 임대 잠금으로 중복을 막는다. 개인정보 manifest의 UserDefaults 접근 이유는 앱·확장 간 공유를 위한 `1C8F.1`이다. [Apple 접근 이유 문서](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype)
 
+iOS의 수 갱신 순회는 `SyncService.refreshAll`을 사용한다. 한 연결의 예상 밖 저장소 오류는 연결 키로 반환하고 다른 연결은 계속 처리한다. SNS 요청 제한·재로그인·형식 오류는 기존 연결별 상태와 기한을 유지하며, 취소와 전송 취소는 전체 순회에 전파한다. `SyncBatchRuntimeTests` 4개는 임시 SQLite DB와 합성 수집기로 페이지 저장 충돌 뒤 다섯 SNS 지속·다음 회차 복구·서버 대기·취소를 검사한다. 사용자의 App Group DB와 Vault를 사용하지 않는다. [코드 실험과 실제 기기의 구분](CODE_EXPERIMENTS.md#2026-10-22-ios-계정별-갱신-실패-격리)
+
 ## 수집 경로의 근거와 상태
 
 Instagram의 기기 세션 요청은 공식 외부 개발자 API 계약과 별개의 웹 경로 후보다. User Info와 관계 페이지의 응답을 버전별 수집기에서 해석한다. 공개 웹 클라이언트 식별자와 경로를 검토할 때 [Instaloader의 요청 컨텍스트](https://github.com/instaloader/instaloader/blob/master/instaloader/instaloadercontext.py)와 [프로필 구조](https://github.com/instaloader/instaloader/blob/master/instaloader/structures.py)를 참조했다. 코드 복사나 SDK 의존성 추가는 하지 않았다. 이 참조는 우리의 실제 계정 수집 성공이나 서비스의 수집 허가를 증명하지 않는다.

@@ -24,17 +24,22 @@ enum BackgroundRefresh {
             var success = false
             do {
                 let repository = try TrackerRepository(), sync = SyncService(repository: repository)
-                for account in try await repository.accounts() {
-                    try Task.checkCancellation()
-                    if lists && account.provider == .instagram { try await sync.relationships(account.id, background: true) }
-                    else if !lists { try await sync.refresh(account.id, background: true, timeout: 12) }
+                let accounts = try await repository.accounts()
+                var failures: Set<String> = []
+                if lists {
+                    for account in accounts where account.provider == .instagram {
+                        try Task.checkCancellation()
+                        try await sync.relationships(account.id, background: true)
+                    }
+                } else {
+                    failures = try await sync.refreshAll(accounts.map(\.id), background: true, timeout: 12)
                 }
                 if lists { TrackerSettings.lastLists = nowMillis() }
-                success = true
+                success = failures.isEmpty
                 await WidgetUpdates.shared.request()
                 await WidgetUpdates.shared.flush()
             } catch { }
-            task.setTaskCompleted(success: success); schedule()
+            task.setTaskCompleted(success: success && !Task.isCancelled); schedule()
         }
         task.expirationHandler = { work.cancel() }
     }

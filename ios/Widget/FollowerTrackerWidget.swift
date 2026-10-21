@@ -59,10 +59,9 @@ struct TrackerTimeline: AppIntentTimelineProvider {
             // A bounded native attempt. WidgetKit decides when this code is scheduled.
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    for row in rows where nowMillis() - (row.latest?.observedAt ?? 0) >= Int64(TrackerSettings.interval) * 60_000 {
-                        if Task.isCancelled { return }
-                        try? await sync.refresh(row.id, background: true, timeout: 9)
-                    }
+                    let keys = rows.filter { nowMillis() - ($0.latest?.observedAt ?? 0) >= Int64(TrackerSettings.interval) * 60_000 }.map(\.id)
+                    do { _ = try await sync.refreshAll(keys, background: true, timeout: 9) }
+                    catch { /* Cancellation ends this pass; stored account errors remain visible in the entry. */ }
                 }
                 group.addTask { try? await Task.sleep(for: .seconds(18)) }
                 await group.next(); group.cancelAll()
