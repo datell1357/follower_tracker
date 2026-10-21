@@ -123,6 +123,8 @@ Apple Silicon 에뮬레이터에서 웹 화면 또는 시스템 프로세스가 
 
 Android DB 버전 2는 `relationship_changes`와 `relationship_history_cursor`를 추가한다. Room의 `AutoMigration(1, 2)`를 사용하며 `android/app/schemas/`에 두 버전의 스키마를 보존한다. `RelationshipHistoryRuntimeTest`는 테스트 전용 UUID DB에 실제 버전 1 스키마·합성 암호문을 만들고 최신 Room으로 열어 계정·수치·명단 보존, 모든 저장 명단의 이탈 기록 복원, 연결 해제 cascade를 확인한다. 테스트 스키마는 `androidTest` APK에만 포함된다. [Room 마이그레이션 문서](https://developer.android.com/training/data-storage/room/migrating-db-versions)
 
+Facebook 페이지는 주소 입력 뒤 `연결`을 한 번 누르는 별도 흐름이다. 로그인 후에는 대상 문서를 새로 열고, 공유 링크는 열린 대상을 `이 페이지 연결`로 확정한다. Kotlin·Swift의 `FacebookPageConnectionRequest` 단위 검사는 인증·대상·중복 시도 경계를 검사한다. Android `FacebookPageLinkRuntimeTest` 7개는 빈 `dev.datell.followertracker.loginvalidation` 패키지에서만 실행할 수 있으며 다른 앱·기존 세션에는 합성 쿠키를 넣지 않는다. iOS의 링크·공유 링크·정확한 수치 지연 UI 검사도 계정 DB와 Vault를 사용하지 않는다. 실제 Facebook 페이지의 연결·반복 관측·홈 위젯은 별도 검증해야 한다. [페이지 동선과 검사 범위](FACEBOOK_PAGES.md)
+
 ## iOS 앱·위젯
 
 iOS DB 버전 2의 추가 마이그레이션 SQL은 `FollowerCore/TrackerSchema.swift`에서 관리한다. 앱·위젯은 같은 SQLite 트랜잭션 안에서 현재 버전을 읽고 마이그레이션한다. macOS 코어 테스트는 실제 SQLite 버전 1 DB를 만들어 기존 payload·명단·동기화 임대의 보존과 새 관계 기록의 cascade를 확인한다. 이 검사는 실제 iOS App Group·Keychain 공유 검증을 대신하지 않는다.

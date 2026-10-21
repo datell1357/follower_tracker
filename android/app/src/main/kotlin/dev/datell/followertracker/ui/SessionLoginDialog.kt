@@ -4,16 +4,17 @@ import android.content.Context
 import android.webkit.WebView
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -40,6 +41,7 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
     var pageAddress by remember(expectedPage?.key) { mutableStateOf(expectedPage?.profileUrl.orEmpty()) }
+    var pageRequest by remember { mutableStateOf<FacebookPageConnectionRequest?>(null) }
     val browser = loginBrowser.active
     var checking by remember { mutableStateOf(false) }
     val policy = remember(provider) { AutoConnectionPolicy(if (provider == Provider.INSTAGRAM) 15_000 else 0) }
@@ -50,6 +52,45 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var sessionReady by remember { mutableStateOf(false) }
     val script = remember { context.assets.open("web-session-capture.js").bufferedReader().use { it.readText() } }
+    fun openPageLink() {
+        if (busy || checking || now < policy.nextAllowedAt) return
+        val authenticated = runCatching { context.appGraph.sessions.hasAuthentication(provider) }.getOrDefault(false)
+        val request = FacebookPageConnectionRequest.create(pageAddress, authenticated)
+        if (request == null) {
+            loginBrowser.notice = "Facebook 페이지 링크를 확인해주세요. 페이지 주소나 복사한 공유 링크를 붙여넣을 수 있어요."
+            return
+        }
+        val web = browser ?: return
+        focus.clearFocus(); pageRequest = request; loginBrowser.notice = null
+        web.loadUrl(request.target, mapOf("Cache-Control" to "no-cache"))
+    }
+    suspend fun connectCurrentPage(web: WebView) {
+        checking = true; loginBrowser.notice = null; focus.clearFocus()
+        try {
+            val identity = context.appGraph.sessions.identity(provider)
+            val agent = web.settings.userAgentString
+            val payload = captureConfirmedFacebookPage(web, identity, script, expectedPage?.stableId) { loginBrowser.loading }
+            val result = JSONObject(payload)
+            val failure = webCaptureFailure(result)
+            if (identity != context.appGraph.sessions.identity(provider)) loginBrowser.notice = facebookPageFailureMessage("identity_missing")
+            else if (failure == null) currentConnect(payload, agent)
+            else {
+                policy.failed(failure, System.currentTimeMillis())
+                if (loginBrowser.notice == null) loginBrowser.notice = if (failure.status == SyncStatus.RATE_LIMITED)
+                    connectionFailureMessage(failure) else facebookPageFailureMessage(result.optString("error"))
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: CollectionFailure) {
+            policy.failed(failure, System.currentTimeMillis())
+            loginBrowser.notice = loginBrowser.notice ?: when (failure.status) {
+                SyncStatus.OFFLINE -> "페이지를 읽지 못했어요. 인터넷 연결을 확인한 뒤 다시 연결해주세요."
+                SyncStatus.RATE_LIMITED -> connectionFailureMessage(failure)
+                SyncStatus.CHECK_REQUIRED -> "페이지가 이동했거나 추가 확인이 필요해요. Facebook에서 페이지를 확인한 뒤 다시 연결해주세요."
+                else -> facebookPageFailureMessage("page_required")
+            }
+        } catch (_: Exception) { loginBrowser.notice = facebookPageFailureMessage("exact_count_missing") }
+        finally { checking = false }
+    }
     DisposableEffect(loginBrowser) { onDispose { loginBrowser.dispose() } }
     LaunchedEffect(provider, browser) {
         while (browser != null) {
@@ -59,6 +100,22 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
             val url = web.url.orEmpty()
             val identity = context.appGraph.sessions.identity(provider)
             val pageKey = "$identity:$url"
+            if (facebookPage) pageRequest?.let { previousRequest ->
+                val request = previousRequest.observing(url)
+                if (request != previousRequest) pageRequest = request
+                when (request.next(url, sessionReady, loginBrowser.loading,
+                    currentBusy || checking || loginBrowser.notice != null || now < policy.nextAllowedAt)) {
+                    FacebookPageAction.OPEN_TARGET -> {
+                        pageRequest = request.copy(returnedAfterLogin = true)
+                        web.loadUrl(request.target, mapOf("Cache-Control" to "no-cache"))
+                    }
+                    FacebookPageAction.CAPTURE -> {
+                        pageRequest = request.copy(captureAttempted = true)
+                        connectCurrentPage(web)
+                    }
+                    FacebookPageAction.WAIT -> Unit
+                }
+            }
             if (!facebookPage && canAutoConnect(provider, url, sessionReady, loginBrowser.loading, currentBusy || checking) && pageKey !in capturedPages) {
                 val allowRequest = policy.begin(pageKey, now)
                 // Hydrated pages can expose exact counts later. Re-read locally without another SNS request.
@@ -110,17 +167,31 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                     IconButton(onClick = loginBrowser::reload, enabled = !busy && !checking) { Icon(Icons.Outlined.Refresh, "페이지 새로고침") }
                     IconButton(onClick = loginBrowser::goBack, enabled = !busy) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "이전 페이지") }
                 }
-                Text(if (facebookPage) "로그인 후 추적할 페이지로 이동하고 연결 확인을 눌러주세요." else "공식 페이지에서 로그인하면 내 계정을 자동으로 연결해요.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                Text(if (facebookPage) "페이지 링크를 입력하고 연결을 누르면 자동으로 확인해요." else "공식 페이지에서 로그인하면 내 계정을 자동으로 연결해요.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (facebookPage) OutlinedTextField(value = pageAddress, onValueChange = { pageAddress = it },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-                    singleLine = true, label = { Text("페이스북 페이지 링크") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    trailingIcon = { IconButton(onClick = {
-                        facebookPageUrl(pageAddress)?.let { url -> focus.clearFocus(); loginBrowser.notice = null; browser?.loadUrl(url) }
-                    }, enabled = sessionReady && !busy && !checking && facebookPageUrl(pageAddress) != null) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowForward, "페이지 열기")
-                    } })
+                if (facebookPage) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = pageAddress, onValueChange = { pageAddress = it; pageRequest = null },
+                            modifier = Modifier.weight(1f), enabled = !busy && !checking,
+                            singleLine = true, label = { Text("페이스북 페이지 링크") }, placeholder = { Text("facebook.com/페이지주소") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+                            keyboardActions = KeyboardActions(onGo = { openPageLink() }))
+                        Button(onClick = ::openPageLink, enabled = browser != null && !busy && !checking && now >= policy.nextAllowedAt &&
+                            FacebookPageConnectionRequest.create(pageAddress, sessionReady) != null,
+                            modifier = Modifier.heightIn(min = 48.dp)) { Text("연결") }
+                    }
+                    Text(when {
+                        !sessionReady -> "아래에서 Facebook에 로그인해주세요. 로그인 후 입력한 페이지로 이어서 이동해요."
+                        checking || busy -> "페이지와 정확한 팔로워 수를 확인하고 있어요."
+                        pageRequest != null && loginBrowser.loading -> "입력한 페이지를 열고 있어요."
+                        pageRequest?.requiresConfirmation == true -> "공유 링크가 열리면 아래 ‘이 페이지 연결’을 눌러 대상을 확인해주세요."
+                        pageRequest?.captureAttempted == false -> "다른 주소로 열렸다면 아래에서 현재 페이지를 연결할 수 있어요."
+                        else -> "이미 Facebook에 로그인했어요. 페이지 주소나 공유 링크를 붙여넣어주세요."
+                    }, Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 if (loginBrowser.loading || busy || checking) LinearProgressIndicator(Modifier.fillMaxWidth())
                 AndroidView(modifier = Modifier.weight(1f).fillMaxWidth(), factory = loginBrowser::createView)
                 if (busy || checking) Text(if (facebookPage) "선택한 페이지와 팔로워 수를 확인하고 있어요." else "로그인한 내 계정과 팔로워 수를 확인하고 있어요.",
@@ -136,39 +207,23 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                         enabled = !busy && !checking && now >= policy.nextAllowedAt,
                         modifier = Modifier.padding(horizontal = 12.dp)) { Text("다시 시도") }
                 }
-                if (facebookPage) Button(onClick = {
-                    val web = browser ?: return@Button
-                    checking = true; loginBrowser.notice = null; focus.clearFocus()
-                    scope.launch {
-                        try {
-                            val identity = context.appGraph.sessions.identity(provider)
-                            val agent = web.settings.userAgentString
-                            val payload = captureConfirmedFacebookPage(web, identity, script, expectedPage?.stableId) { loginBrowser.loading }
-                            val result = JSONObject(payload)
-                            val failure = webCaptureFailure(result)
-                            if (identity != context.appGraph.sessions.identity(provider)) loginBrowser.notice = facebookPageFailureMessage("identity_missing")
-                            else if (failure == null) currentConnect(payload, agent)
-                            else if (loginBrowser.notice == null) loginBrowser.notice = facebookPageFailureMessage(result.optString("error"))
-                        } catch (cancelled: CancellationException) { throw cancelled }
-                        catch (failure: CollectionFailure) { loginBrowser.notice = loginBrowser.notice ?: when (failure.status) {
-                            SyncStatus.OFFLINE -> "페이지를 읽지 못했어요. 인터넷 연결을 확인한 뒤 다시 눌러주세요."
-                            else -> facebookPageFailureMessage("page_required")
-                        } }
-                        catch (_: Exception) { loginBrowser.notice = facebookPageFailureMessage("exact_count_missing") }
-                        finally { checking = false }
-                    }
-                }, enabled = canAutoConnect(provider, loginBrowser.location, sessionReady, loginBrowser.loading, busy || checking),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).heightIn(min = 48.dp)) { Text("연결 확인") }
+                if (facebookPage) TextButton(onClick = {
+                    if (busy || checking || now < policy.nextAllowedAt) return@TextButton
+                    val web = browser ?: return@TextButton
+                    pageRequest = null; checking = true
+                    scope.launch { connectCurrentPage(web) }
+                }, enabled = now >= policy.nextAllowedAt && canAutoConnect(provider, loginBrowser.location, sessionReady, loginBrowser.loading, busy || checking),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).heightIn(min = 48.dp)) { Text("이 페이지 연결") }
             }
         }
     }
 }
 
 fun facebookPageFailureMessage(error: String): String = when (error) {
-    "identity_missing", "reauth_required" -> "페이스북 로그인을 완료한 뒤 페이지에서 연결 확인을 눌러주세요."
+    "identity_missing", "reauth_required" -> "Facebook 로그인을 완료해주세요. 페이지 링크는 위에 입력할 수 있어요."
     "page_mismatch" -> "기존에 연결한 페이지를 열어주세요. 다른 페이지는 SNS 연결에서 새로 추가할 수 있어요."
     "page_identity_missing" -> "페이지 식별 정보를 읽지 못했어요. 페이지를 새로고침한 뒤 다시 확인해주세요."
     "rounded_count_only" -> "Facebook이 팔로워 수를 축약해서 표시하고 있어요. 이 화면에서는 정확한 수를 확보하지 못했어요."
-    "page_required", "own_profile_required" -> "추적할 페이스북 페이지의 첫 화면을 열고 연결 확인을 눌러주세요."
+    "page_required", "own_profile_required" -> "Facebook 페이지 정보를 찾지 못했어요. 개인 프로필이나 게시물 대신 페이지 링크를 입력해주세요."
     else -> "이 페이지에서 정확한 팔로워 수를 읽지 못했어요. 팔로워 수가 보이는 페이지 첫 화면에서 다시 확인해주세요."
 }

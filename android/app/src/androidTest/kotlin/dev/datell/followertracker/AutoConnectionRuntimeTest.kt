@@ -81,7 +81,7 @@ class AutoConnectionRuntimeTest {
             }}</script><p>Synthetic signed-in profile</p>
         """.trimIndent())
         waitWithMetadata(web) { connections.get() == 1 }
-        rule.onNodeWithText("연결 확인").assertDoesNotExist()
+        rule.onNodeWithText("이 페이지 연결").assertDoesNotExist()
         assertEquals(0, JSONObject(payload!!).getInt("followers"))
         waitForPolls()
         assertEquals(1, connections.get())
@@ -153,7 +153,7 @@ class AutoConnectionRuntimeTest {
             waitWithMetadata(web) { connections.get() == index + 1 }
             assertEquals("Each login must read its new response", followers, JSONObject(payload!!).getInt("followers"))
             assertEquals("42", JSONObject(payload!!).getString("stableId"))
-            rule.onNodeWithText("연결 확인").assertDoesNotExist()
+            rule.onNodeWithText("이 페이지 연결").assertDoesNotExist()
             waitForPolls()
             assertEquals(index + 1, connections.get())
             rule.runOnIdle { open.value = false }

@@ -28,7 +28,7 @@ suspend fun captureConfirmedFacebookPage(web: WebView, identity: String?, script
         withTimeoutOrNull(20_000) {
             // Yield to WebView navigation before inspecting the replacement document.
             delay(250)
-            repeat(20) {
+            repeat(30) {
                 currentCoroutineContext().ensureActive()
                 if (!sameFacebookPageTarget(selected, web.url.orEmpty()))
                     throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
@@ -36,7 +36,7 @@ suspend fun captureConfirmedFacebookPage(web: WebView, identity: String?, script
                     latest = captureWebSession(web, Provider.FACEBOOK, identity, script, allowRequest = false,
                         facebookPage = true, expectedPageId = expectedPageId)
                     val error = JSONObject(latest).optString("error")
-                    if (error !in setOf("page_required", "page_identity_missing", "exact_count_missing"))
+                    if (error !in setOf("page_required", "page_identity_missing", "exact_count_missing", "rounded_count_only", "document_changed"))
                         return@withTimeoutOrNull latest
                 }
                 delay(500)

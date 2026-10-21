@@ -47,7 +47,7 @@ class FacebookPageConfirmationRuntimeTest {
             <meta property="al:android:url" content="fb://${if (page) "page" else "profile"}/$targetId"></head>
             <body><header><h1>Fixture Page</h1><span>$followers</span>${if (page) "<span>Page · Brand</span>" else ""}</header></body></html>
         """.trimIndent(), desktopHtml = desktopHtml, onDocument = { if (it) desktopDocuments.incrementAndGet() }) }
-        rule.waitUntil(10_000) { rule.onAllNodesWithText("연결 확인").fetchSemanticsNodes().any { SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsProperties.Disabled).matches(it) } }
+        rule.waitUntil(10_000) { rule.onAllNodesWithText("이 페이지 연결").fetchSemanticsNodes().any { SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsProperties.Disabled).matches(it) } }
         pauseForPolls()
         return web
     }
@@ -55,7 +55,7 @@ class FacebookPageConfirmationRuntimeTest {
     @Test fun pageConnectsOnlyWhenTheUserConfirmsAndUsesTheTargetRatherThanTheOwner() {
         show()
         assertEquals(0, connections.get())
-        rule.onNodeWithText("연결 확인").performClick()
+        rule.onNodeWithText("이 페이지 연결").performClick()
         rule.waitUntil(8_000) { connections.get() == 1 }
         val captured = JSONObject(checkNotNull(payload))
         assertEquals("PAGE", captured.getString("accountType"))
@@ -68,7 +68,7 @@ class FacebookPageConfirmationRuntimeTest {
 
     @Test fun roundedPageCountsKeepTheWindowAndExistingConnectionUntouched() {
         val web = show("1.2K followers")
-        rule.onNodeWithText("연결 확인").performClick()
+        rule.onNodeWithText("이 페이지 연결").performClick()
         rule.waitUntil(25_000) { rule.onAllNodesWithText(facebookPageFailureMessage("exact_count_missing")).fetchSemanticsNodes().isNotEmpty() }
         assertEquals(0, connections.get())
         rule.runOnIdle { assertEquals(fixtureUrl, web.url) }
@@ -76,7 +76,7 @@ class FacebookPageConfirmationRuntimeTest {
 
     @Test fun anOrdinaryPersonalProfileCannotBeSavedThroughThePageButton() {
         val web = show(page = false)
-        rule.onNodeWithText("연결 확인").performClick()
+        rule.onNodeWithText("이 페이지 연결").performClick()
         rule.waitUntil(25_000) { rule.onAllNodesWithText(facebookPageFailureMessage("page_required")).fetchSemanticsNodes().isNotEmpty() }
         assertEquals(0, connections.get())
         rule.runOnIdle { assertEquals(fixtureUrl, web.url) }
@@ -87,7 +87,7 @@ class FacebookPageConfirmationRuntimeTest {
         val originalAgent = rule.runOnIdle { web.settings.userAgentString }
         assertEquals(0, connections.get())
         assertEquals(0, desktopDocuments.get())
-        rule.onNodeWithText("연결 확인").performClick()
+        rule.onNodeWithText("이 페이지 연결").performClick()
         rule.waitUntil(25_000) { connections.get() == 1 }
         val captured = JSONObject(checkNotNull(payload))
         assertEquals(targetId, captured.getString("stableId"))
@@ -101,7 +101,7 @@ class FacebookPageConfirmationRuntimeTest {
 
     @Test fun aVerifiedPageWithOnlyAShortenedTotalExplainsTheLimitWithoutInventingAnExactCount() {
         show("1.2K followers", desktopHtml = representation("팔로워 1.2천명"))
-        rule.onNodeWithText("연결 확인").performClick()
+        rule.onNodeWithText("이 페이지 연결").performClick()
         rule.waitUntil(25_000) { rule.onAllNodesWithText(facebookPageFailureMessage("rounded_count_only")).fetchSemanticsNodes().isNotEmpty() }
         assertEquals(0, connections.get())
         assertEquals(1, desktopDocuments.get())

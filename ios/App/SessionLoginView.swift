@@ -24,13 +24,21 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
     private let loadPage: @MainActor (WKWebView, URL) -> Void
     private var task: Task<Void, Never>?
     private var pageConfirmationRequested = false
+    private var pageRequest: FacebookPageConnectionRequest?
     var canRetry: Bool { !loading && !checking && now >= policy.nextAllowedAt }
+    var canOpenPageLink: Bool { !checking && now >= policy.nextAllowedAt }
+    var needsPageConfirmation: Bool { pageRequest?.requiresConfirmation == true }
     init(provider: Provider, facebookPage: Bool = false, expectedPage: Account? = nil,
          restoreSession: @escaping @MainActor () async throws -> SavedSession? = { nil },
-         loadPage: @escaping @MainActor (WKWebView, URL) -> Void = { web, url in web.load(URLRequest(url: url)) }) {
+         loadPage: (@MainActor (WKWebView, URL) -> Void)? = nil) {
         self.provider = provider; self.facebookPage = facebookPage; self.expectedPage = expectedPage; host = provider.domain
         policy = AutoConnectionPolicy(localReadGraceMillis: provider == .instagram ? 15_000 : 0)
-        self.restoreSession = restoreSession; self.loadPage = loadPage
+        self.restoreSession = restoreSession
+        self.loadPage = loadPage ?? { web, url in
+            var request = URLRequest(url: url, cachePolicy: facebookPage ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy)
+            if facebookPage { request.setValue("no-cache", forHTTPHeaderField: "Cache-Control") }
+            web.load(request)
+        }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
@@ -77,17 +85,46 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                     let candidate = SavedSession(cookies: cookies.map(CookieRecord.init), userAgent: "", expectedID: expectedID, savedAt: nowMillis())
                     sessionReady = candidate.authenticated(provider)
                     let pageKey = (candidate.identity(provider) ?? "") + ":" + url.absoluteString
+                    if facebookPage { pageRequest?.observe(url) }
+                    if facebookPage, let request = pageRequest {
+                        switch request.next(current: url,
+                            authenticated: sessionReady, loading: loading, busy: checking || notice != nil || now < policy.nextAllowedAt) {
+                        case .openTarget:
+                            pageRequest?.returnedAfterLogin = true
+                            loadPage(webView, request.target)
+                            continue
+                        case .capture:
+                            pageRequest?.captureAttempted = true
+                            pageConfirmationRequested = true
+                        case .wait: break
+                        }
+                    }
                     if facebookPage, pageConfirmationRequested, sessionReady, !checking {
                         pageConfirmationRequested = false; checking = true; notice = nil
                         do {
-                            let payload = try await captureWebSession(webView, provider: provider, identity: candidate.identity(provider), script: script,
+                            var payload = try await captureWebSession(webView, provider: provider, identity: candidate.identity(provider), script: script,
                                 allowRequest: false, facebookPage: true, expectedPageID: expectedPage?.stableID)
+                            for _ in 0..<30 {
+                                let error = try ResponseParser.objectBody(payload)["error"] as? String ?? ""
+                                guard ["page_required", "page_identity_missing", "exact_count_missing", "rounded_count_only", "document_changed"].contains(error),
+                                      navigationVersion == version else { break }
+                                try await Task.sleep(for: .milliseconds(500))
+                                payload = try await captureWebSession(webView, provider: provider, identity: candidate.identity(provider), script: script,
+                                    allowRequest: false, facebookPage: true, expectedPageID: expectedPage?.stableID)
+                            }
                             try Task.checkCancellation()
                             guard navigationVersion == version else { checking = false; continue }
                             let result = try ResponseParser.objectBody(payload)
-                            if ResponseParser.webCaptureFailure(result) != nil { notice = facebookPageFailureMessage(result["error"] as? String ?? "") }
+                            if let failure = ResponseParser.webCaptureFailure(result) {
+                                policy.failed(failure, now: nowMillis())
+                                notice = failure.status == .rateLimited ? connectionFailureMessage(failure) : facebookPageFailureMessage(result["error"] as? String ?? "")
+                            }
                             else {
-                                var session = candidate
+                                let currentCookies = await withCheckedContinuation { continuation in
+                                    webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { continuation.resume(returning: $0) }
+                                }
+                                var session = SavedSession(cookies: currentCookies.map(CookieRecord.init), userAgent: "", expectedID: expectedID, savedAt: nowMillis())
+                                guard session.authenticated(provider), session.identity(provider) == candidate.identity(provider) else { throw CollectionFailure(.checkRequired) }
                                 session.userAgent = try await webView.evaluateJavaScript("navigator.userAgent") as? String ?? "Mozilla/5.0"
                                 try Task.checkCancellation()
                                 guard navigationVersion == version else { checking = false; continue }
@@ -96,6 +133,9 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                                 checking = false; completed(); return
                             }
                         } catch is CancellationError { checking = false; return }
+                        catch let failure as CollectionFailure {
+                            policy.failed(failure, now: nowMillis()); notice = connectionFailureMessage(failure)
+                        }
                         catch { notice = "페이지 연결을 마치지 못했어요. 선택한 페이지에서 다시 확인해주세요." }
                         checking = false
                     }
@@ -139,7 +179,17 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
     }
     func requestRetry() { guard canRetry else { return }; notice = nil; capturedPages.removeAll(); policy.requestRetry() }
-    func confirmPage() { guard facebookPage, sessionReady, canRetry else { return }; pageConfirmationRequested = true }
+    func openPageLink(_ input: String) {
+        guard facebookPage, canOpenPageLink else { return }
+        guard let request = FacebookPageConnectionRequest(input: input, authenticated: sessionReady) else {
+            notice = "Facebook 페이지 링크를 확인해주세요. 페이지 주소나 복사한 공유 링크를 붙여넣을 수 있어요."
+            return
+        }
+        pageRequest = request; notice = nil
+        loadPage(webView, request.target)
+    }
+    func editedPageLink() { pageRequest = nil }
+    func confirmPage() { guard facebookPage, sessionReady, canRetry else { return }; pageRequest = nil; pageConfirmationRequested = true }
     func cancel() {
         task?.cancel(); task = nil; checking = false
         webView.stopLoading(); webView.navigationDelegate = nil; webView.loadHTMLString("", baseURL: nil)
@@ -184,6 +234,7 @@ struct SessionLoginView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var browser: LoginBrowser
     @State private var pageAddress: String
+    @FocusState private var pageAddressFocused: Bool
     init(provider: Provider, model: TrackerModel, facebookPage: Bool = false, expectedPage: Account? = nil) {
         self.provider = provider; self.model = model; self.facebookPage = facebookPage; self.expectedPage = expectedPage
         _pageAddress = State(initialValue: expectedPage?.profileURL.absoluteString ?? "")
@@ -193,20 +244,26 @@ struct SessionLoginView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack { Image(systemName: "lock"); Text(browser.host).lineLimit(1); Spacer() }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.vertical, 8)
-                Text(facebookPage ? "로그인 후 추적할 페이지로 이동하고 연결 확인을 눌러주세요." : "공식 페이지에서 로그인하면 내 계정과 정확한 팔로워 수를 확인해 자동으로 연결해요.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 8)
+                Text(facebookPage ? "페이지 링크를 입력하고 연결을 누르면 자동으로 확인해요." : "공식 페이지에서 로그인하면 내 계정과 정확한 팔로워 수를 확인해 자동으로 연결해요.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 8)
                 if facebookPage {
                     HStack {
                         TextField("페이스북 페이지 링크", text: $pageAddress).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        Button("페이지 열기") { if let url = FacebookPageAddress.input(pageAddress) { browser.notice = nil; browser.webView.load(URLRequest(url: url)) } }
-                            .disabled(!browser.sessionReady || browser.checking || model.busy || FacebookPageAddress.input(pageAddress) == nil)
+                            .focused($pageAddressFocused).submitLabel(.go).onSubmit { pageAddressFocused = false; browser.openPageLink(pageAddress) }
+                            .onChange(of: pageAddress) { browser.editedPageLink() }.disabled(browser.checking || model.busy)
+                        Button("연결") { pageAddressFocused = false; browser.openPageLink(pageAddress) }.buttonStyle(.borderedProminent).frame(minHeight: 48)
+                            .disabled(!browser.canOpenPageLink || model.busy || FacebookPageConnectionRequest(input: pageAddress, authenticated: browser.sessionReady) == nil)
                     }.font(.subheadline).padding(.horizontal, 20).padding(.vertical, 8)
+                    Text(!browser.sessionReady ? "아래에서 Facebook에 로그인해주세요. 로그인 후 입력한 페이지로 이어서 이동해요." :
+                        browser.needsPageConfirmation ? "공유 링크가 열리면 아래 ‘이 페이지 연결’을 눌러 대상을 확인해주세요." :
+                        "이미 Facebook에 로그인했어요. 페이지 주소나 공유 링크를 붙여넣어주세요.")
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 8)
                 }
                 if browser.loading || browser.checking || model.busy { ProgressView().progressViewStyle(.linear) }
                 LoginWebView(browser: browser)
                 if let notice = browser.notice { Text(notice).font(.caption).foregroundStyle(.red).padding(.horizontal, 20).padding(.top, 10) }
                 if browser.checking || model.busy { Text("로그인한 내 계정과 팔로워 수를 확인하고 있어요.").font(.caption).foregroundStyle(TrackerStyle.blue).padding(10) }
                 if let url = browser.ownProfile { Button("내 프로필 열기") { browser.notice = nil; browser.ownProfile = nil; browser.webView.load(URLRequest(url: url)) }.padding(.top, 8) }
-                if facebookPage { Button("연결 확인") { browser.confirmPage() }.buttonStyle(.borderedProminent).padding(12).disabled(!browser.sessionReady || !browser.canRetry || model.busy) }
+                if facebookPage { Button("이 페이지 연결") { browser.confirmPage() }.buttonStyle(.bordered).padding(12).disabled(!browser.sessionReady || !browser.canRetry || model.busy) }
                 else if browser.notice != nil { Button("다시 시도") { browser.requestRetry() }.buttonStyle(.bordered).padding(12).disabled(!browser.canRetry || model.busy) }
             }.navigationTitle((facebookPage ? "Facebook 페이지" : provider.title) + " 연결").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기") { browser.cancel(); dismiss() } }
@@ -222,11 +279,11 @@ struct SessionLoginView: View {
 
 private func facebookPageFailureMessage(_ error: String) -> String {
     switch error {
-    case "identity_missing", "reauth_required": "페이스북 로그인을 완료한 뒤 페이지에서 연결 확인을 눌러주세요."
+    case "identity_missing", "reauth_required": "Facebook 로그인을 완료해주세요. 페이지 링크는 위에 입력할 수 있어요."
     case "page_mismatch": "기존에 연결한 페이지를 열어주세요. 다른 페이지는 SNS 연결에서 새로 추가할 수 있어요."
     case "page_identity_missing": "페이지 식별 정보를 읽지 못했어요. 페이지 첫 화면에서 다시 확인해주세요."
     case "rounded_count_only": "축약된 팔로워 수만 보여 정확한 수를 저장할 수 없어요."
-    case "page_required", "own_profile_required": "추적할 페이스북 페이지의 첫 화면을 열고 연결 확인을 눌러주세요."
+    case "page_required", "own_profile_required": "Facebook 페이지 정보를 찾지 못했어요. 개인 프로필이나 게시물 대신 페이지 링크를 입력해주세요."
     default: "이 페이지에서 정확한 팔로워 수를 읽지 못했어요. 페이지 첫 화면에서 다시 확인해주세요."
     }
 }

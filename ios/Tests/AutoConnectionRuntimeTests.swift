@@ -148,6 +148,52 @@ final class AutoConnectionRuntimeTests: XCTestCase {
         let count = try await requests(browser)
         XCTAssertEqual(count, 0)
     }
+    func testFacebookPageLinkSubmissionConnectsWithoutAnotherConfirmation() async throws {
+        var observations = 0
+        let url = URL(string: "https://www.facebook.com/profile.php?id=99")!
+        let browser = start(html: pageHTML("99"), url: url, provider: .facebook, facebookPage: true,
+            savedSession: pageSession(), onObservation: { session, payload in
+                let (page, count) = try ResponseParser.capturedFacebookPage(payload, session: session, expected: nil, now: 10)
+                XCTAssertEqual(page.id, "FACEBOOK:PAGE:99"); XCTAssertEqual(page.authenticationOwnerID, "42")
+                XCTAssertEqual(count.followers, 0); observations += 1
+            })
+        try await waitUntil { !browser.loading && browser.sessionReady }
+        XCTAssertEqual(observations, 0)
+        browser.openPageLink(url.absoluteString)
+        try await waitUntil { observations == 1 }
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertEqual(observations, 1)
+        let count = try await requests(browser)
+        XCTAssertEqual(count, 0)
+    }
+
+    func testOpaqueFacebookShareLinkWaitsForConfirmationOfItsResolvedPage() async throws {
+        var observations = 0
+        let browser = start(html: pageHTML("99"), url: URL(string: "https://www.facebook.com/profile.php?id=99")!,
+            provider: .facebook, facebookPage: true, savedSession: pageSession(), onObservation: { _, _ in observations += 1 })
+        try await waitUntil { !browser.loading && browser.sessionReady }
+        browser.openPageLink("https://www.facebook.com/share/fixture123/")
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertEqual(observations, 0)
+        browser.confirmPage()
+        try await waitUntil { observations == 1 }
+    }
+
+    func testFacebookPageWaitsForExactHydrationAfterAnInitiallyRoundedLabel() async throws {
+        let url = URL(string: "https://www.facebook.com/profile.php?id=99")!
+        let html = pageHTML("99").replacingOccurrences(of: "0 followers", with: "1.2K followers") +
+            "<script>setTimeout(function(){document.querySelector('header span').textContent='12,345 followers';},1500);</script>"
+        var observations = 0
+        let browser = start(html: html, url: url, provider: .facebook, facebookPage: true,
+            savedSession: pageSession(), onObservation: { session, payload in
+                let (_, count) = try ResponseParser.capturedFacebookPage(payload, session: session, expected: nil, now: 10)
+                XCTAssertEqual(count.followers, 12_345); observations += 1
+            })
+        try await waitUntil { !browser.loading && browser.sessionReady }
+        browser.openPageLink(url.absoluteString)
+        try await waitUntil { observations == 1 }
+        XCTAssertEqual(observations, 1)
+    }
     func testExistingFacebookPageCannotBeReplacedByAnotherSelectedPage() async throws {
         let expected = try Account(provider: .facebook, stableID: "99", username: "fixture.page", displayName: "Fixture Page",
             profileURL: URL(string: "https://www.facebook.com/profile.php?id=99")!, connectedAt: 1, accountType: .page, sessionOwnerID: "42")
