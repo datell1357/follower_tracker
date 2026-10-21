@@ -118,4 +118,38 @@ final class AutoConnectionTests: XCTestCase {
             XCTAssertFalse(Provider.x.allowsLogin(URL(string: text)!))
         }
     }
+
+    func testIdentityProviderNavigationNeverBecomesACookieOrCaptureDestination() {
+        for provider in Provider.allCases {
+            for text in ["https://accounts.google.com/o/oauth2/v2/auth", "https://appleid.apple.com/auth/authorize"] {
+                let url = URL(string: text)!
+                XCTAssertTrue(provider.allowsLogin(url), "Official authentication navigation must remain available")
+                XCTAssertFalse(provider.allows(url))
+                XCTAssertFalse(canAutoConnect(provider, url: url, authenticated: true, loading: false, busy: false))
+            }
+        }
+    }
+
+    func testTikTokSocialLoginHostsAreAvailableOnlyDuringItsLogin() {
+        for host in ["www.facebook.com", "m.facebook.com", "api.twitter.com", "x.com", "vk.com",
+                     "access.line.me", "kauth.kakao.com", "accounts.kakao.com", "inapp.tiktokv.com"] {
+            let url = URL(string: "https://\(host)/fixture-auth")!
+            XCTAssertTrue(Provider.tiktok.allowsLogin(url))
+            XCTAssertFalse(Provider.tiktok.allows(url))
+            XCTAssertFalse(canAutoConnect(.tiktok, url: url, authenticated: true, loading: false, busy: false))
+        }
+        for provider: Provider in [.reddit, .x, .facebook] {
+            XCTAssertFalse(provider.allowsLogin(URL(string: "https://access.line.me/fixture-auth")!))
+            XCTAssertFalse(provider.allowsLogin(URL(string: "https://kauth.kakao.com/fixture-auth")!))
+        }
+    }
+
+    func testAuthenticationHostsRejectLookalikesCredentialsNonHTTPSAndNonDefaultPorts() {
+        for text in ["http://accounts.google.com/", "https://accounts.google.com:444/", "https://user:password@accounts.google.com/",
+                     "https://accounts.google.com.example.test/", "https://sub.accounts.google.com/", "https://appleid.apple.com.example.test/",
+                     "https://www.appleid.apple.com/", "https://access.line.me.example.test/", "https://foo.line.me/", "https://foo.kakao.com/",
+                     "https://inapp.tiktokv.com.example.test/", "https://www.facebook.com.example.test/"] {
+            for provider in Provider.allCases { XCTAssertFalse(provider.allowsLogin(URL(string: text)!), text) }
+        }
+    }
 }

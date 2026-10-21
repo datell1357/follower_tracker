@@ -452,3 +452,9 @@
 - iOS 앱·예약 수집의 순회가 첫 저장소 오류에서 끝나 다른 계정까지 갱신하지 않던 경계를 수정했다. 공통 `SyncService.refreshAll`을 앱·예약 작업·WidgetKit에 연결해 연결별 예상 밖 실패를 반환하고 다른 계정의 갱신·화면 반영을 계속한다. 예약 작업은 이 실패와 취소를 성공 완료로 표시하지 않는다.
 - 실제 SQLite 충돌과 합성 수집기로 수정 전 새 4개 시나리오 중 3개의 실패를 재현했다. 수정 뒤 페이지의 기존 기록·연결 시각 보존, 뒤의 다섯 SNS 처리, 다음 회차 회복·서버 대기 유지·취소 전파를 포함한 저장소·SyncService 24개가 통과했다. OS Keychain·네트워크 상태는 대역이며 실제 SNS 지원 범위를 넓혔다고 보고하지 않는다.
 - Swift core 70개, 최종 iOS Debug 검사 타깃·서명 없는 Release 앱/위젯 빌드를 통과했다. Android 앱과 APK는 변경하지 않았다. ADB 디버깅 기기가 계속 없어 준비된 Android 페이지 연결 APK의 설치·실제 페이지·iOS 실제 UI·OS 예약 검증은 남아 있다. [재현과 검사 범위](CODE_EXPERIMENTS.md#2026-10-22-ios-계정별-갱신-실패-격리)
+
+## 2026-10-22 iOS 로그인 전용 호스트 누락 보완
+
+- iOS의 로그인 주소 정책이 Google·Apple과 TikTok의 외부 인증 주소를 차단하는 두 검사 실패를 재현했다. 기존 Android의 로그인 전용 허용 목록을 반영하고 SNS 수집 주소·쿠키 보관·본인 ID·자동 캡처 경계를 유지했다. Google·Apple 주소는 정확한 호스트만 허용하며 TikTok 전용 주소를 다른 SNS에 공통 적용하지 않는다.
+- 유사 도메인·인증정보 포함 URL·비 HTTPS·비표준 포트·외부 인증 페이지 캡처 거부를 포함한 Swift core 73개와 실제 SQLite·SyncService의 macOS 대역 검사 24개가 통과했다. iOS Debug 검사 타깃·서명 없는 Release 앱/위젯 빌드도 통과했다. Android 소스·기기·APK는 변경하지 않았다.
+- 이 검사는 로그인 주소 정책의 회귀이며 실제 iOS Google·Apple·TikTok 인증 성공, 팝업 복귀·세션 확보 또는 새 페이지 연결의 실기기 결과를 뜻하지 않는다. Google의 embedded user-agent 제한과 실제 인증 경계는 [WebView 로그인](WEBVIEW_LOGIN.md#2026-10-22-ios-외부-인증-주소-허용)에 구분했다.

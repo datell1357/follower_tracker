@@ -39,10 +39,15 @@ public enum Provider: String, Codable, CaseIterable, Sendable, Identifiable {
     }
     public func allowsLogin(_ url: URL) -> Bool {
         if allows(url) { return true }
-        if self == .instagram { return Provider.facebook.allows(url) }
-        guard self == .x, url.scheme == "https", url.user == nil, url.password == nil,
+        guard url.scheme == "https", url.user == nil, url.password == nil,
               url.port == nil || url.port == 443, let host = url.host?.lowercased() else { return false }
-        return host == "twitter.com" || host.hasSuffix(".twitter.com")
+        func belongsTo(_ domain: String) -> Bool { host == domain || host.hasSuffix("." + domain) }
+        if self == .instagram && belongsTo("facebook.com") { return true }
+        if self == .x && belongsTo("twitter.com") { return true }
+        if self == .tiktok && (belongsTo("facebook.com") || belongsTo("twitter.com") || belongsTo("x.com") || belongsTo("vk.com") ||
+            ["access.line.me", "kauth.kakao.com", "accounts.kakao.com", "inapp.tiktokv.com"].contains(host)) { return true }
+        // Navigation only: cookie persistence, authenticated identity and capture still use allows(_:).
+        return host == "accounts.google.com" || host == "appleid.apple.com"
     }
 }
 

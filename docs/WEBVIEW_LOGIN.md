@@ -1,4 +1,12 @@
-# Android WebView 연동 로그인
+# SNS WebView 연동 로그인
+
+## 2026-10-22 iOS 외부 인증 주소 허용
+
+iOS의 `Provider.allowsLogin`에 누락된 Google·Apple 인증 호스트와 TikTok의 Facebook·LINE·Kakao·X/Twitter·VK·`inapp.tiktokv.com` 이동을 기존 Android 목록과 맞췄다. 허용된 HTTPS 로그인 주소만 열며 유사 호스트·인증정보가 포함된 URL·다른 포트는 계속 거부한다. Google과 Apple은 각각 `accounts.google.com`·`appleid.apple.com`이라는 정확한 호스트만 허용한다. [Google 인증 엔드포인트](https://developers.google.com/identity/openid-connect/reference), [Apple 인증 엔드포인트](https://developer.apple.com/documentation/signinwithapplerestapi/request-an-authorization-to-the-sign-in-with-apple-server.)
+
+로그인 주소 허용과 SNS 데이터 접근은 따로 검사한다. `Provider.allows`와 `SessionVault`의 SNS별 쿠키 보관 필터, 인증 소유자·정확한 수치 검증을 유지한다. 외부 인증 페이지에서는 자동 연결·팔로워 캡처를 시작하지 않는다.
+
+수정 전 공식 인증 이동 검사 2개에서 차단을 재현한 뒤, 유사 주소 거부를 포함한 새 3개와 전체 Swift core 73개를 통과했다. 실제 SQLite·SyncService 24개와 iOS Debug 검사 타깃·서명 없는 Release 앱/위젯 빌드도 통과했다. 실제 iOS의 외부 로그인·팝업·2차 인증 완료·SNS 세션 확보는 기기 미실행이다. Google의 [embedded user-agent 제한](https://developers.google.com/identity/protocols/oauth2/policies#use-secure-browsers)은 주소 허용과 별개이며, 이 변경을 Google WebView 인증 지원이나 실제 성공으로 보고하지 않는다.
 
 ## 2026-10-19 TikTok 인증 이동·Instagram 초기 수집 보완
 
