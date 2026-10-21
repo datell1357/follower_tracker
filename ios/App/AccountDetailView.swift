@@ -48,6 +48,9 @@ struct AccountDetailView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(row.account.displayName).font(.title3.bold())
                         Text(row.account.connectionTitle + " · " + row.account.identityLabel).font(.caption).foregroundStyle(TrackerStyle.muted)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    if let onLogout {
+                        Button("로그아웃", action: onLogout).font(.subheadline).fixedSize(horizontal: true, vertical: false).frame(minHeight: 48).disabled(busy)
                     }
                 }.padding(.vertical, 8)
                 VStack(alignment: .leading, spacing: 10) {
@@ -80,7 +83,6 @@ struct AccountDetailView: View {
                     HStack(spacing: 12) { refreshButton; reconnectButton }
                     VStack(alignment: .leading, spacing: 10) { refreshButton; reconnectButton }
                 }
-                if let onLogout { Button("로그아웃 · 기록 유지", action: onLogout).font(.subheadline).frame(minHeight: 48).disabled(busy) }
                 TrackerInfoPanel(title: "자동 갱신", detail: backgroundDetail, icon: "clock")
                 TrackerSectionTitle(title: "선택한 기간의 기록")
                 if records.isEmpty { EmptyCard("아직 기록이 없어요", "다른 기간을 선택하거나 갱신을 진행해주세요.") }

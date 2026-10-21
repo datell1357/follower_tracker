@@ -110,6 +110,9 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
                     Text(if (row.account.accountType == AccountType.PAGE) row.account.connectionTitle else "${row.account.provider.title} · @${row.account.username}",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                onLogout?.let { logout ->
+                    TextButton(onClick = logout, modifier = Modifier.heightIn(min = 48.dp), enabled = !busy) { Text("로그아웃") }
+                }
             }
         }
         item {
@@ -151,7 +154,6 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
             Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy && RefreshPolicy.supportsCountRefresh(row.account)) { Text("지금 갱신") }
                 OutlinedButton(onClick = onReconnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text(if (row.account.accountType == AccountType.PAGE) "페이지 열고 갱신" else "공식 로그인 페이지 열기") }
-                onLogout?.let { logout -> TextButton(onClick = logout, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text("로그아웃 · 기록 유지") } }
             }
         }
         item {
