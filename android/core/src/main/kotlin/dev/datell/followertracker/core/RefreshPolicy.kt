@@ -22,7 +22,10 @@ object RefreshPolicy {
 
     fun nextTransientRetry(account: Account, failedAt: Long, status: SyncStatus = SyncStatus.OFFLINE): TransientRetryState {
         val count = (account.transientRetry?.failureCount ?: 0).coerceIn(0, 4) + 1
-        val delay = if (status == SyncStatus.FORMAT_CHANGED) 900_000L else minOf(900_000L, 60_000L shl (count - 1))
+        // A browser document can briefly omit hydrated profile data while the login remains valid.
+        // Retry that fresh document early, then back off; native format changes keep their longer wait.
+        val delay = if (status == SyncStatus.FORMAT_CHANGED && !usesProfileBrowser(account)) 900_000L
+            else minOf(900_000L, 60_000L shl (count - 1))
         return TransientRetryState(count, saturatedDeadline(failedAt, delay))
     }
 

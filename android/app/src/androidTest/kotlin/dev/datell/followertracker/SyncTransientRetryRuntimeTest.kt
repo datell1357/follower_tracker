@@ -42,11 +42,12 @@ private class TransientCollector : SessionCollecting {
 class SyncTransientRetryRuntimeTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private data class Fixture(val name: String, val database: TrackerDatabase, val repository: TrackerRepository, val account: Account)
-    private suspend fun fixture(): Fixture {
+    private suspend fun fixture(provider: Provider = Provider.INSTAGRAM, browser: Boolean = false): Fixture {
         val name = "tracker-transient-qa-${UUID.randomUUID()}.db"
         val database = Room.databaseBuilder(context, TrackerDatabase::class.java, name).build()
         val repository = TrackerRepository(database, DataCipher())
-        val account = Account(Provider.INSTAGRAM, "fixture", "sample", profileUrl = "https://www.instagram.com/sample/", connectedAt = 1)
+        val account = Account(provider, "fixture", "sample", profileUrl = "https://${provider.domain}/sample/", connectedAt = 1,
+            countTransport = if (browser) CountTransport.PROFILE_BROWSER else CountTransport.SESSION_HTTP)
         repository.saveObservation(account, MetricSnapshot(account.key, 1_000, 0, 0, source = "synthetic-baseline"))
         return Fixture(name, database, repository, account)
     }
@@ -130,6 +131,49 @@ class SyncTransientRetryRuntimeTest {
             assertEquals(Capability.OBSERVED, recovered.capabilities.background)
             assertNull(recovered.transientRetry)
             assertEquals(2, f.repository.history(f.account.key).size)
+        } finally { f.database.close() }
+    }
+
+    @Test fun aFacebookBrowserFailurePreservesTheConnectionAndRestartsAfterTheShortPersistedWait() = runBlocking {
+        val f = fixture(Provider.FACEBOOK, browser = true)
+        try {
+            val collector = TransientCollector().apply { failure = CollectionFailure(SyncStatus.FORMAT_CHANGED) }
+            val sync = SyncCoordinator(context, f.repository, collector, publishWidgets = {})
+            val began = System.currentTimeMillis()
+            sync.refresh(f.account.key, background = true)
+            sync.refresh(f.account.key, background = true)
+            val waiting = checkNotNull(f.repository.account(f.account.key))
+            val retry = checkNotNull(waiting.transientRetry)
+            assertEquals(1, collector.metricRequests)
+            assertEquals(SyncStatus.FORMAT_CHANGED, waiting.status)
+            assertTrue(retry.nextAttemptAt >= began + 60_000)
+            assertTrue(retry.nextAttemptAt <= System.currentTimeMillis() + 60_000)
+            assertEquals(f.account.connectedAt, waiting.connectedAt)
+            assertFalse(waiting.loggedOut)
+            assertEquals(listOf(1_000L), f.repository.history(f.account.key).map { it.observedAt })
+            f.database.close()
+            val reopened = Room.databaseBuilder(context, TrackerDatabase::class.java, f.name).build()
+            try {
+                val repository = TrackerRepository(reopened, DataCipher())
+                assertEquals(retry, repository.account(f.account.key)?.transientRetry)
+                // Advance only this synthetic database's deadline; no live cookies or clock changes.
+                repository.updateStatus(f.account.key, waiting.status, now = System.currentTimeMillis(), expectedConnectedAt = waiting.connectedAt,
+                    transientRetry = retry.copy(nextAttemptAt = System.currentTimeMillis() - 1))
+                collector.failure = null
+                SyncCoordinator(context, repository, collector, publishWidgets = {})
+                    .refresh(f.account.key, background = true)
+                val recovered = checkNotNull(repository.account(f.account.key))
+                assertEquals(2, collector.metricRequests)
+                assertEquals(SyncStatus.READY, recovered.status)
+                assertNull(recovered.transientRetry)
+                assertEquals(f.account.key, recovered.key)
+                assertEquals(f.account.connectedAt, recovered.connectedAt)
+                assertFalse(recovered.loggedOut)
+                val history = repository.history(f.account.key)
+                assertEquals(2, history.size)
+                assertEquals(1_000L, history.first().observedAt)
+                assertEquals(9L, history.last().followers)
+            } finally { reopened.close() }
         } finally { f.database.close() }
     }
     @Test fun consecutiveFailuresIncreaseThePersistedDelay() = runBlocking {

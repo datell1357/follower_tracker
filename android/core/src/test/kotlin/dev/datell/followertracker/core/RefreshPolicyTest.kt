@@ -57,6 +57,26 @@ class RefreshPolicyTest {
         assertEquals(930_000L, RefreshPolicy.nextTransientRetry(waiting, 30_000, SyncStatus.FORMAT_CHANGED).nextAttemptAt)
     }
 
+    @Test fun profileDocumentFailuresRetryFromOneMinuteAndBackOffWhenTheyPersist() {
+        for (provider in Provider.entries) {
+            var previous = owner.copy(provider = provider, profileUrl = provider.loginUrl,
+                countTransport = CountTransport.PROFILE_BROWSER)
+            for (delay in listOf(60_000L, 120_000L, 240_000L, 480_000L, 900_000L, 900_000L)) {
+                val retry = RefreshPolicy.nextTransientRetry(previous, 30_000, SyncStatus.FORMAT_CHANGED)
+                assertEquals(provider.name, 30_000 + delay, retry.nextAttemptAt)
+                val waiting = previous.copy(status = SyncStatus.FORMAT_CHANGED, transientRetry = retry)
+                assertFalse(RefreshPolicy.canRefresh(waiting, retry.nextAttemptAt - 1, background = true))
+                assertTrue(RefreshPolicy.canRefresh(waiting, retry.nextAttemptAt, background = true))
+                previous = waiting
+            }
+            assertEquals(5, previous.transientRetry?.failureCount)
+            for (status in listOf(SyncStatus.REAUTH_REQUIRED, SyncStatus.CHECK_REQUIRED))
+                assertFalse(RefreshPolicy.canRefresh(previous.copy(status = status), Long.MAX_VALUE, background = true))
+            assertFalse(RefreshPolicy.canRefresh(previous.copy(loggedOut = true), Long.MAX_VALUE, background = true))
+            assertFalse(RefreshPolicy.canRefresh(previous.copy(nextAllowedAt = Long.MAX_VALUE), 30_000, background = false))
+        }
+    }
+
     @Test fun previouslyStoredInstagramForegroundAccountCanTryItsProfileRoute() {
         val legacy = owner.copy(status = SyncStatus.FOREGROUND_ONLY,
             capabilities = Capabilities(count = Capability.FOREGROUND_ONLY, background = Capability.FOREGROUND_ONLY))

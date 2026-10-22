@@ -131,6 +131,27 @@ class CountTrackingLoopExperimentTest {
         assertEquals(1, e.maxInFlight)
     }
 
+    @Test fun aMissingFacebookDocumentAfterTwentyHoursRecoversOnTheNextMinuteWithoutReconnecting() {
+        val e = Experiment().apply {
+            cost = 0
+            behavior = { provider, attempt ->
+                if (provider == Provider.FACEBOOK && attempt == 1_201) CollectionFailure(SyncStatus.FORMAT_CHANGED) else null
+            }
+        }
+        e.runFor(24 * hour)
+        assertEquals(1_440, e.requests.getValue(Provider.FACEBOOK).size)
+        val observations = e.observations.getValue(Provider.FACEBOOK)
+        assertEquals(1_439, observations.size)
+        assertEquals(2 * minute, observations.zipWithNext().maxOf { (a, b) -> b - a })
+        assertTrue(observations.contains(20 * hour + minute))
+        val recovered = e.rows.getValue(Provider.FACEBOOK).account
+        assertEquals(SyncStatus.READY, recovered.status)
+        assertNull(recovered.transientRetry)
+        assertEquals(1L, recovered.connectedAt)
+        for (other in Provider.entries.filter { it != Provider.FACEBOOK })
+            assertEquals(1_440, e.observations.getValue(other).size)
+    }
+
     @Test fun facebookPersonalAndMultiplePagesKeepIndependentCadenceAndFailureStateFor24Hours() = runBlocking {
         val personal = Account(Provider.FACEBOOK, "42", "fixture.owner",
             profileUrl = "https://www.facebook.com/profile.php?id=42", connectedAt = 1,
@@ -247,13 +268,15 @@ class CountTrackingLoopExperimentTest {
             behavior = { provider, attempt -> if (provider == Provider.FACEBOOK && attempt == 1)
                 CollectionFailure(SyncStatus.FORMAT_CHANGED) else null }
         }
-        e.runFor(14 * minute)
+        e.runFor(minute / 2)
         assertEquals(1, e.requests.getValue(Provider.FACEBOOK).size)
         assertTrue(e.observations.getValue(Provider.FACEBOOK).isEmpty())
         assertEquals(1_699_999_999_999L, e.rows.getValue(Provider.FACEBOOK).observedAt)
         assertTrue(e.cycles.none { e.rows.getValue(Provider.FACEBOOK).account.key in it.freshKeys })
-        e.runFor(2 * minute)
+        e.runFor(minute)
         assertEquals(1, e.observations.getValue(Provider.FACEBOOK).size)
+        assertEquals(listOf(0L, minute), e.requests.getValue(Provider.FACEBOOK))
+        assertEquals(listOf(minute), e.observations.getValue(Provider.FACEBOOK))
         assertNull(e.rows.getValue(Provider.FACEBOOK).account.transientRetry)
     }
 
