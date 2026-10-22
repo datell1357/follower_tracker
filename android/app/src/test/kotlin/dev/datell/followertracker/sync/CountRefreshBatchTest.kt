@@ -7,10 +7,10 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CountRefreshBatchTest {
-    private val accounts = listOf(Provider.FACEBOOK, Provider.INSTAGRAM, Provider.X, Provider.TIKTOK, Provider.REDDIT)
+    private val accounts = listOf(Provider.FACEBOOK, Provider.INSTAGRAM, Provider.X, Provider.TIKTOK, Provider.REDDIT, Provider.YOUTUBE)
         .map { Account(it, "42", "fixture", profileUrl = "https://${it.domain}/fixture/", connectedAt = 1) }
 
-    @Test fun aFailureCannotPreventTheOtherFourProvidersFromCollecting() = runBlocking {
+    @Test fun aFailureCannotPreventTheOtherProvidersFromCollecting() = runBlocking {
         val attempted = mutableListOf<Provider>()
         val saved = mutableSetOf<Provider>()
         val failures = refreshCountBatch(accounts) {

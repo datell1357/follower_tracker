@@ -82,7 +82,7 @@ class DesignRuntimeTest {
         }
         var selected: String? = null
         rule.setContent { Frame("계정") { Dashboard(state(*rows.toTypedArray()), {}, { selected = it }, {}) } }
-        rule.onNodeWithText("연결된 계정 5개").assertIsDisplayed()
+        rule.onNodeWithText("연결된 계정 ${rows.size}개").assertIsDisplayed()
         rule.onNodeWithText("1분 빠른 추적").assertDoesNotExist()
         rule.onNodeWithText("홈 화면에서 바로 확인").assertDoesNotExist()
         rule.onNodeWithText("기기에 기록 · 기본 기능 무료").assertDoesNotExist()

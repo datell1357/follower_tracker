@@ -32,6 +32,7 @@ internal object WidgetArtwork {
             Provider.X -> intArrayOf(0xFF343A44.toInt(), 0xFF161A21.toInt(), 0xFF0C0F14.toInt())
             Provider.FACEBOOK -> intArrayOf(0xFF174FBF.toInt(), 0xFF123E9B.toInt(), 0xFF112551.toInt())
             Provider.REDDIT -> intArrayOf(0xFFA93608.toInt(), 0xFF94300D.toInt(), 0xFF582413.toInt())
+            Provider.YOUTUBE -> intArrayOf(0xFFC0002B.toInt(), 0xFF8F1530.toInt(), 0xFF481A2B.toInt())
             null -> if (dark) intArrayOf(0xFF1E283D.toInt(), 0xFF151D2D.toInt())
                 else intArrayOf(0xFFF9FBFF.toInt(), 0xFFEDF2FA.toInt())
         }
@@ -55,5 +56,6 @@ internal object WidgetArtwork {
         Provider.X -> R.drawable.provider_x
         Provider.FACEBOOK -> R.drawable.provider_facebook
         Provider.REDDIT -> R.drawable.provider_reddit
+        Provider.YOUTUBE -> R.drawable.provider_youtube
     }
 }

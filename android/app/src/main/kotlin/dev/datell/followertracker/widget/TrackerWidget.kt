@@ -113,7 +113,7 @@ private fun SingleAccount(row: AccountOverview, showAccountName: Boolean) {
     val countWidth = (width - iconSize - 12f - if (attention) 12f else 0f).coerceAtLeast(1f)
     val count = countLabel(row, countWidth, min(60f, mainHeight / (1.4f * fontScale)), 20f)
     val identity = if (showAccountName) " ${row.account.identityLabel}" else ""
-    val description = "${row.account.connectionTitle}$identity, 팔로워 ${row.latest?.let { formatCount(it.followers) } ?: "기록 없음"}, ${widgetStatus(row)}"
+    val description = "${row.account.connectionTitle}$identity, ${row.account.provider.metricLabel} ${row.latest?.let { formatCount(it.followers) } ?: "기록 없음"}, ${widgetStatus(row)}"
     Column(GlanceModifier.fillMaxSize().background(ImageProvider(WidgetArtwork.background(row.account.provider, true)))
         .appWidgetBackground().cornerRadius(24.dp).clickable(openAccounts(LocalContext.current))
         .semantics { contentDescription = description }.padding(padding)) {
@@ -165,7 +165,9 @@ private fun Overview(rows: List<AccountOverview>?, singleAccount: Boolean, inlin
             Row(GlanceModifier.fillMaxWidth().clickable(openAccounts(LocalContext.current)), verticalAlignment = Alignment.CenterVertically) {
                 Column(GlanceModifier.defaultWeight()) {
                     Text("소셜 모아보기", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, color = GlanceTheme.colors.onSurface), maxLines = 1)
-                    Text("팔로워", style = TextStyle(fontSize = 13.sp, color = GlanceTheme.colors.onSurfaceVariant), maxLines = 1)
+                    val metric = if (rows.all { it.account.provider == Provider.YOUTUBE }) "구독자"
+                        else if (rows.any { it.account.provider == Provider.YOUTUBE }) "팔로워·구독자" else "팔로워"
+                    Text(metric, style = TextStyle(fontSize = 13.sp, color = GlanceTheme.colors.onSurfaceVariant), maxLines = 1)
                 }
                 Text("${rows.size}개 계정", GlanceModifier.background(GlanceTheme.colors.surface).cornerRadius(12.dp).padding(horizontal = 9.dp, vertical = 5.dp),
                     style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, color = GlanceTheme.colors.onSurfaceVariant), maxLines = 1)
@@ -196,7 +198,7 @@ private fun WidgetRow(row: AccountOverview, dark: Boolean, showAccountName: Bool
     Column(GlanceModifier.fillMaxWidth().padding(bottom = 6.dp)) {
         Column(GlanceModifier.fillMaxWidth().background(ColorProvider(palette.background.first())).cornerRadius(16.dp)
             .clickable(openAccounts(LocalContext.current))
-            .semantics { contentDescription = "${row.account.connectionTitle}$identity, 팔로워 ${row.latest?.let { formatCount(it.followers) } ?: "기록 없음"}, ${widgetStatus(row)}" }
+            .semantics { contentDescription = "${row.account.connectionTitle}$identity, ${row.account.provider.metricLabel} ${row.latest?.let { formatCount(it.followers) } ?: "기록 없음"}, ${widgetStatus(row)}" }
             .padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 ProviderIcon(row.account.provider, 40f)

@@ -17,6 +17,8 @@ struct ProviderBrand {
             return (adaptive(0x064CB8, 0x9DBEFF), adaptive(0xE9F2FF, 0x192B47), adaptive(0xF6F9FF, 0x1C2433), [fixed(0x0866FF), fixed(0x4B91FF)])
         case .reddit:
             return (adaptive(0xA93600, 0xFFB088), adaptive(0xFFEBE0, 0x39251E), adaptive(0xFFF5EF, 0x2E2521), [fixed(0xFF4500), fixed(0xFF8717)])
+        case .youtube:
+            return (adaptive(0xB80025, 0xFFADB9), adaptive(0xFFE9ED, 0x382129), adaptive(0xFFF6F8, 0x2E2026), [fixed(0xFF0033), fixed(0xC50027)])
         }
     }
     var widgetBackground: LinearGradient {
@@ -27,6 +29,7 @@ struct ProviderBrand {
         case .x: values = [0x343A44, 0x161A21, 0x0C0F14]
         case .facebook: values = [0x174FBF, 0x123E9B, 0x112551]
         case .reddit: values = [0xA93608, 0x94300D, 0x582413]
+        case .youtube: values = [0xC0002B, 0x8F1530, 0x481A2B]
         }
         return LinearGradient(colors: values.map { TrackerStyle.adaptive($0, $0) }, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
@@ -39,7 +42,7 @@ struct ProviderBrand {
             LinearGradient(colors: [TrackerStyle.adaptive(0x833AB4, 0x833AB4), TrackerStyle.adaptive(0xE1306C, 0xE1306C), TrackerStyle.adaptive(0xFCAF45, 0xFCAF45)], startPoint: .topLeading, endPoint: .bottomTrailing)
         case .x, .tiktok:
             LinearGradient(colors: [.black, .black], startPoint: .top, endPoint: .bottom)
-        case .facebook, .reddit:
+        case .facebook, .reddit, .youtube:
             LinearGradient(colors: [accent.opacity(0.10), accent.opacity(0.10)], startPoint: .top, endPoint: .bottom)
         }
     }
@@ -50,6 +53,7 @@ struct ProviderBrand {
         case .x: "ProviderX"
         case .facebook: "ProviderFacebook"
         case .reddit: "ProviderReddit"
+        case .youtube: "ProviderYouTube"
         }
     }
 }

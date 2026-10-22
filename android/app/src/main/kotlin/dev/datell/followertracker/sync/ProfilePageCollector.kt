@@ -100,6 +100,7 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
             web.settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
+                mediaPlaybackRequiresUserGesture = true
                 userAgentString = collectionAgent
                 useWideViewPort = true
                 loadWithOverviewMode = true

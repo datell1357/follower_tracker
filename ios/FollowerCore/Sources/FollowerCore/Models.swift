@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Provider: String, Codable, CaseIterable, Sendable, Identifiable {
-    case instagram = "INSTAGRAM", tiktok = "TIKTOK", x = "X", facebook = "FACEBOOK", reddit = "REDDIT"
+    case instagram = "INSTAGRAM", tiktok = "TIKTOK", x = "X", facebook = "FACEBOOK", reddit = "REDDIT", youtube = "YOUTUBE"
     public var id: String { rawValue }
     public var title: String {
         switch self {
@@ -10,6 +10,7 @@ public enum Provider: String, Codable, CaseIterable, Sendable, Identifiable {
         case .x: "X"
         case .facebook: "Facebook"
         case .reddit: "Reddit"
+        case .youtube: "YouTube"
         }
     }
     public var domain: String {
@@ -19,6 +20,7 @@ public enum Provider: String, Codable, CaseIterable, Sendable, Identifiable {
         case .x: "x.com"
         case .facebook: "facebook.com"
         case .reddit: "reddit.com"
+        case .youtube: "youtube.com"
         }
     }
     public var loginURL: URL {
@@ -29,6 +31,7 @@ public enum Provider: String, Codable, CaseIterable, Sendable, Identifiable {
         case .x: path = "https://x.com/i/flow/login"
         case .facebook: path = "https://www.facebook.com/login/"
         case .reddit: path = "https://www.reddit.com/login/"
+        case .youtube: path = "https://studio.youtube.com/"
         }
         return URL(string: path)!
     }
@@ -37,6 +40,7 @@ public enum Provider: String, Codable, CaseIterable, Sendable, Identifiable {
               url.port == nil || url.port == 443, let host = url.host?.lowercased() else { return false }
         return host == domain || host.hasSuffix(".\(domain)")
     }
+    public var metricLabel: String { self == .youtube ? "구독자" : "팔로워" }
     public func allowsLogin(_ url: URL) -> Bool {
         if allows(url) { return true }
         guard url.scheme == "https", url.user == nil, url.password == nil,
@@ -111,7 +115,7 @@ public struct Account: Codable, Identifiable, Equatable, Sendable {
     public var loggedOut = false
     public var id: String { accountType == .page ? "\(provider.rawValue):PAGE:\(stableID)" : "\(provider.rawValue):\(stableID)" }
     public var connectionTitle: String { accountType == .page ? "Facebook 페이지" : provider.title }
-    public var identityLabel: String { accountType == .page ? displayName : "@" + username }
+    public var identityLabel: String { accountType == .page || provider == .youtube ? displayName : "@" + username }
     public var authenticationOwnerID: String { accountType == .page ? sessionOwnerID! : stableID }
     public func conflicts(with other: Account) -> Bool {
         !loggedOut && !other.loggedOut && provider == other.provider && accountType == .profile && other.accountType == .profile && id != other.id

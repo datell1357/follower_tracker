@@ -2,6 +2,39 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { capture, captureFacebookPage, exactCount } = require("../web-session-capture.js");
 
+const studioID = 'UC' + 'a'.repeat(22);
+function studioDocument(values = ['12,345'], options = {}) {
+  const card = { innerText: options.label || '', querySelectorAll: selector => selector.startsWith('#subscriber-count') ? values.map(textContent => ({ textContent })) : [] };
+  const root = { querySelectorAll: selector => selector === 'ytcp-app' ? [{}] : selector.startsWith('ytcp-channel-analytics,') ? [card] :
+    selector.startsWith('ytcp-navigation-drawer ') ? [{ textContent: 'Fixture Channel' }] : [] };
+  const doc = { location: { href: options.url || 'https://studio.youtube.com/channel/' + studioID },
+    querySelectorAll: selector => options.shadow ? selector === '*' ? [{ shadowRoot: root }] : [] : root.querySelectorAll(selector) };
+  if (options.noApp) root.querySelectorAll = () => [];
+  return doc;
+}
+test('YouTube captures only an owned Studio total, including zero and open shadow roots', () => {
+  for (const shadow of [false, true]) for (const [values, expected] of [[['0'], 0], [['12,345'], 12345]]) {
+    const result = capture('YOUTUBE', null, studioDocument(values, { shadow }));
+    assert.equal(result.followers, expected); assert.equal(result.stableId, studioID);
+    assert.equal(result.studioChannelId, studioID); assert.equal(result.following, null);
+    assert.equal(result.source, 'youtube-studio-dom'); assert.equal(result.precision, 'EXACT');
+  }
+});
+test('YouTube public pages, foreign hosts, another channel, and non-Studio documents never connect', () => {
+  for (const url of ['https://www.youtube.com/channel/' + studioID, 'https://studio.youtube.com.example.test/channel/' + studioID,
+    'http://studio.youtube.com/channel/' + studioID, 'https://private@studio.youtube.com/channel/' + studioID,
+    'https://studio.youtube.com/channel/' + studioID + '/videos', 'https://studio.youtube.com/channel/not-a-channel'])
+    assert.ok(capture('YOUTUBE', null, studioDocument(['12345'], { url })).error);
+  assert.equal(capture('YOUTUBE', 'UC' + 'b'.repeat(22), studioDocument()).error, 'check_required');
+  assert.ok(capture('YOUTUBE', null, studioDocument(['12345'], { noApp: true })).error);
+});
+test('YouTube rounded, conflicting, missing and subscriber-gain metrics cannot invent an exact total', () => {
+  for (const values of [['1.2K'], ['1.23만'], ['-1'], ['1.5'], ['12,345', '12,346'], []])
+    assert.equal(capture('YOUTUBE', null, studioDocument(values)).error, 'exact_count_missing');
+  assert.equal(capture('YOUTUBE', null, studioDocument([], { label: 'Subscribers gained\n12345' })).error, 'exact_count_missing');
+  assert.equal(capture('YOUTUBE', null, studioDocument([], { label: '현재 구독자 수\n12,345\n지난 28일' })).followers, 12345);
+});
+
 function documentWith(data) {
   return { location: { href: "https://www.tiktok.com/@self" },
     querySelectorAll: () => [{ textContent: JSON.stringify(data) }], querySelector: () => null };

@@ -54,7 +54,7 @@ struct AccountDetailView: View {
                     }
                 }.padding(.vertical, 8)
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("팔로워").font(.caption).foregroundStyle(TrackerStyle.muted)
+                    Text(row.account.provider.metricLabel).font(.caption).foregroundStyle(TrackerStyle.muted)
                     Text(row.latest.map { TrackerStyle.count($0.followers) } ?? "—")
                         .font(.system(size: countSize, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.5)
                     if let following = row.latest?.following { Text("팔로잉 " + TrackerStyle.count(following)).font(.subheadline).foregroundStyle(TrackerStyle.muted) }

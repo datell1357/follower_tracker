@@ -166,7 +166,7 @@ struct SessionCollector: SessionCollecting {
             let document = try await http.facebookPage(expected, timeout: timeout)
             observation = try FacebookPageDocument.observation(document.body, url: document.url,
                 expected: expected, session: saved, now: nowMillis())
-        case .x: throw CollectionFailure(.foregroundOnly)
+        case .x, .youtube: throw CollectionFailure(.foregroundOnly)
         }
         var updated = try Account(provider: provider, stableID: observation.0.stableID, username: observation.0.username,
             displayName: observation.0.displayName, profileURL: observation.0.profileURL, connectedAt: expected?.connectedAt ?? observation.0.connectedAt,

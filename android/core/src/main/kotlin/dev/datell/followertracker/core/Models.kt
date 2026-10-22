@@ -9,7 +9,10 @@ enum class Provider(val title: String, val loginUrl: String, val domain: String)
     TIKTOK("TikTok", "https://www.tiktok.com/login", "tiktok.com"),
     X("X", "https://x.com/i/flow/login", "x.com"),
     FACEBOOK("Facebook", "https://www.facebook.com/login/", "facebook.com"),
-    REDDIT("Reddit", "https://www.reddit.com/login/", "reddit.com");
+    REDDIT("Reddit", "https://www.reddit.com/login/", "reddit.com"),
+    YOUTUBE("YouTube", "https://studio.youtube.com/", "youtube.com");
+
+    val metricLabel: String get() = if (this == YOUTUBE) "구독자" else "팔로워"
 
     fun allows(url: String): Boolean = runCatching {
         val uri = URI(url)
@@ -75,7 +78,7 @@ data class Account(
 ) {
     val key: String get() = if (accountType == AccountType.PAGE) "${provider.name}:PAGE:$stableId" else "${provider.name}:$stableId"
     val connectionTitle: String get() = if (accountType == AccountType.PAGE) "Facebook 페이지" else provider.title
-    val identityLabel: String get() = if (accountType == AccountType.PAGE) displayName else "@$username"
+    val identityLabel: String get() = if (accountType == AccountType.PAGE || provider == Provider.YOUTUBE) displayName else "@$username"
     /** A selected Page is a collection target, never the person who owns the login session. */
     val authenticationOwnerId: String get() = if (accountType == AccountType.PAGE) checkNotNull(sessionOwnerId) else stableId
     fun conflictsWith(other: Account): Boolean = !loggedOut && !other.loggedOut && provider == other.provider && accountType == AccountType.PROFILE &&

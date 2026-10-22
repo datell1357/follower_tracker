@@ -92,7 +92,8 @@ class SessionLoginBrowser(private val provider: Provider, private val initialUrl
         settings.domStorageEnabled = true
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
-        settings.userAgentString = loginUserAgent(WebSettings.getDefaultUserAgent(context))
+        val agent = loginUserAgent(WebSettings.getDefaultUserAgent(context))
+        settings.userAgentString = if (provider == Provider.YOUTUBE) facebookPageUserAgent(agent) ?: agent else agent
         settings.javaScriptCanOpenWindowsAutomatically = true
         settings.setSupportMultipleWindows(true)
         settings.allowFileAccess = false

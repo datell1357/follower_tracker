@@ -5,6 +5,28 @@ import kotlinx.serialization.json.*
 object ResponseParser {
     private val json = Json { ignoreUnknownKeys = true }
 
+    fun youtubeStudioCapture(body: String, expected: Account?, now: Long): Pair<Account, MetricSnapshot> {
+        val root = objectBody(body)
+        val id = root.text("stableId") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val url = root.text("profileURL") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        if (root["error"] != null || root.text("provider") != Provider.YOUTUBE.name || root.text("accountType") == AccountType.PAGE.name ||
+            !id.matches(Regex("UC[A-Za-z0-9_-]{22}")) || root.text("studioChannelId") != id ||
+            url != "https://studio.youtube.com/channel/$id" ||
+            expected != null && (expected.provider != Provider.YOUTUBE || expected.stableId != id))
+            throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+        if (root.text("source") != "youtube-studio-dom" || root.text("precision") != Precision.EXACT.name ||
+            root["following"] != JsonNull) throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val followers = (root["followers"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+            ?.takeIf { it in 0..9_007_199_254_740_991L }
+            ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+        val account = Account(Provider.YOUTUBE, id, id, root.text("displayName") ?: throw CollectionFailure(SyncStatus.FORMAT_CHANGED),
+            url, status = SyncStatus.FOREGROUND_ONLY, connectedAt = expected?.connectedAt ?: now, lastAttemptAt = now,
+            countTransport = CountTransport.PROFILE_BROWSER,
+            capabilities = Capabilities(count = Capability.FOREGROUND_ONLY, background = Capability.FOREGROUND_ONLY,
+                followers = Capability.UNAVAILABLE, following = Capability.UNAVAILABLE))
+        return account to MetricSnapshot(account.key, now, followers, null, source = "youtube-studio-dom")
+    }
+
     fun objectBody(body: String): JsonObject = try {
         json.parseToJsonElement(body).jsonObject
     } catch (_: Exception) {

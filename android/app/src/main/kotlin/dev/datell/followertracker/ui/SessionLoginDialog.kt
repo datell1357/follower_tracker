@@ -137,7 +137,9 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                             web.loadUrl(profile)
                         } else if (allowRequest) {
                             policy.failed(failure, System.currentTimeMillis())
-                            loginBrowser.notice = webCaptureFailureMessage(result.optString("error"), failure)
+                            loginBrowser.notice = if (provider == Provider.YOUTUBE && failure.status == SyncStatus.FORMAT_CHANGED)
+                                "YouTube Studio의 채널 대시보드에서 현재 구독자 수를 확인해주세요. 정확한 수가 준비되면 자동으로 연결해요."
+                                else webCaptureFailureMessage(result.optString("error"), failure)
                         }
                     }
                 } catch (cancelled: CancellationException) {
@@ -167,7 +169,8 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                     IconButton(onClick = loginBrowser::reload, enabled = !busy && !checking) { Icon(Icons.Outlined.Refresh, "페이지 새로고침") }
                     IconButton(onClick = loginBrowser::goBack, enabled = !busy) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "이전 페이지") }
                 }
-                Text(if (facebookPage) "페이지 링크를 입력하고 연결을 누르면 자동으로 확인해요." else "공식 페이지에서 로그인하면 내 계정을 자동으로 연결해요.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                Text(if (facebookPage) "페이지 링크를 입력하고 연결을 누르면 자동으로 확인해요." else if (provider == Provider.YOUTUBE)
+                    "YouTube Studio에서 본인 채널에 로그인하면 정확한 구독자 수를 확인해 연결해요." else "공식 페이지에서 로그인하면 내 계정을 자동으로 연결해요.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (facebookPage) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),

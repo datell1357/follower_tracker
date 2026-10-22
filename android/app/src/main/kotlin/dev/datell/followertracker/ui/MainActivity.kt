@@ -105,7 +105,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
                 if (tab == 3 && page != null) IconButton(onClick = ::back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "이전 화면") }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(if (tab == 3 && page != null) page.title else listOf("계정", "분석", "위젯", "설정")[tab], style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(if (tab == 3 && page != null) page.subtitle else listOf("연결된 SNS의 팔로워 기록", "맞팔과 미관측 기록을 한눈에", "보고 싶은 기록을 홈 화면에", "수집 방식과 연결 관리")[tab],
+                    Text(if (tab == 3 && page != null) page.subtitle else listOf("연결된 SNS의 팔로워·구독자 기록", "맞팔과 미관측 기록을 한눈에", "보고 싶은 기록을 홈 화면에", "수집 방식과 연결 관리")[tab],
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (tab == 0) FilledTonalIconButton(onClick = { picking = true }, enabled = !state.busy,
@@ -142,7 +142,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
         LazyColumn(Modifier.padding(bottom = 24.dp)) {
             Provider.entries.forEach { provider -> item(key = provider.name) {
                 val connected = state.accounts.any { it.account.provider == provider && it.account.accountType == AccountType.PROFILE }
-                ListItem(headlineContent = { Text(provider.title) }, supportingContent = { Text(if (connected) "연결됨 · 로그인 확인" else if (provider == Provider.INSTAGRAM) "팔로워 수 · 위젯 · 빠른 추적" else "로그인 후 수집 가능 여부를 확인해요") },
+                ListItem(headlineContent = { Text(provider.title) }, supportingContent = { Text(if (connected) "연결됨 · 로그인 확인" else if (provider == Provider.YOUTUBE) "YouTube Studio의 정확한 구독자 수" else if (provider == Provider.INSTAGRAM) "팔로워 수 · 위젯 · 빠른 추적" else "로그인 후 수집 가능 여부를 확인해요") },
                     leadingContent = { ProviderMark(provider) }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
                     modifier = Modifier.clickableSafe { picking = false; model.dismissMessage(); login = LoginRequest(provider) })
             }

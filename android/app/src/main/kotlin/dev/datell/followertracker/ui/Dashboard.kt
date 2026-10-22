@@ -70,7 +70,7 @@ private fun AccountCard(row: AccountOverview, onClick: () -> Unit) {
             }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("팔로워", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(row.account.provider.metricLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(observedAt?.let { "갱신 ${(now - it).coerceAtLeast(0) / 60_000}분 전" } ?: "수집 대기",
                         modifier = Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -118,7 +118,7 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
         item {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("현재 팔로워", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text("현재 ${row.account.provider.metricLabel}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Text(row.latest?.let { formatCount(it.followers) } ?: "—", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Text(row.latest?.let { "${observationTime(it.observedAt)} 수집" } ?: "아직 수집 기록이 없어요", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     row.latest?.following?.let { Text("팔로잉 ${formatCount(it)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer) }
@@ -126,7 +126,7 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
             }
         }
         item {
-            SectionHeading("팔로워 변화")
+            SectionHeading("${row.account.provider.metricLabel} 변화")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf("최근 기록", "최근 1시간", "오늘").forEachIndexed { index, label ->
                     FilterChip(selected = period == index, onClick = { period = index }, label = { Text(label) })

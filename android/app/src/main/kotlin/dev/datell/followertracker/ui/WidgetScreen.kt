@@ -72,7 +72,7 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
                     NativeWidgetPreview(rows, !wide, size, Modifier.size(size.width, size.height).shadow(6.dp, RoundedCornerShape(if (wide) 26.dp else 24.dp)), showAccountName = showAccountName)
                 }
             }
-            Text(if (wide) "연결된 ${state.accounts.size}개 계정 · 많아지면 위젯 안에서 스크롤" else "최소 2×1 · 큰 아이콘과 팔로워 수", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (wide) "연결된 ${state.accounts.size}개 계정 · 많아지면 위젯 안에서 스크롤" else "최소 2×1 · 큰 아이콘과 팔로워·구독자 수", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

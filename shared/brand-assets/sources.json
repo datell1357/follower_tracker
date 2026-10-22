@@ -52,6 +52,18 @@
       "svg": "svg/reddit.svg",
       "svg_sha256": "944f308b42648bde5d2a54144146f21eb98b847365e3ac1df9de8a28d7f0d872",
       "conversion": "original-svg-trailing-whitespace-normalized"
+    },
+    {
+      "provider": "youtube",
+      "official_page": "https://brand.youtube/youtube-icon",
+      "official_source": "youtube-icon.zip/YouTube_Icon/Digital/01 Red/yt_icon_red_digital.ai",
+      "source_file_hashed": "youtube-red.ai",
+      "source_sha256": "b5958b5f28b494b9e3e3962bdf5619c69c6733e409cc23845c6910af84d80c22",
+      "svg": "svg/youtube.svg",
+      "svg_sha256": "6a5cb1d53c5a1fbc33883161a261dfdd21428e8d376a4efd568c31ec719c59b6",
+      "conversion": "official-ai-to-svg; artboard whitespace cropped; path data and colors preserved",
+      "retrieved_on": "2026-10-23",
+      "download_url": "https://www.gstatic.com/marketing-cms/78/29/3e68a1414bb28d0b7e47b44c3c91/youtube-icon.zip"
     }
   ]
 }

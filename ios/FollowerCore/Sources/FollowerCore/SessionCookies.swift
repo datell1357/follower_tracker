@@ -45,7 +45,7 @@ public struct SavedSession: Codable, Sendable {
             let decoded = values["twid"]?.removingPercentEncoding?.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
             guard decoded.hasPrefix("u="), decoded.dropFirst(2).allSatisfy(\.isNumber), decoded.count > 2 else { return nil }
             return String(decoded.dropFirst(2))
-        case .tiktok, .reddit: return expectedID
+        case .tiktok, .reddit, .youtube: return expectedID
         }
     }
     public func authenticated(_ provider: Provider) -> Bool {
@@ -56,6 +56,8 @@ public struct SavedSession: Codable, Sendable {
         case .x: return names.contains("auth_token") && identity(provider) != nil
         case .facebook: return names.contains("xs") && identity(provider) != nil
         case .reddit: return !names.isDisjoint(with: ["reddit_session", "token_v2"])
+        case .youtube: return !names.isDisjoint(with: ["SID", "__Secure-1PSID", "__Secure-3PSID"]) &&
+            !names.isDisjoint(with: ["SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"])
         }
     }
 }

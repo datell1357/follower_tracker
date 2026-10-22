@@ -35,18 +35,23 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
         val metadata = sessions.metadata(provider) ?: rejectSession(DiagnosticStage.SESSION_METADATA)
         if (!sessions.hasAuthentication(provider)) rejectSession(DiagnosticStage.SESSION_AUTH)
         val now = System.currentTimeMillis()
-        if (expected != null && RefreshPolicy.usesProfileBrowser(expected)) {
+        suspend fun readProfile(account: Account): Pair<Account, MetricSnapshot> {
             val browser = profileBrowser ?: throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
-            val captured = captured(provider, browser.read(expected, metadata.userAgent,
-                retain = RapidTracking.state.value.running), expected, facebookPage = expected.accountType == AccountType.PAGE)
+            val captured = captured(provider, browser.read(account, metadata.userAgent,
+                retain = RapidTracking.state.value.running), account, facebookPage = account.accountType == AccountType.PAGE)
             currentCoroutineContext().ensureActive()
             return captured.first.copy(status = SyncStatus.READY, countTransport = CountTransport.PROFILE_BROWSER,
                 capabilities = captured.first.capabilities.copy(count = Capability.OBSERVED,
-                    background = expected.capabilities.background.takeIf { it != Capability.FOREGROUND_ONLY } ?: Capability.UNVERIFIED)) to
+                    background = account.capabilities.background.takeIf { it != Capability.FOREGROUND_ONLY } ?: Capability.UNVERIFIED)) to
                 captured.second.copy(observedAt = System.currentTimeMillis(), source =
-                    if (expected.accountType == AccountType.PAGE) "facebook-page-browser" else "${provider.name.lowercase()}-profile-browser")
+                    if (account.accountType == AccountType.PAGE) "facebook-page-browser" else "${provider.name.lowercase()}-profile-browser")
         }
-        val observation = when (provider) {
+        if (expected != null && RefreshPolicy.usesProfileBrowser(expected)) return readProfile(expected)
+        val observation = collectWithSessionRecovery(expected, now,
+            sessionStillCurrent = { sessions.metadata(provider)?.savedAt == metadata.savedAt && sessions.hasAuthentication(provider) &&
+                expected != null && sessions.identity(provider) == expected.authenticationOwnerId },
+            browser = if (profileBrowser == null) null else ::readProfile,
+            primary = { when (provider) {
             Provider.INSTAGRAM -> {
                 val id = sessions.identity(provider) ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
                 if (expected != null && id != expected.stableId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
@@ -66,9 +71,10 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
                 val account = expected ?: throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
                 ResponseParser.tiktokProfile(http.read(provider, account.profileUrl.toHttpUrl(), metadata.userAgent), account.stableId, now)
             }
-            Provider.X, Provider.FACEBOOK -> throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
-        }
+            Provider.X, Provider.FACEBOOK, Provider.YOUTUBE -> throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
+        } })
         currentCoroutineContext().ensureActive()
+        if (observation.first.countTransport == CountTransport.PROFILE_BROWSER) return observation
         val account = observation.first.copy(
             connectedAt = expected?.connectedAt ?: observation.first.connectedAt,
             status = SyncStatus.READY, lastAttemptAt = now,
@@ -78,6 +84,10 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
     }
 
     fun captured(provider: Provider, payload: String, expected: Account?, facebookPage: Boolean = false): Pair<Account, MetricSnapshot> {
+        if (provider == Provider.YOUTUBE) {
+            if (facebookPage || !sessions.hasAuthentication(provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
+            return ResponseParser.youtubeStudioCapture(payload, expected, System.currentTimeMillis())
+        }
         if (facebookPage) {
             if (provider != Provider.FACEBOOK) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
             if (!sessions.hasAuthentication(provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)

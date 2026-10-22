@@ -209,6 +209,7 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
         guard let url = action.request.url, action.targetFrame?.isMainFrame != false else { decisionHandler(.allow, preferences); return }
         guard provider.allowsLogin(url) else { notice = "공식 SNS 로그인 주소가 아닌 페이지로의 이동을 중단했어요. SNS의 아이디·비밀번호 또는 이메일 로그인 방식을 선택해주세요."; decisionHandler(.cancel, preferences); return }
         if facebookPage { preferences.preferredContentMode = FacebookPageAddress.isTarget(url) ? .desktop : .mobile }
+        if provider == .youtube { preferences.preferredContentMode = url.host == "studio.youtube.com" ? .desktop : .mobile }
         if action.targetFrame == nil { webView.load(action.request); decisionHandler(.cancel, preferences) }
         else { decisionHandler(.allow, preferences) }
     }
@@ -255,7 +256,9 @@ struct SessionLoginView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack { Image(systemName: "lock"); Text(browser.host).lineLimit(1); Spacer() }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.vertical, 8)
-                Text(facebookPage ? "페이지 링크를 입력하고 연결을 누르면 자동으로 확인해요." : "공식 페이지에서 로그인하면 내 계정과 정확한 팔로워 수를 확인해 자동으로 연결해요.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 8)
+                Text(facebookPage ? "페이지 링크를 입력하고 연결을 누르면 자동으로 확인해요." : provider == .youtube ?
+                    "YouTube Studio에서 본인 채널에 로그인하면 정확한 구독자 수를 확인해 연결해요." :
+                    "공식 페이지에서 로그인하면 내 계정과 정확한 팔로워 수를 확인해 자동으로 연결해요.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 8)
                 if facebookPage {
                     HStack {
                         TextField("페이스북 페이지 링크", text: $pageAddress).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()

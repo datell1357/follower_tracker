@@ -52,8 +52,15 @@ public enum ResponseParser {
         case .tiktok: sources = ["tiktok-webview-profile"]
         case .x: sources = ["x-webview-profile", "x-webview-dom"]
         case .facebook: sources = ["facebook-webview-profile"]
+        case .youtube: sources = ["youtube-studio-dom"]
         }
         guard sources.contains(source) else { throw CollectionFailure(.formatChanged) }
+        if provider == .youtube {
+            guard id.range(of: "^UC[A-Za-z0-9_-]{22}$", options: .regularExpression) != nil,
+                  root["studioChannelId"] as? String == id,
+                  profile == "https://studio.youtube.com/channel/" + id,
+                  root["following"] is NSNull else { throw CollectionFailure(.checkRequired) }
+        }
         func exact(_ value: Any?) throws -> Int64 {
             guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
                   let count = exactDisplayedCount(number.stringValue), count <= 9_007_199_254_740_991 else { throw CollectionFailure(.formatChanged) }
@@ -68,6 +75,10 @@ public enum ResponseParser {
         account.capabilities = expected?.capabilities ?? Capabilities()
         account.capabilities.count = sessionResponse ? .observed : .foregroundOnly
         account.capabilities.background = sessionResponse ? (account.capabilities.background == .foregroundOnly ? .unverified : account.capabilities.background) : .foregroundOnly
+        if provider == .youtube {
+            account.capabilities.followers = .unavailable
+            account.capabilities.following = .unavailable
+        }
         account.status = sessionResponse ? .ready : .foregroundOnly
         account.lastAttemptAt = now
         return (account, try MetricSnapshot(accountKey: account.id, observedAt: now, followers: followers,

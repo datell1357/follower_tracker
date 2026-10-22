@@ -51,7 +51,7 @@ struct TrackerWidgetContent: View {
     }
     private func description(_ row: AccountOverview) -> String {
         let identity = showAccountName ? " " + row.account.identityLabel : ""
-        return row.account.connectionTitle + identity + ", 팔로워 " + (row.latest.map { TrackerStyle.count($0.followers) } ?? "기록 없음") + ", " + TrackerStyle.widgetStatus(row)
+        return row.account.connectionTitle + identity + ", " + row.account.provider.metricLabel + " " + (row.latest.map { TrackerStyle.count($0.followers) } ?? "기록 없음") + ", " + TrackerStyle.widgetStatus(row)
     }
     private var overview: some View {
         GeometryReader { geometry in
@@ -63,7 +63,11 @@ struct TrackerWidgetContent: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(single ? "내 계정" : "소셜 모아보기").font(.system(size: 20, weight: .bold))
-                    if !rows.isEmpty { Text("팔로워").font(.system(size: 13)).foregroundStyle(TrackerStyle.muted) }
+                    if !rows.isEmpty {
+                        let metric = rows.allSatisfy { $0.account.provider == .youtube } ? "구독자" :
+                            rows.contains { $0.account.provider == .youtube } ? "팔로워·구독자" : "팔로워"
+                        Text(metric).font(.system(size: 13)).foregroundStyle(TrackerStyle.muted)
+                    }
                 }
                 Spacer(minLength: 4)
                 if !rows.isEmpty { Text("\(rows.count)개 계정").font(.system(size: 13, weight: .medium)).padding(.horizontal, 9).padding(.vertical, 5).background(TrackerStyle.surface, in: Capsule()) }

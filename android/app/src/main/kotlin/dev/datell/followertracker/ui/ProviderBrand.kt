@@ -32,6 +32,8 @@ fun providerPalette(provider: Provider, dark: Boolean): ProviderPalette {
             else palette(0x064CB8, 0xE9F2FF, 0xF6F9FF, 0x0866FF, 0x4B91FF)
         Provider.REDDIT -> if (dark) palette(0xFFB088, 0x39251E, 0x2E2521, 0xFF4500, 0xFF8717)
             else palette(0xA93600, 0xFFEBE0, 0xFFF5EF, 0xFF4500, 0xFF8717)
+        Provider.YOUTUBE -> if (dark) palette(0xFFADB9, 0x382129, 0x2E2026, 0xFF0033, 0xC50027)
+            else palette(0xB80025, 0xFFE9ED, 0xFFF6F8, 0xFF0033, 0xC50027)
     }
 }
 

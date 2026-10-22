@@ -264,8 +264,57 @@
       'https://www.facebook.com/profile.php?id=' + encodeURIComponent(id), followers, null, 'facebook-webview-page');
     return { ...captured, accountType: 'PAGE', sessionOwnerId: expectedID };
   }
+  function captureYouTubeStudio(expectedID, doc) {
+    let url;
+    try { url = new URL(doc.location.href); } catch (_) { return { error: 'check_required' }; }
+    if (url.protocol !== 'https:' || url.host !== 'studio.youtube.com' || url.username || url.password)
+      return { error: 'own_profile_required', profileURL: 'https://studio.youtube.com/' };
+    const route = /^\/channel\/(UC[A-Za-z0-9_-]{22})(?:\/(?:analytics(?:\/[^?#]*)?|dashboard)?)?\/?$/.exec(url.pathname);
+    if (!route) return { error: 'own_profile_required' };
+    const id = route[1];
+    if (expectedID && expectedID !== id) return { error: 'check_required' };
+    // Studio's open Polymer roots only. Never inspect forms/tokens or request a rounded public count.
+    const scopes = [doc]; let visited = 0;
+    for (let i = 0; i < scopes.length; i++) {
+      const nodes = scopes[i].querySelectorAll('*');
+      visited += nodes.length;
+      if (visited > 20000 || scopes.length > 128) return { error: 'exact_count_missing' };
+      for (const node of nodes) if (node.shadowRoot) scopes.push(node.shadowRoot);
+    }
+    const query = selector => scopes.flatMap(scope => Array.from(scope.querySelectorAll(selector)));
+    if (!query('ytcp-app').length) return { error: 'exact_count_missing' };
+    const cards = query('ytcp-channel-analytics,#channel-analytics,#dashboard-analytics-card,ytcp-analytics-subscribers-card');
+    if (!cards.length || cards.length > 16) return { error: 'exact_count_missing' };
+    const counts = new Set();
+    const countSelector = '#subscriber-count,#subscriber-count-value,#subscribers-count,#total-subscribers-count,#total-subscribers,.subscriber-count,.subscribers-count,.current-subscribers';
+    const text = node => (node.innerText || node.textContent || '').trim();
+    for (const card of cards) {
+      const roots = [card];
+      if (card.shadowRoot) roots.push(card.shadowRoot);
+      for (const root of roots) for (const node of root.querySelectorAll(countSelector)) {
+        const value = text(node);
+        if (value.length > 140) continue;
+        const count = exactCount(value);
+        if (count !== null) counts.add(count);
+      }
+      // The total's label is explicit; gains, views, and watch time cannot supply it.
+      const label = text(card);
+      if (label.length <= 4096) {
+        const match = /(?:^|\n)\s*(?:Current subscribers|Total subscribers|현재\s*구독자(?:\s*수)?|총\s*구독자\s*수)\s*\n\s*([0-9][0-9,\u00a0\u202f ]*)\s*(?:\n|$)/i.exec(label);
+        if (match && exactCount(match[1]) !== null) counts.add(exactCount(match[1]));
+      }
+    }
+    if (counts.size !== 1) return { error: 'exact_count_missing' };
+    const names = new Set(query('ytcp-navigation-drawer #entity-name,ytcp-navigation-drawer #channel-name,#channel-name')
+      .map(text).filter(value => value && value.length <= 256));
+    if (names.size !== 1) return { error: 'exact_count_missing' };
+    return { ...result('YOUTUBE', id, id, names.values().next().value,
+      'https://studio.youtube.com/channel/' + id, counts.values().next().value, null, 'youtube-studio-dom'), studioChannelId: id };
+  }
+
   function capture(provider, expectedID, suppliedDocument) {
     const doc = suppliedDocument || document;
+    if (provider === 'YOUTUBE') return captureYouTubeStudio(expectedID, doc);
     const roots = jsonRoots(doc, provider === "FACEBOOK" || provider === "INSTAGRAM");
     if (provider === "INSTAGRAM") {
       if (!expectedID || !/^[0-9]+$/.test(expectedID)) return { error: "identity_missing" };

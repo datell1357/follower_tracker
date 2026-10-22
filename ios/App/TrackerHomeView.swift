@@ -13,7 +13,7 @@ struct TrackerHomeView: View {
                 } else if storageError {
                     EmptyCard("기록을 읽지 못했어요", "저장된 데이터를 보존했어요. 앱을 다시 열어 확인해주세요.")
                 } else if accounts.isEmpty {
-                    EmptyCard("첫 계정을 연결해보세요", "연결한 SNS의 팔로워 수와 변화를 한곳에서 확인하세요.") {
+                    EmptyCard("첫 계정을 연결해보세요", "연결한 SNS의 팔로워·구독자 수와 변화를 한곳에서 확인하세요.") {
                         Button("SNS 연결하기", systemImage: "plus", action: onConnect).buttonStyle(TrackerPrimaryButtonStyle()).disabled(busy)
                     }
                 } else {
@@ -60,7 +60,7 @@ struct AccountCard: View {
                 Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(TrackerStyle.muted).accessibilityHidden(true)
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("팔로워")
+                Text(row.account.provider.metricLabel)
                 Spacer(minLength: 8)
                 TimelineView(.periodic(from: .now, by: 60)) { context in
                     Text(row.latest.map { snapshot in

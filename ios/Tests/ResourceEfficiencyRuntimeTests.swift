@@ -16,7 +16,7 @@ private actor ResourceCollector: SessionCollecting {
 }
 
 final class ResourceEfficiencyRuntimeTests: XCTestCase {
-    private let providers: [Provider] = [.instagram, .tiktok, .x, .facebook, .reddit]
+    private let providers = Provider.allCases
     private func repository() throws -> TrackerRepository {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tracker-resource-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -44,7 +44,7 @@ final class ResourceEfficiencyRuntimeTests: XCTestCase {
         XCTAssertEqual(skippedRequests, 0)
         for provider in providers { try await sync.refresh(account(provider).id) }
         let manualRequests = await collector.requests
-        XCTAssertEqual(manualRequests, 5)
+        XCTAssertEqual(manualRequests, providers.count)
     }
 
     func testWidgetReadsTwoFreshMetricsWithoutLosingHistoryOrProviderSelection() async throws {
@@ -57,7 +57,7 @@ final class ResourceEfficiencyRuntimeTests: XCTestCase {
             }
         }
         let rows = try await repository.widgetOverviews()
-        XCTAssertEqual(rows.count, 5)
+        XCTAssertEqual(rows.count, providers.count)
         for row in rows {
             XCTAssertEqual(row.history.count, 2); XCTAssertEqual(row.latest?.followers, 0)
             XCTAssertEqual(row.latest?.observedAt, 4_000); XCTAssertEqual(row.change, -1)
@@ -77,5 +77,22 @@ final class ResourceEfficiencyRuntimeTests: XCTestCase {
         XCTAssertNil(configuration.httpCookieStorage); XCTAssertFalse(configuration.httpShouldSetCookies)
         XCTAssertNil(configuration.urlCache)
         XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalCacheData)
+    }
+
+    func testYouTubeChannelWidgetsPreserveExactZeroAndOtherProviderHistory() async throws {
+        let repository = try repository(), id = "UC" + String(repeating: "a", count: 22)
+        let channel = try Account(provider: .youtube, stableID: id, username: id, displayName: "Fixture Channel",
+            profileURL: URL(string: "https://studio.youtube.com/channel/" + id)!, connectedAt: 1)
+        let other = try account(.instagram)
+        for row in [channel, other] {
+            try await repository.saveObservation(row, MetricSnapshot(accountKey: row.id, observedAt: 100,
+                followers: 0, following: nil, source: "synthetic-channel-storage"))
+        }
+        let selected = try await repository.widgetOverviews(provider: .youtube)
+        XCTAssertEqual(selected.map(\.id), [channel.id]); XCTAssertEqual(selected.first?.account.identityLabel, "Fixture Channel")
+        XCTAssertEqual(selected.first?.latest?.followers, 0); XCTAssertNil(selected.first?.latest?.following)
+        try await repository.markLoggedOut(.youtube)
+        let remaining = try await repository.widgetOverviews(), archived = try await repository.history(channel.id)
+        XCTAssertEqual(remaining.map(\.id), [other.id]); XCTAssertEqual(archived.map(\.followers), [0])
     }
 }

@@ -122,12 +122,12 @@ class CountTrackingLoopExperimentTest {
         assertNull(e.stopped)
     }
 
-    @Test fun a72HourLoopHas21600FreshReadsAndNoSixHourReset() {
+    @Test fun a72HourLoopReadsEveryProviderWithoutSixHourReset() {
         val e = Experiment()
         e.runFor(72 * hour)
-        assertEquals(21_600, e.observations.values.sumOf { it.size })
+        assertEquals(4_320 * Provider.entries.size, e.observations.values.sumOf { it.size })
         assertEquals(4_320, e.cycles.size)
-        assertTrue(e.cycles.all { it.freshKeys.size == 5 && it.freshAt != null })
+        assertTrue(e.cycles.all { it.freshKeys.size == Provider.entries.size && it.freshAt != null })
         assertEquals(1, e.maxInFlight)
     }
 

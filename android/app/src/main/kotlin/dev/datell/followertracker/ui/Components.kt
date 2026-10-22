@@ -53,7 +53,7 @@ fun ProviderMark(provider: Provider, modifier: Modifier = Modifier) {
     val background = when (provider) {
         Provider.INSTAGRAM -> Brush.linearGradient(listOf(Color(0xFF833AB4), Color(0xFFE1306C), Color(0xFFFCAF45)))
         Provider.TIKTOK, Provider.X -> Brush.linearGradient(listOf(Color.Black, Color.Black))
-        Provider.FACEBOOK, Provider.REDDIT -> Brush.linearGradient(listOf(palette.accent.copy(alpha = .10f), palette.accent.copy(alpha = .10f)))
+        Provider.FACEBOOK, Provider.REDDIT, Provider.YOUTUBE -> Brush.linearGradient(listOf(palette.accent.copy(alpha = .10f), palette.accent.copy(alpha = .10f)))
     }
     val drawable = when (provider) {
         Provider.INSTAGRAM -> R.drawable.provider_instagram
@@ -61,6 +61,7 @@ fun ProviderMark(provider: Provider, modifier: Modifier = Modifier) {
         Provider.X -> R.drawable.provider_x
         Provider.FACEBOOK -> R.drawable.provider_facebook
         Provider.REDDIT -> R.drawable.provider_reddit
+        Provider.YOUTUBE -> R.drawable.provider_youtube
     }
     Box(modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(background), contentAlignment = Alignment.Center) {
         // Image preserves the official artwork's colors; Icon would apply a tint.

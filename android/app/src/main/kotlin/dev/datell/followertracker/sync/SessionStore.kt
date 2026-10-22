@@ -62,13 +62,18 @@ class SessionStore(context: Context, private val cipher: DataCipher, preferences
         }
     }
     override fun hasAuthentication(provider: Provider): Boolean {
-        val names = header(provider, provider.loginUrl).split(';').map { it.trim().substringBefore('=') }.toSet()
+        val names = header(provider, provider.loginUrl).split(';').mapNotNull { pair ->
+            val parts = pair.trim().split('=', limit = 2)
+            parts.firstOrNull()?.takeIf { parts.size == 2 && parts[1].isNotBlank() }
+        }.toSet()
         return when (provider) {
             Provider.INSTAGRAM -> "sessionid" in names && identity(provider) != null
             Provider.TIKTOK -> names.any { it in setOf("sessionid", "sessionid_ss", "sid_tt", "sid_guard") }
             Provider.X -> "auth_token" in names && identity(provider) != null
             Provider.FACEBOOK -> "c_user" in names && "xs" in names
             Provider.REDDIT -> "reddit_session" in names || "token_v2" in names
+            Provider.YOUTUBE -> names.any { it in setOf("SID", "__Secure-1PSID", "__Secure-3PSID") } &&
+                names.any { it in setOf("SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID") }
         }
     }
     @Synchronized
@@ -95,8 +100,11 @@ class SessionStore(context: Context, private val cipher: DataCipher, preferences
             Provider.X -> setOf("auth_token", "twid", "ct0")
             Provider.FACEBOOK -> setOf("c_user", "xs")
             Provider.REDDIT -> setOf("reddit_session", "token_v2")
+            Provider.YOUTUBE -> setOf("SID", "HSID", "SSID", "APISID", "SAPISID", "LOGIN_INFO", "__Secure-1PSID", "__Secure-3PSID", "__Secure-1PAPISID", "__Secure-3PAPISID")
         }
-        for (host in listOf(provider.domain, "www.${provider.domain}", "m.${provider.domain}")) {
+        val hosts = listOfNotNull(provider.domain, "www.${provider.domain}", "m.${provider.domain}",
+            runCatching { java.net.URI(provider.loginUrl).host }.getOrNull()).distinct()
+        for (host in hosts) {
             for (path in paths) {
                 val url = "https://$host$path"
                 val observed = manager.getCookie(url).orEmpty().split(';').map { it.trim().substringBefore('=') }.filter(String::isNotBlank)

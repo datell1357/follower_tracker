@@ -4,10 +4,10 @@ import WidgetKit
 import FollowerCore
 
 enum AccountChoice: String, AppEnum {
-    case all, instagram, tiktok, x, facebook, reddit
+    case all, instagram, tiktok, x, facebook, reddit, youtube
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "표시할 계정"
-    static var caseDisplayRepresentations: [AccountChoice: DisplayRepresentation] = [.all: "첫 연결 계정", .instagram: "Instagram", .tiktok: "TikTok", .x: "X", .facebook: "Facebook", .reddit: "Reddit"]
-    var provider: Provider? { switch self { case .all: nil; case .instagram: .instagram; case .tiktok: .tiktok; case .x: .x; case .facebook: .facebook; case .reddit: .reddit } }
+    static var caseDisplayRepresentations: [AccountChoice: DisplayRepresentation] = [.all: "첫 연결 계정", .instagram: "Instagram", .tiktok: "TikTok", .x: "X", .facebook: "Facebook", .reddit: "Reddit", .youtube: "YouTube"]
+    var provider: Provider? { switch self { case .all: nil; case .instagram: .instagram; case .tiktok: .tiktok; case .x: .x; case .facebook: .facebook; case .reddit: .reddit; case .youtube: .youtube } }
 }
 struct TrackerAccountEntity: AppEntity {
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "연결된 계정"
