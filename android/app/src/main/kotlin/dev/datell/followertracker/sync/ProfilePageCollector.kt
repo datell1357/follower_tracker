@@ -9,6 +9,7 @@ import android.util.Log
 import android.webkit.*
 import dev.datell.followertracker.BuildConfig
 import dev.datell.followertracker.core.*
+import dev.datell.followertracker.diagnostics.*
 import dev.datell.followertracker.ui.captureWebSession
 import dev.datell.followertracker.ui.facebookCollectionFallback
 import dev.datell.followertracker.ui.facebookPageDesktopUrl
@@ -47,10 +48,16 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
     @SuppressLint("SetJavaScriptEnabled")
     suspend fun read(account: Account, userAgent: String, retain: Boolean = false): String = mutex.withLock {
       withContext(Dispatchers.Main.immediate) {
+        val attempt = currentCoroutineContext()[DiagnosticAttempt]?.id
+        fun rejectSession(stage: DiagnosticStage, status: SyncStatus): Nothing {
+            DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.PROFILE_FAILURE, account.provider, account.accountType,
+                attempt = attempt, stage = stage, status = status))
+            throw CollectionFailure(status)
+        }
         if (!account.provider.allows(account.profileUrl))
-            throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
-        if (!sessions.hasAuthentication(account.provider) || sessions.identity(account.provider) != account.authenticationOwnerId)
-            throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
+            rejectSession(DiagnosticStage.START_ORIGIN, SyncStatus.FOREGROUND_ONLY)
+        if (!sessions.hasAuthentication(account.provider)) rejectSession(DiagnosticStage.SESSION_AUTH, SyncStatus.REAUTH_REQUIRED)
+        if (sessions.identity(account.provider) != account.authenticationOwnerId) rejectSession(DiagnosticStage.SESSION_OWNER, SyncStatus.REAUTH_REQUIRED)
         val facebookPage = account.accountType == AccountType.PAGE
         // Use one fresh Page document per cycle, with the same representation as manual confirmation.
         // Its URL and captured Page ID remain bound to the user's original explicit selection.
@@ -60,12 +67,15 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
         val loaded = CompletableDeferred<Unit>()
         var failure: CollectionFailure? = null
         var pendingCaptureFailure: CollectionFailure? = null
+        var pendingCaptureError: DiagnosticCaptureError? = null
         val binding = Binding(account.provider, account.key, account.connectedAt,
             sessions.metadata(account.provider)?.savedAt ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED),
             collectionAgent, profileUrl)
         val previous = idle.remove(account.provider)
         if (BuildConfig.DEBUG) Log.d("FollowerCollection", "provider=${account.provider.name} " +
             "profileBrowser=${if (previous?.binding == binding) "reused" else "created"}")
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.PROFILE_BROWSER, account.provider, account.accountType,
+            attempt = attempt, stage = if (previous?.binding == binding) DiagnosticStage.REUSED else DiagnosticStage.CREATED))
         val web = if (previous?.binding == binding) previous.web else {
             previous?.web?.destroy()
             createWebView(context).also { installProfileResponseObserver(it, account.provider) }
@@ -76,6 +86,9 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
         fun fail(error: CollectionFailure, stage: String) {
             if (failure != null) return
             if (BuildConfig.DEBUG) Log.d("FollowerCollection", "provider=${account.provider.name} profileFailure=$stage status=${error.status.name}")
+            DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.PROFILE_FAILURE, account.provider, account.accountType,
+                attempt = attempt, stage = DiagnosticStage.profile(stage), status = error.status,
+                httpStatus = stage.removePrefix("HTTP_").toIntOrNull()?.takeIf { it in 100..599 }, captureError = pendingCaptureError))
             failure = error
             loaded.completeExceptionally(error)
             web.stopLoading()
@@ -167,13 +180,14 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
                 while (true) {
                     failure?.let { throw it }
                     currentCoroutineContext().ensureActive()
-                    if (!sessions.hasAuthentication(account.provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
-                    if (sessions.identity(account.provider) != account.authenticationOwnerId) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+                    if (!sessions.hasAuthentication(account.provider)) rejectSession(DiagnosticStage.SESSION_AUTH, SyncStatus.REAUTH_REQUIRED)
+                    if (sessions.identity(account.provider) != account.authenticationOwnerId) rejectSession(DiagnosticStage.SESSION_OWNER, SyncStatus.CHECK_REQUIRED)
                     val payload = captureWebSession(web, account.provider, account.authenticationOwnerId, script,
                         allowRequest = false, facebookPage = facebookPage, expectedPageId = account.stableId.takeIf { facebookPage })
                     failure?.let { throw it }
                     val result = JSONObject(payload)
                     if (!result.has("error")) return@withTimeout payload
+                    pendingCaptureError = DiagnosticCaptureError.from(result.optString("error"))
                     val retryable = result.optString("error") in setOf("exact_count_missing", "own_profile_required",
                         "owner_context_missing", "identity_missing", "document_changed") ||
                         facebookPage && result.optString("error") in setOf("page_required", "page_identity_missing", "rounded_count_only")
@@ -194,7 +208,12 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
         } catch (_: TimeoutCancellationException) {
             // A caller's timeout/stop must remain cancellation, not a new collection failure.
             currentCoroutineContext().ensureActive()
-            throw failure ?: pendingCaptureFailure ?: CollectionFailure(if (loaded.isCompleted) SyncStatus.FORMAT_CHANGED else SyncStatus.OFFLINE)
+            val error = failure ?: pendingCaptureFailure ?: CollectionFailure(if (loaded.isCompleted) SyncStatus.FORMAT_CHANGED else SyncStatus.OFFLINE)
+            if (failure == null) DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.PROFILE_FAILURE,
+                account.provider, account.accountType, attempt = attempt, status = error.status,
+                stage = if (loaded.isCompleted) DiagnosticStage.CAPTURE_TIMEOUT else DiagnosticStage.LOAD_TIMEOUT,
+                captureError = pendingCaptureError))
+            throw error
         } finally {
             if (active?.second === operation) active = null
             web.stopLoading()

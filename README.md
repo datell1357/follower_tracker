@@ -49,6 +49,7 @@ Android의 강제 중지 시험에서는 약 17분 동안 수집이 멈추고 �
 - [구현 기록](docs/WORK_LOG.md): 단계별 진행 상태와 실제 검증 증거
 - [개발과 검증](docs/DEVELOPMENT.md): 개발 환경, 핵심 테스트, 수집 경로의 검증 범위
 - [기기·SNS 검증](docs/DEVICE_VALIDATION.md): 수집기별 현재 범위와 로그인부터 위젯까지의 실제 검증 절차
+- [Android 디버그 로그](docs/DEBUG_LOGGING.md): 수집 실패·저장·재시도·서비스 중단의 앱 내부 순환 로그와 읽기 방법
 - [Android 로그인 비교와 수정](docs/LOGIN_APP_COMPARISON.md): 경쟁 앱 APK 분석, 로그인 경로 수정과 확인 범위
 - [Android WebView 연동 로그인](docs/WEBVIEW_LOGIN.md): AI Quota의 로그인 설정·인증 팝업 적용과 SNS 세션 확인 범위
 - [데이터 처리](docs/DATA_AND_PRIVACY.md): 세션·계정·명단의 기기 저장, 네트워크 요청, 보관과 연결 해제

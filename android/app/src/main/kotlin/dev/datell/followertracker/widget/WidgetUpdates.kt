@@ -2,6 +2,7 @@ package dev.datell.followertracker.widget
 
 import android.content.Context
 import android.util.Log
+import dev.datell.followertracker.diagnostics.*
 import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.*
 
@@ -21,7 +22,10 @@ object WidgetUpdates {
     fun request(context: Context) {
         val app = context.applicationContext
         val active = updater ?: CoalescingUpdater(scope, { delay(2_000) },
-            { Log.w("FollowerWidget", "widget_update_failed") },
+            {
+                Log.w("FollowerWidget", "widget_update_failed")
+                DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.WIDGET_UPDATE_FAILURE))
+            },
             { refreshNow(app) }).also { updater = it }
         active.request()
     }

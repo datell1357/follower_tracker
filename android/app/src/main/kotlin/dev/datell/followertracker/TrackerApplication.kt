@@ -4,12 +4,14 @@ import android.app.Application
 import android.content.Context
 import androidx.room.Room
 import dev.datell.followertracker.data.*
+import dev.datell.followertracker.diagnostics.DebugDiagnostics
 import dev.datell.followertracker.sync.*
 
 class TrackerApplication : Application() {
     val graph by lazy { AppGraph(this) }
     override fun onCreate() {
         super.onCreate()
+        DebugDiagnostics.initialize(this)
         RapidTracking.restore(this)
         SyncScheduler.schedule(this)
     }

@@ -15,6 +15,7 @@ import dev.datell.followertracker.BuildConfig
 import dev.datell.followertracker.R
 import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.*
+import dev.datell.followertracker.diagnostics.*
 import dev.datell.followertracker.ui.MainActivity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -52,7 +53,15 @@ object RapidTracking {
         return TrackingRecovery({ PremiumWidgetTestAccess.mode(context) },
             { PremiumWidgetTestAccess.isRequested(context) }, { state.value.running },
             { context.startForegroundService(Intent(context, RapidTrackingService::class.java).setAction(RapidTrackingService.ACTION_RECOVER)) })
-            .run(hasEligibleAccount = eligible)
+            .run(hasEligibleAccount = eligible).also { result ->
+                DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.RECOVERY, stage = when (result) {
+                    TrackingRecoveryResult.HEALTHY -> DiagnosticStage.HEALTHY
+                    TrackingRecoveryResult.START_REQUESTED -> DiagnosticStage.RECOVERY_START
+                    TrackingRecoveryResult.WAITING_FOR_CONNECTION -> DiagnosticStage.CONNECTION_REQUIRED
+                    TrackingRecoveryResult.INACTIVE -> DiagnosticStage.USER_STOP
+                    TrackingRecoveryResult.DEFERRED -> DiagnosticStage.DEFERRED
+                }))
+            }
     }
     internal fun update(context: Context, running: Boolean, message: String, successAt: Long? = state.value.lastSuccessAt) {
         val prefs = context.getSharedPreferences("rapid_tracking_runtime", Context.MODE_PRIVATE)
@@ -114,12 +123,12 @@ class RapidTrackingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) { finish("중지됨"); return START_NOT_STICKY }
+        if (intent?.action == ACTION_STOP) { finish("중지됨", stage = DiagnosticStage.USER_STOP); return START_NOT_STICKY }
         val recovery = intent == null || intent.action == ACTION_RECOVER
         val requestedMode = PremiumWidgetTestAccess.mode(this)
         // Validate even a duplicate recovery intent: a queued start must not undo an explicit stop.
         if (!TrackingSessionPolicy.canStart(requestedMode, !recovery, PremiumWidgetTestAccess.isRequested(this))) {
-            finish("중지됨"); return START_NOT_STICKY
+            finish("중지됨", stage = DiagnosticStage.USER_STOP); return START_NOT_STICKY
         }
         if (tracking?.isActive == true) return restartPolicy()
         mode = requestedMode
@@ -133,11 +142,14 @@ class RapidTrackingService : Service() {
             else if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             else startForeground(NOTIFICATION, notification)
         } catch (_: RuntimeException) {
-            finish("추적을 시작하지 못했어요. 앱에서 다시 시작해주세요.", preserveRequest = recovery)
+            finish("추적을 시작하지 못했어요. 앱에서 다시 시작해주세요.", preserveRequest = recovery, stage = DiagnosticStage.START_DENIED)
             return START_NOT_STICKY
         }
         getSharedPreferences("rapid_tracking_runtime", MODE_PRIVATE).edit { putString("trackingMode", mode.name) }
         PremiumWidgetTestAccess.markStarted(this)
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.TRACKING_STARTED,
+            stage = if (recovery) DiagnosticStage.RECOVERY_START else DiagnosticStage.USER_START,
+            premium = mode == TrackingMode.PREMIUM_WIDGET_TEST))
         while (RapidTracking.changes.tryReceive().isSuccess) { /* Discard signals preceding this actual start. */ }
         RapidTracking.update(this, true, "첫 수집을 확인하고 있어요")
         finishing = false
@@ -152,13 +164,23 @@ class RapidTrackingService : Service() {
                             "provider=${row.account.provider.name} rapidFresh=${row.account.key in cycle.freshKeys} " +
                                 "status=${row.account.status.name} batchFailure=${row.account.provider in cycle.failedProviders} " +
                                 "cycleElapsedMs=${cycle.elapsedMillis}")
+                        for (row in cycle.rows.filter { it.account.status != SyncStatus.READY }) {
+                            val account = row.account
+                            DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.RETRY_WAIT, account.provider, account.accountType,
+                                status = account.status, serviceRetryAt = account.nextAllowedAt,
+                                localRetryAt = account.transientRetry?.nextAttemptAt,
+                                failureCount = account.transientRetry?.failureCount?.coerceIn(0, 5)))
+                        }
                         RapidTracking.update(this@RapidTrackingService, true, cycle.message,
                             cycle.freshAt ?: RapidTracking.state.value.lastSuccessAt)
                         publishNotification(cycle.message)
                     },
                     onOffline = {
                         val message = "인터넷 연결을 기다리고 있어요 · 마지막 기록 유지"
-                        if (RapidTracking.state.value.message != message) RapidTracking.update(this@RapidTrackingService, true, message)
+                        if (RapidTracking.state.value.message != message) {
+                            DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.TRACKING_OFFLINE))
+                            RapidTracking.update(this@RapidTrackingService, true, message)
+                        }
                         publishNotification(message)
                     },
                     awaitNetwork = { remaining ->
@@ -171,8 +193,13 @@ class RapidTrackingService : Service() {
                     TrackingLoopStop.TIME_LIMIT -> "빠른 추적 시간이 끝났어요. 앱에서 다시 시작할 수 있어요."
                     TrackingLoopStop.NO_ACCOUNTS -> "추적할 SNS 계정을 연결한 뒤 시작해주세요."
                     TrackingLoopStop.CONNECTION_REQUIRED -> "연결 상태를 확인한 뒤 다시 시작해주세요."
-                }, preserveRequest = stopped == TrackingLoopStop.CONNECTION_REQUIRED)
-            }, onInterrupted = { finish("추적이 중단돼 자동 복구를 기다리고 있어요. 마지막 기록은 유지해요.", preserveRequest = true) })
+                }, preserveRequest = stopped == TrackingLoopStop.CONNECTION_REQUIRED, stage = when (stopped) {
+                    TrackingLoopStop.TIME_LIMIT -> DiagnosticStage.TIME_LIMIT
+                    TrackingLoopStop.NO_ACCOUNTS -> DiagnosticStage.NO_ACCOUNTS
+                    TrackingLoopStop.CONNECTION_REQUIRED -> DiagnosticStage.CONNECTION_REQUIRED
+                })
+            }, onInterrupted = { finish("추적이 중단돼 자동 복구를 기다리고 있어요. 마지막 기록은 유지해요.",
+                preserveRequest = true, stage = DiagnosticStage.INTERRUPTED) })
         }
         return restartPolicy()
     }
@@ -180,10 +207,12 @@ class RapidTrackingService : Service() {
     private fun restartPolicy(): Int = if (mode == TrackingMode.PREMIUM_WIDGET_TEST) START_STICKY else START_NOT_STICKY
 
     override fun onTimeout(startId: Int, fgsType: Int) {
-        finish("기기의 실행 시간 제한으로 중지됐어요. 앱에서 다시 시작해주세요.")
+        finish("기기의 실행 시간 제한으로 중지됐어요. 앱에서 다시 시작해주세요.", stage = DiagnosticStage.OS_TIMEOUT)
     }
 
-    private fun finish(message: String, preserveRequest: Boolean = false) {
+    private fun finish(message: String, preserveRequest: Boolean = false, stage: DiagnosticStage) {
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.TRACKING_STOPPED, stage = stage,
+            premium = mode == TrackingMode.PREMIUM_WIDGET_TEST))
         finishing = true
         if (!preserveRequest || mode != TrackingMode.PREMIUM_WIDGET_TEST) {
             PremiumWidgetTestAccess.endRequest(this)
@@ -199,6 +228,8 @@ class RapidTrackingService : Service() {
 
     override fun onDestroy() {
         val interrupted = !finishing && PremiumWidgetTestAccess.isRequested(this)
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.TRACKING_DESTROYED,
+            stage = DiagnosticStage.INTERRUPTED.takeIf { interrupted }, premium = mode == TrackingMode.PREMIUM_WIDGET_TEST))
         finishing = true
         scope.cancel()
         networkCallback?.let { callback ->

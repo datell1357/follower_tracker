@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.work.*
 import dev.datell.followertracker.BuildConfig
+import dev.datell.followertracker.diagnostics.*
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
@@ -26,6 +27,7 @@ internal object TrackingRecoveryScheduler {
             manager.cancelUniqueWork(PERIODIC)
             manager.cancelUniqueWork(INITIAL)
         } catch (failure: RuntimeException) {
+            DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.RECOVERY, stage = DiagnosticStage.STORAGE))
             // Clearing the execution request and stopping the service must still work if job storage fails.
             if (BuildConfig.DEBUG) Log.w("FollowerCollection", "trackingHealthCancelFailure=${failure.javaClass.simpleName}")
         }
@@ -42,6 +44,7 @@ class TrackingRecoveryWorker(context: Context, parameters: WorkerParameters) : C
             TrackingRecoveryResult.INACTIVE, TrackingRecoveryResult.WAITING_FOR_CONNECTION -> Result.success()
             TrackingRecoveryResult.HEALTHY, TrackingRecoveryResult.START_REQUESTED -> Result.success()
             TrackingRecoveryResult.DEFERRED -> {
+                DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.RECOVERY, stage = DiagnosticStage.DEFERRED))
                 // A service may have started concurrently. Never overwrite its actual running/success state.
                 if (BuildConfig.DEBUG) Log.w("FollowerCollection", "trackingRecovery=deferred")
                 if (TrackingRecovery.retryDeferred(runAttemptCount)) Result.retry() else Result.failure()
@@ -49,6 +52,7 @@ class TrackingRecoveryWorker(context: Context, parameters: WorkerParameters) : C
         }
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) {
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.RECOVERY, stage = DiagnosticStage.DEFERRED))
         if (BuildConfig.DEBUG) Log.w("FollowerCollection", "trackingRecovery=unavailable")
         if (TrackingRecovery.retryDeferred(runAttemptCount)) Result.retry() else Result.failure()
     }

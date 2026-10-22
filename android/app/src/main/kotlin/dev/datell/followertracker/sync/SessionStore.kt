@@ -6,6 +6,7 @@ import android.webkit.CookieManager
 import android.webkit.WebStorage
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.data.DataCipher
+import dev.datell.followertracker.diagnostics.*
 import java.net.URLDecoder
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -31,6 +32,7 @@ class SessionStore(context: Context, private val cipher: DataCipher, preferences
         check(preferences.edit().putString(provider.name, encoded).commit())
         metadataCache[provider] = encoded to metadata
         CookieManager.getInstance().flush()
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.SESSION_SAVED, provider))
     }
     @Synchronized
     fun metadata(provider: Provider): SessionMetadata? {
@@ -80,6 +82,7 @@ class SessionStore(context: Context, private val cipher: DataCipher, preferences
     fun invalidate(provider: Provider) {
         check(preferences.edit().remove(provider.name).commit())
         metadataCache.remove(provider)
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.SESSION_INVALIDATED, provider))
     }
     @Synchronized
     fun disconnect(provider: Provider) {
@@ -105,5 +108,6 @@ class SessionStore(context: Context, private val cipher: DataCipher, preferences
             WebStorage.getInstance().deleteOrigin("https://$host")
         }
         manager.flush()
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.SESSION_CLEARED, provider))
     }
 }

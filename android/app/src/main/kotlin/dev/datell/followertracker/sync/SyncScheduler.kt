@@ -3,6 +3,7 @@ package dev.datell.followertracker.sync
 import android.content.Context
 import androidx.work.*
 import dev.datell.followertracker.appGraph
+import dev.datell.followertracker.diagnostics.*
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 
@@ -32,14 +33,24 @@ object SyncScheduler {
 
 class MetricsWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result = try {
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.WORK_STARTED, operation = DiagnosticOperation.COUNT,
+            stage = DiagnosticStage.RAPID_ACTIVE.takeIf { RapidTracking.state.value.running }))
         val graph = applicationContext.appGraph
         val failures = refreshCountBatch(graph.repository.accounts()) { account ->
             if (!RapidTracking.state.value.running || !dev.datell.followertracker.core.RefreshPolicy.supportsCountRefresh(account))
                 graph.coordinator.refresh(account.key, background = true)
         }
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.WORK_FINISHED, operation = DiagnosticOperation.COUNT,
+            stage = DiagnosticStage.DEFERRED.takeIf { failures.isNotEmpty() }))
         if (failures.isEmpty()) Result.success() else Result.retry()
-    } catch (cancelled: CancellationException) { throw cancelled }
-    catch (_: Exception) { Result.retry() }
+    } catch (cancelled: CancellationException) {
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.WORK_FINISHED, operation = DiagnosticOperation.COUNT, stage = DiagnosticStage.INTERRUPTED))
+        throw cancelled
+    }
+    catch (_: Exception) {
+        DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.WORK_FINISHED, operation = DiagnosticOperation.COUNT, stage = DiagnosticStage.DEFERRED))
+        Result.retry()
+    }
 }
 class RelationshipsWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result = try {

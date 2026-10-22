@@ -3,6 +3,7 @@ package dev.datell.followertracker.sync
 import android.content.Context
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.data.TrackerRepository
+import dev.datell.followertracker.diagnostics.*
 import dev.datell.followertracker.widget.WidgetUpdates
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -22,24 +23,32 @@ class SyncCoordinator(context: Context, private val repository: TrackerRepositor
         val writeIf = sessionGuard(account.provider)
         if (!writeIf()) return@withLock
         val now = System.currentTimeMillis()
-        if (!RefreshPolicy.canRefresh(account, now, background)) return@withLock
-        if (background && isDefinitelyOffline()) return@withLock
+        if (!RefreshPolicy.canRefresh(account, now, background)) {
+            logSkippedRefresh(account, now, background, DiagnosticOperation.COUNT); return@withLock
+        }
+        if (background && isDefinitelyOffline()) {
+            logSkippedRefresh(account, now, background, DiagnosticOperation.COUNT, offline = true); return@withLock
+        }
         try {
             repository.updateStatus(key, SyncStatus.REFRESHING, now, account.nextAllowedAt,
                 expectedConnectedAt = account.connectedAt,
                 transientRetry = account.transientRetry, writeIf = writeIf)
-            try {
-                val (updated, metric) = collector.native(account.provider, account)
-                val capabilities = if (background) updated.capabilities.copy(background = Capability.OBSERVED) else updated.capabilities
-                repository.saveObservation(updated.copy(capabilities = capabilities), metric, requireExisting = true, writeIf = writeIf)
-            } catch (failure: CollectionFailure) {
-                val failedAt = System.currentTimeMillis()
-                repository.updateStatus(key, failure.status, now, RefreshPolicy.serviceRetryAt(failure, failedAt),
-                    expectedConnectedAt = account.connectedAt,
-                    transientRetry = if (failure.status in setOf(SyncStatus.OFFLINE, SyncStatus.FORMAT_CHANGED))
-                        RefreshPolicy.nextTransientRetry(account, failedAt, failure.status) else null, writeIf = writeIf)
+            traceCollection(account, background, DiagnosticOperation.COUNT) {
+                try {
+                    val (updated, metric) = collector.native(account.provider, account)
+                    val capabilities = if (background) updated.capabilities.copy(background = Capability.OBSERVED) else updated.capabilities
+                    repository.saveObservation(updated.copy(capabilities = capabilities), metric, requireExisting = true, writeIf = writeIf)
+                } catch (failure: CollectionFailure) {
+                    val failedAt = System.currentTimeMillis()
+                    repository.updateStatus(key, failure.status, now, RefreshPolicy.serviceRetryAt(failure, failedAt),
+                        expectedConnectedAt = account.connectedAt,
+                        transientRetry = if (failure.status in setOf(SyncStatus.OFFLINE, SyncStatus.FORMAT_CHANGED))
+                            RefreshPolicy.nextTransientRetry(account, failedAt, failure.status) else null, writeIf = writeIf)
+                }
             }
         } catch (failure: Exception) {
+            DebugDiagnostics.record(DiagnosticEntry(if (failure is CancellationException) DiagnosticKind.ATTEMPT_CANCELLED else DiagnosticKind.ATTEMPT_FAILURE, account.provider, account.accountType,
+                DiagnosticOperation.COUNT, stage = DiagnosticStage.SYNC))
             if (failure is CancellationException && !writeIf()) {
                 currentCoroutineContext().ensureActive()
                 return@withLock
@@ -59,24 +68,32 @@ class SyncCoordinator(context: Context, private val repository: TrackerRepositor
         val writeIf = sessionGuard(account.provider)
         if (!writeIf()) return@withLock
         val now = System.currentTimeMillis()
-        if (account.status.blocksAutomaticRetry || !RefreshPolicy.canRefresh(account, now, background)) return@withLock
-        if (background && isDefinitelyOffline()) return@withLock
+        if (account.status.blocksAutomaticRetry || !RefreshPolicy.canRefresh(account, now, background)) {
+            logSkippedRefresh(account, now, background, DiagnosticOperation.RELATIONSHIPS); return@withLock
+        }
+        if (background && isDefinitelyOffline()) {
+            logSkippedRefresh(account, now, background, DiagnosticOperation.RELATIONSHIPS, offline = true); return@withLock
+        }
         try {
             repository.updateListStatus(key, SyncStatus.REFRESHING, expectedConnectedAt = account.connectedAt, writeIf = writeIf)
-            try {
-                val (followers, following) = collector.relationships(account)
-                repository.saveScans(followers, following, expectedConnectedAt = account.connectedAt, writeIf = writeIf)
-            } catch (failure: CollectionFailure) {
-                repository.updateListStatus(key, failure.status, expectedConnectedAt = account.connectedAt, writeIf = writeIf)
-                if (failure.status.blocksAutomaticRetry || failure.status in setOf(SyncStatus.RATE_LIMITED, SyncStatus.OFFLINE, SyncStatus.FORMAT_CHANGED)) {
-                    val failedAt = System.currentTimeMillis()
-                    repository.updateStatus(key, failure.status, now, RefreshPolicy.serviceRetryAt(failure, failedAt),
-                        expectedConnectedAt = account.connectedAt,
-                        transientRetry = if (failure.status in setOf(SyncStatus.OFFLINE, SyncStatus.FORMAT_CHANGED))
-                            RefreshPolicy.nextTransientRetry(account, failedAt, failure.status) else null, writeIf = writeIf)
+            traceCollection(account, background, DiagnosticOperation.RELATIONSHIPS) {
+                try {
+                    val (followers, following) = collector.relationships(account)
+                    repository.saveScans(followers, following, expectedConnectedAt = account.connectedAt, writeIf = writeIf)
+                } catch (failure: CollectionFailure) {
+                    repository.updateListStatus(key, failure.status, expectedConnectedAt = account.connectedAt, writeIf = writeIf)
+                    if (failure.status.blocksAutomaticRetry || failure.status in setOf(SyncStatus.RATE_LIMITED, SyncStatus.OFFLINE, SyncStatus.FORMAT_CHANGED)) {
+                        val failedAt = System.currentTimeMillis()
+                        repository.updateStatus(key, failure.status, now, RefreshPolicy.serviceRetryAt(failure, failedAt),
+                            expectedConnectedAt = account.connectedAt,
+                            transientRetry = if (failure.status in setOf(SyncStatus.OFFLINE, SyncStatus.FORMAT_CHANGED))
+                                RefreshPolicy.nextTransientRetry(account, failedAt, failure.status) else null, writeIf = writeIf)
+                    }
                 }
             }
         } catch (failure: Exception) {
+            DebugDiagnostics.record(DiagnosticEntry(if (failure is CancellationException) DiagnosticKind.ATTEMPT_CANCELLED else DiagnosticKind.ATTEMPT_FAILURE, account.provider, account.accountType,
+                DiagnosticOperation.RELATIONSHIPS, stage = DiagnosticStage.SYNC))
             if (failure is CancellationException && !writeIf()) {
                 currentCoroutineContext().ensureActive()
                 return@withLock

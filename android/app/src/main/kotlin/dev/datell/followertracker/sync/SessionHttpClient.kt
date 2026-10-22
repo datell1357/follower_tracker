@@ -1,6 +1,8 @@
 package dev.datell.followertracker.sync
 
 import dev.datell.followertracker.core.*
+import dev.datell.followertracker.diagnostics.*
+import kotlinx.coroutines.currentCoroutineContext
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -14,6 +16,7 @@ class SessionHttpClient(private val sessions: SessionAccess, private val transpo
         .retryOnConnectionFailure(false).callTimeout(35, TimeUnit.SECONDS).build()
 
     suspend fun read(provider: Provider, url: HttpUrl, userAgent: String): String {
+        val attempt = currentCoroutineContext()[DiagnosticAttempt]?.id
         if (!provider.allows(url.toString())) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
         if (!sessions.hasAuthentication(provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
         val cookie = sessions.header(provider, url.toString())
@@ -35,6 +38,8 @@ class SessionHttpClient(private val sessions: SessionAccess, private val transpo
                     if (continuation.isActive) continuation.resumeWithException(CollectionFailure(SyncStatus.OFFLINE))
                 }
                 override fun onResponse(call: Call, response: Response) {
+                    DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.HTTP_RESPONSE, provider,
+                        attempt = attempt, httpStatus = response.code.takeIf { it in 100..599 }))
                     response.use {
                         try {
                             val location = it.header("Location").orEmpty()

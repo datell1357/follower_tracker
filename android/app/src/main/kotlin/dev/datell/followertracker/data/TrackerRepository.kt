@@ -2,7 +2,9 @@ package dev.datell.followertracker.data
 
 import androidx.room.withTransaction
 import dev.datell.followertracker.core.*
+import dev.datell.followertracker.diagnostics.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -43,12 +45,12 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
     suspend fun saveObservation(account: Account, metric: MetricSnapshot, requireExisting: Boolean = false,
         writeIf: () -> Boolean = { true }) = withContext(Dispatchers.IO) {
         require(account.key == metric.accountKey)
-        database.withTransaction {
-            if (!writeIf()) return@withTransaction
+        val stored = database.withTransaction {
+            if (!writeIf()) return@withTransaction false
             if (accounts().any(account::conflictsWith)) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
             val previous = this@TrackerRepository.account(account.key)
             // A request must belong to the same connection, including after disconnect/reconnect.
-            if (requireExisting && (previous == null || previous.loggedOut || previous.connectedAt != account.connectedAt)) return@withTransaction
+            if (requireExisting && (previous == null || previous.loggedOut || previous.connectedAt != account.connectedAt)) return@withTransaction false
             val preserved = account.copy(connectedAt = previous?.connectedAt ?: account.connectedAt,
                 relationshipStatus = previous?.relationshipStatus?.takeUnless { previous.loggedOut && it == SyncStatus.REAUTH_REQUIRED },
                 capabilities = account.capabilities.copy(followers = previous?.capabilities?.followers ?: account.capabilities.followers,
@@ -56,19 +58,29 @@ class TrackerRepository(private val database: TrackerDatabase, private val ciphe
             dao.putAccount(AccountEntity(preserved.key, preserved.provider.name, preserved.connectedAt, json.encodeToString(preserved)))
             dao.putMetric(MetricEntity(metric.accountKey, metric.observedAt, metric.followers, metric.following,
                 metric.precision.name, metric.source, metric.adapterVersion))
+            true
         }
+        // Emitted only after the transaction commits. A fenced/rolled-back result is never a success.
+        DebugDiagnostics.record(DiagnosticEntry(if (stored) DiagnosticKind.OBSERVATION_STORED else DiagnosticKind.OBSERVATION_DISCARDED,
+            account.provider, account.accountType, attempt = currentCoroutineContext()[DiagnosticAttempt]?.id,
+            observedAt = metric.observedAt.takeIf { stored }))
     }
     suspend fun updateStatus(key: String, status: SyncStatus, now: Long, nextAllowedAt: Long? = null,
         expectedConnectedAt: Long? = null, transientRetry: TransientRetryState? = null,
         writeIf: () -> Boolean = { true }) = withContext(Dispatchers.IO) {
-        database.withTransaction {
-            if (!writeIf()) return@withTransaction
-            val previous = account(key) ?: return@withTransaction
-            if (previous.loggedOut) return@withTransaction
-            if (expectedConnectedAt != null && previous.connectedAt != expectedConnectedAt) return@withTransaction
+        val saved = database.withTransaction {
+            if (!writeIf()) return@withTransaction null
+            val previous = account(key) ?: return@withTransaction null
+            if (previous.loggedOut) return@withTransaction null
+            if (expectedConnectedAt != null && previous.connectedAt != expectedConnectedAt) return@withTransaction null
             val updated = previous.copy(status = status, lastAttemptAt = now, nextAllowedAt = nextAllowedAt, transientRetry = transientRetry)
             dao.putAccount(AccountEntity(updated.key, updated.provider.name, updated.connectedAt, json.encodeToString(updated)))
+            updated
         }
+        if (saved != null && status != SyncStatus.REFRESHING) DebugDiagnostics.record(DiagnosticEntry(
+            DiagnosticKind.STATUS_SAVED, saved.provider, saved.accountType, attempt = currentCoroutineContext()[DiagnosticAttempt]?.id,
+            status = status, serviceRetryAt = nextAllowedAt, localRetryAt = transientRetry?.nextAttemptAt,
+            failureCount = transientRetry?.failureCount?.coerceIn(0, 5)))
     }
     suspend fun saveScans(followers: RelationshipSnapshot, following: RelationshipSnapshot, expectedConnectedAt: Long? = null,
         writeIf: () -> Boolean = { true }) = withContext(Dispatchers.IO) {

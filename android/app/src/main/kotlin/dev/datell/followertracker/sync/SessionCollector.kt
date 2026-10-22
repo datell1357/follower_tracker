@@ -3,6 +3,7 @@ package dev.datell.followertracker.sync
 import android.os.SystemClock
 import android.content.Context
 import dev.datell.followertracker.core.*
+import dev.datell.followertracker.diagnostics.*
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.*
@@ -25,8 +26,14 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
         CollectionMeter.measure(provider, "count") { collectNative(provider, expected) }
 
     private suspend fun collectNative(provider: Provider, expected: Account?): Pair<Account, MetricSnapshot> {
-        val metadata = sessions.metadata(provider) ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
-        if (!sessions.hasAuthentication(provider)) throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
+        val attempt = currentCoroutineContext()[DiagnosticAttempt]?.id
+        fun rejectSession(stage: DiagnosticStage): Nothing {
+            DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.READ_FAILURE, provider, expected?.accountType,
+                attempt = attempt, stage = stage, status = SyncStatus.REAUTH_REQUIRED))
+            throw CollectionFailure(SyncStatus.REAUTH_REQUIRED)
+        }
+        val metadata = sessions.metadata(provider) ?: rejectSession(DiagnosticStage.SESSION_METADATA)
+        if (!sessions.hasAuthentication(provider)) rejectSession(DiagnosticStage.SESSION_AUTH)
         val now = System.currentTimeMillis()
         if (expected != null && RefreshPolicy.usesProfileBrowser(expected)) {
             val browser = profileBrowser ?: throw CollectionFailure(SyncStatus.FOREGROUND_ONLY)
