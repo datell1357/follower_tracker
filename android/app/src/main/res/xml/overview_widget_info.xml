@@ -4,4 +4,5 @@
     android:minWidth="250dp" android:minHeight="300dp"
     android:minResizeWidth="250dp" android:minResizeHeight="180dp"
     android:updatePeriodMillis="0" android:initialLayout="@layout/widget_loading"
+    android:configure="dev.datell.followertracker.widget.WidgetConfigurationActivity"
     android:resizeMode="horizontal|vertical" android:widgetCategory="home_screen" />

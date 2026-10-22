@@ -2,8 +2,8 @@ import XCTest
 @testable import FollowerCore
 
 final class WidgetPageLayoutTests: XCTestCase {
-    func testFiveConnectionsFitWithoutUnnecessaryControlsAtTheGalleryHeight() {
-        let page = WidgetPageLayout(itemCount: 5, requestedPage: 0, height: 360)
+    func testFiveConnectionsFitWithoutControlsWhenTheHostHasRoomForLargerRows() {
+        let page = WidgetPageLayout(itemCount: 5, requestedPage: 0, height: 480)
         XCTAssertEqual(page.range, 0..<5)
         XCTAssertEqual(page.pageCount, 1)
         XCTAssertFalse(page.hasPrevious); XCTAssertFalse(page.hasNext)
@@ -28,17 +28,32 @@ final class WidgetPageLayoutTests: XCTestCase {
 
     func testSmallHostsReserveRoomForNavigationInsteadOfShrinkingAllRows() {
         let page = WidgetPageLayout(itemCount: 8, requestedPage: 0, height: 338)
-        XCTAssertEqual(page.capacity, 3)
-        XCTAssertEqual(page.range, 0..<3)
-        XCTAssertEqual(page.pageCount, 3)
+        XCTAssertEqual(page.capacity, 2)
+        XCTAssertEqual(page.range, 0..<2)
+        XCTAssertEqual(page.pageCount, 4)
     }
 
     func testRemovedConnectionsAndStaleOrNegativeSelectionNeverProduceAnEmptyLastPage() {
         XCTAssertEqual(WidgetPageLayout(itemCount: 2, requestedPage: 9, height: 360).range, 0..<2)
         let last = WidgetPageLayout(itemCount: 11, requestedPage: Int.max, height: 360)
         XCTAssertEqual(last.index, last.pageCount - 1)
-        XCTAssertEqual(last.range, 8..<11)
-        XCTAssertEqual(WidgetPageLayout(itemCount: 11, requestedPage: Int.min, height: 360).range, 0..<4)
+        XCTAssertEqual(last.range, 9..<11)
+        XCTAssertEqual(WidgetPageLayout(itemCount: 11, requestedPage: Int.min, height: 360).range, 0..<3)
+    }
+
+    func testVisibleNamesReserveSpaceAndKeepEveryConnectionReachable() {
+        for rowHeight in [78.0, 98] {
+            let first = WidgetPageLayout(itemCount: 12, requestedPage: 0, height: 360, rowHeight: rowHeight)
+            XCTAssertEqual(first.capacity, rowHeight == 78 ? 3 : 2)
+            let reached = (0..<first.pageCount).flatMap {
+                Array(WidgetPageLayout(itemCount: 12, requestedPage: $0, height: 360, rowHeight: rowHeight).range)
+            }
+            XCTAssertEqual(reached, Array(0..<12))
+        }
+        for invalid in [0.0, -1, .nan, .infinity] {
+            XCTAssertEqual(WidgetPageLayout(itemCount: 8, requestedPage: 0, height: 360, rowHeight: invalid),
+                WidgetPageLayout(itemCount: 8, requestedPage: 0, height: 360))
+        }
     }
 
     func testEmptyAndInvalidGeometryStayBounded() {

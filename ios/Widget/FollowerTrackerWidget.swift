@@ -33,14 +33,16 @@ struct TrackerConfiguration: WidgetConfigurationIntent {
     static var description = IntentDescription("위젯에서 확인할 계정을 선택해요.")
     @Parameter(title: "표시할 계정", default: .all) var account: AccountChoice
     @Parameter(title: "연결된 계정") var connection: TrackerAccountEntity?
+    @Parameter(title: "계정명 표시", default: false) var showAccountName: Bool
     // Retain the stored provider choice for older widgets while new configurations select an exact connection.
-    static var parameterSummary: some ParameterSummary { Summary("\(\.$connection)의 팔로워") }
+    static var parameterSummary: some ParameterSummary { Summary("\(\.$connection)의 팔로워") { \.$showAccountName } }
 }
 struct TrackerEntry: TimelineEntry {
     let date: Date
     let rows: [AccountOverview]
     var storageError = false
     var overviewPage = 0
+    var showAccountName = false
 }
 struct TrackerTimeline: AppIntentTimelineProvider {
     var allAccounts = false
@@ -73,7 +75,7 @@ struct TrackerTimeline: AppIntentTimelineProvider {
         do {
             let repository = try TrackerRepository()
             let rows = try await records(repository, configuration)
-            return TrackerEntry(date: Date(), rows: rows, overviewPage: allAccounts ? TrackerSettings.overviewPage : 0)
+            return TrackerEntry(date: Date(), rows: rows, overviewPage: allAccounts ? TrackerSettings.overviewPage : 0, showAccountName: configuration.showAccountName)
         } catch { return TrackerEntry(date: Date(), rows: [], storageError: true) }
     }
 }
@@ -82,8 +84,8 @@ struct TrackerWidgetView: View {
     @Environment(\.widgetFamily) private var family
     var body: some View {
         TrackerWidgetContent(rows: entry.rows, storageError: entry.storageError,
-            size: family == .systemSmall ? .small : .large, pageIndex: entry.overviewPage,
-            widgetControls: family == .systemLarge)
+            size: family == .systemLarge ? .large : .small, pageIndex: entry.overviewPage,
+            widgetControls: family == .systemLarge, showAccountName: entry.showAccountName)
             .containerBackground(.clear, for: .widget)
             .widgetURL(URL(string: "followertracker://dashboard"))
     }
@@ -91,32 +93,35 @@ struct TrackerWidgetView: View {
 struct FollowerTrackerWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "FollowerTrackerWidget", intent: TrackerConfiguration.self, provider: TrackerTimeline()) { TrackerWidgetView(entry: $0) }
-            .configurationDisplayName("내 계정").description("SNS 하나를 가장 작은 위젯으로 확인해요.")
-            .supportedFamilies([.systemSmall]).contentMarginsDisabled()
+            .configurationDisplayName("내 계정").description("큰 SNS 아이콘과 팔로워 수를 가로형 위젯으로 확인해요.")
+            .supportedFamilies([.systemMedium]).contentMarginsDisabled()
     }
 }
 
 struct OverviewConfiguration: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "소셜 모아보기"
     static var description = IntentDescription("연결된 모든 SNS를 함께 표시해요.")
+    @Parameter(title: "계정명 표시", default: false) var showAccountName: Bool
 }
 struct OverviewTimeline: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> TrackerEntry { TrackerEntry(date: Date(), rows: []) }
     func snapshot(for configuration: OverviewConfiguration, in context: Context) async -> TrackerEntry {
         let choice = TrackerConfiguration()
         choice.account = .all
+        choice.showAccountName = configuration.showAccountName
         return await TrackerTimeline(allAccounts: true).snapshot(for: choice, in: context)
     }
     func timeline(for configuration: OverviewConfiguration, in context: Context) async -> Timeline<TrackerEntry> {
         let choice = TrackerConfiguration()
         choice.account = .all
+        choice.showAccountName = configuration.showAccountName
         return await TrackerTimeline(allAccounts: true).timeline(for: choice, in: context)
     }
 }
 struct OverviewTrackerWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "OverviewTrackerWidget", intent: OverviewConfiguration.self, provider: OverviewTimeline()) { TrackerWidgetView(entry: $0) }
-            .configurationDisplayName("소셜 모아보기").description("모든 계정의 팔로워·증감·수집 시각을 한눈에 확인해요.")
+            .configurationDisplayName("소셜 모아보기").description("모든 계정의 큰 아이콘·팔로워 수·수집 시각을 확인해요.")
             .supportedFamilies([.systemLarge]).contentMarginsDisabled()
     }
 }

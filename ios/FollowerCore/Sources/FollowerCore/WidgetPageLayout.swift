@@ -9,12 +9,13 @@ public struct WidgetPageLayout: Equatable, Sendable {
     public var hasPrevious: Bool { index > 0 }
     public var hasNext: Bool { index < pageCount - 1 }
 
-    public init(itemCount: Int, requestedPage: Int, height: Double) {
+    public init(itemCount: Int, requestedPage: Int, height: Double, rowHeight: Double = 78) {
         let count = max(0, itemCount)
         let availableHeight = height.isFinite ? max(0, height) : 0
+        let resolvedRowHeight = rowHeight.isFinite && rowHeight >= 44 ? rowHeight : 78
         func rows(reservingControls: Bool) -> Int {
             let reserved: Double = reservingControls ? 119 : 71
-            return Int(min(5, max(1, floor((availableHeight - reserved) / 57))))
+            return Int(min(5, max(1, floor((availableHeight - reserved) / resolvedRowHeight))))
         }
         let withoutControls = rows(reservingControls: false)
         capacity = count <= withoutControls ? withoutControls : rows(reservingControls: true)

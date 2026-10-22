@@ -2,71 +2,66 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
     android:padding="14dp" android:background="@drawable/widget_background">
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/widget_preview_title" android:textColor="#172039" android:textSize="17sp" android:textStyle="bold" />
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/widget_preview_badge" android:textColor="#5F6A80" android:textSize="11sp" />
-    <LinearLayout android:layout_width="match_parent" android:layout_height="40dp" android:layout_marginTop="5dp"
-        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="10dp" android:paddingVertical="3dp"
-        android:background="@drawable/widget_background" android:backgroundTint="#F6E8F2">
-        <FrameLayout android:layout_width="26dp" android:layout_height="26dp" android:background="@drawable/widget_background" android:backgroundTint="#93387B">
-            <ImageView android:layout_width="18dp" android:layout_height="18dp" android:layout_gravity="center" android:src="@drawable/provider_instagram" android:importantForAccessibility="no" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/widget_preview_title" android:textColor="#172039" android:textSize="20sp" android:textStyle="bold" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/widget_preview_badge" android:textColor="#5F6A80" android:textSize="12sp" />
+    <RelativeLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="5dp"
+        android:paddingHorizontal="10dp" android:paddingVertical="3dp" android:background="@drawable/widget_background" android:backgroundTint="#F6E8F2">
+        <FrameLayout android:id="@+id/preview_instagram_icon" android:layout_width="40dp" android:layout_height="match_parent"
+            android:layout_alignParentStart="true" android:background="@drawable/widget_background" android:backgroundTint="#93387B">
+            <ImageView android:layout_width="32dp" android:layout_height="match_parent" android:layout_gravity="center"
+                android:src="@drawable/provider_instagram" android:scaleType="fitCenter" android:contentDescription="@string/widget_provider_instagram" />
         </FrameLayout>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp"
-            android:text="@string/widget_provider_instagram" android:textColor="#172039" android:textSize="11sp" android:textStyle="bold" />
-        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="end">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_row_count" android:textColor="#172039" android:textSize="18sp" android:textStyle="bold" android:includeFontPadding="false" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_row_detail" android:textColor="#5F6A80" android:textSize="11sp" android:includeFontPadding="false" />
-        </LinearLayout>
-    </LinearLayout>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="40dp" android:layout_marginTop="5dp"
-        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="10dp" android:paddingVertical="3dp"
-        android:background="@drawable/widget_background" android:backgroundTint="#E4F5F3">
-        <FrameLayout android:layout_width="26dp" android:layout_height="26dp" android:background="@drawable/widget_background" android:backgroundTint="#171A20">
-            <ImageView android:layout_width="18dp" android:layout_height="18dp" android:layout_gravity="center" android:src="@drawable/provider_tiktok" android:importantForAccessibility="no" />
+        <TextView android:layout_width="match_parent" android:layout_height="match_parent" android:layout_toEndOf="@id/preview_instagram_icon"
+            android:layout_alignParentEnd="true" android:layout_marginStart="12dp" android:gravity="end|center_vertical"
+            android:text="@string/widget_preview_row_count" android:textColor="#172039" android:textSize="30sp" android:textStyle="bold" android:includeFontPadding="false"
+            android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="12sp" android:autoSizeMaxTextSize="30sp" android:autoSizeStepGranularity="1sp" />
+    </RelativeLayout>
+    <RelativeLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="5dp"
+        android:paddingHorizontal="10dp" android:paddingVertical="3dp" android:background="@drawable/widget_background" android:backgroundTint="#E4F5F3">
+        <FrameLayout android:id="@+id/preview_tiktok_icon" android:layout_width="40dp" android:layout_height="match_parent"
+            android:layout_alignParentStart="true" android:background="@drawable/widget_background" android:backgroundTint="#171A20">
+            <ImageView android:layout_width="32dp" android:layout_height="match_parent" android:layout_gravity="center"
+                android:src="@drawable/provider_tiktok" android:scaleType="fitCenter" android:contentDescription="@string/widget_provider_tiktok" />
         </FrameLayout>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp"
-            android:text="@string/widget_provider_tiktok" android:textColor="#172039" android:textSize="11sp" android:textStyle="bold" />
-        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="end">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_row_count" android:textColor="#172039" android:textSize="18sp" android:textStyle="bold" android:includeFontPadding="false" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_row_detail" android:textColor="#5F6A80" android:textSize="11sp" android:includeFontPadding="false" />
-        </LinearLayout>
-    </LinearLayout>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="40dp" android:layout_marginTop="5dp"
-        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="10dp" android:paddingVertical="3dp"
-        android:background="@drawable/widget_background" android:backgroundTint="#E9ECF1">
-        <FrameLayout android:layout_width="26dp" android:layout_height="26dp" android:background="@drawable/widget_background" android:backgroundTint="#171A20">
-            <ImageView android:layout_width="18dp" android:layout_height="18dp" android:layout_gravity="center" android:src="@drawable/provider_x" android:importantForAccessibility="no" />
+        <TextView android:layout_width="match_parent" android:layout_height="match_parent" android:layout_toEndOf="@id/preview_tiktok_icon"
+            android:layout_alignParentEnd="true" android:layout_marginStart="12dp" android:gravity="end|center_vertical"
+            android:text="@string/widget_preview_row_count" android:textColor="#172039" android:textSize="30sp" android:textStyle="bold" android:includeFontPadding="false"
+            android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="12sp" android:autoSizeMaxTextSize="30sp" android:autoSizeStepGranularity="1sp" />
+    </RelativeLayout>
+    <RelativeLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="5dp"
+        android:paddingHorizontal="10dp" android:paddingVertical="3dp" android:background="@drawable/widget_background" android:backgroundTint="#E9ECF1">
+        <FrameLayout android:id="@+id/preview_x_icon" android:layout_width="40dp" android:layout_height="match_parent"
+            android:layout_alignParentStart="true" android:background="@drawable/widget_background" android:backgroundTint="#171A20">
+            <ImageView android:layout_width="32dp" android:layout_height="match_parent" android:layout_gravity="center"
+                android:src="@drawable/provider_x" android:scaleType="fitCenter" android:contentDescription="@string/widget_provider_x" />
         </FrameLayout>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp"
-            android:text="@string/widget_provider_x" android:textColor="#172039" android:textSize="11sp" android:textStyle="bold" />
-        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="end">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_row_count" android:textColor="#172039" android:textSize="18sp" android:textStyle="bold" android:includeFontPadding="false" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_row_detail" android:textColor="#5F6A80" android:textSize="11sp" android:includeFontPadding="false" />
-        </LinearLayout>
-    </LinearLayout>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="40dp" android:layout_marginTop="5dp"
-        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="10dp" android:paddingVertical="3dp"
-        android:background="@drawable/widget_background" android:backgroundTint="#E5EFFF">
-        <FrameLayout android:layout_width="26dp" android:layout_height="26dp" android:background="@drawable/widget_background" android:backgroundTint="#FFFFFF">
-            <ImageView android:layout_width="18dp" android:layout_height="18dp" android:layout_gravity="center" android:src="@drawable/provider_facebook" android:importantForAccessibility="no" />
+        <TextView android:layout_width="match_parent" android:layout_height="match_parent" android:layout_toEndOf="@id/preview_x_icon"
+            android:layout_alignParentEnd="true" android:layout_marginStart="12dp" android:gravity="end|center_vertical"
+            android:text="@string/widget_preview_row_count" android:textColor="#172039" android:textSize="30sp" android:textStyle="bold" android:includeFontPadding="false"
+            android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="12sp" android:autoSizeMaxTextSize="30sp" android:autoSizeStepGranularity="1sp" />
+    </RelativeLayout>
+    <RelativeLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="5dp"
+        android:paddingHorizontal="10dp" android:paddingVertical="3dp" android:background="@drawable/widget_background" android:backgroundTint="#E5EFFF">
+        <FrameLayout android:id="@+id/preview_facebook_icon" android:layout_width="40dp" android:layout_height="match_parent"
+            android:layout_alignParentStart="true" android:background="@drawable/widget_background" android:backgroundTint="#FFFFFF">
+            <ImageView android:layout_width="32dp" android:layout_height="match_parent" android:layout_gravity="center"
+                android:src="@drawable/provider_facebook" android:scaleType="fitCenter" android:contentDescription="@string/widget_provider_facebook" />
         </FrameLayout>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp"
-            android:text="@string/widget_provider_facebook" android:textColor="#172039" android:textSize="11sp" android:textStyle="bold" />
-        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="end">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_row_count" android:textColor="#172039" android:textSize="18sp" android:textStyle="bold" android:includeFontPadding="false" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_row_detail" android:textColor="#5F6A80" android:textSize="11sp" android:includeFontPadding="false" />
-        </LinearLayout>
-    </LinearLayout>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="40dp" android:layout_marginTop="5dp"
-        android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="10dp" android:paddingVertical="3dp"
-        android:background="@drawable/widget_background" android:backgroundTint="#FFEBDF">
-        <FrameLayout android:layout_width="26dp" android:layout_height="26dp" android:background="@drawable/widget_background" android:backgroundTint="#FFFFFF">
-            <ImageView android:layout_width="18dp" android:layout_height="18dp" android:layout_gravity="center" android:src="@drawable/provider_reddit" android:importantForAccessibility="no" />
+        <TextView android:layout_width="match_parent" android:layout_height="match_parent" android:layout_toEndOf="@id/preview_facebook_icon"
+            android:layout_alignParentEnd="true" android:layout_marginStart="12dp" android:gravity="end|center_vertical"
+            android:text="@string/widget_preview_row_count" android:textColor="#172039" android:textSize="30sp" android:textStyle="bold" android:includeFontPadding="false"
+            android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="12sp" android:autoSizeMaxTextSize="30sp" android:autoSizeStepGranularity="1sp" />
+    </RelativeLayout>
+    <RelativeLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="5dp"
+        android:paddingHorizontal="10dp" android:paddingVertical="3dp" android:background="@drawable/widget_background" android:backgroundTint="#FFEBDF">
+        <FrameLayout android:id="@+id/preview_reddit_icon" android:layout_width="40dp" android:layout_height="match_parent"
+            android:layout_alignParentStart="true" android:background="@drawable/widget_background" android:backgroundTint="#FFFFFF">
+            <ImageView android:layout_width="32dp" android:layout_height="match_parent" android:layout_gravity="center"
+                android:src="@drawable/provider_reddit" android:scaleType="fitCenter" android:contentDescription="@string/widget_provider_reddit" />
         </FrameLayout>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp"
-            android:text="@string/widget_provider_reddit" android:textColor="#172039" android:textSize="11sp" android:textStyle="bold" />
-        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="end">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_row_count" android:textColor="#172039" android:textSize="18sp" android:textStyle="bold" android:includeFontPadding="false" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/widget_preview_row_detail" android:textColor="#5F6A80" android:textSize="11sp" android:includeFontPadding="false" />
-        </LinearLayout>
-    </LinearLayout>
+        <TextView android:layout_width="match_parent" android:layout_height="match_parent" android:layout_toEndOf="@id/preview_reddit_icon"
+            android:layout_alignParentEnd="true" android:layout_marginStart="12dp" android:gravity="end|center_vertical"
+            android:text="@string/widget_preview_row_count" android:textColor="#172039" android:textSize="30sp" android:textStyle="bold" android:includeFontPadding="false"
+            android:maxLines="1" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="12sp" android:autoSizeMaxTextSize="30sp" android:autoSizeStepGranularity="1sp" />
+    </RelativeLayout>
 </LinearLayout>

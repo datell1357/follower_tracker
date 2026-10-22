@@ -102,8 +102,8 @@ class DesignRuntimeTest {
         rule.onNodeWithText("sample_music", substring = true).performScrollTo()
         rule.onNodeWithTag("widget-option-TikTok").performClick()
         rule.onNodeWithTag("widget-preview").performScrollTo()
-        rule.onNodeWithContentDescription("위젯 미리보기: TikTok @sample_music").assertExists()
-        rule.onNodeWithContentDescription("위젯 미리보기: Instagram @sample_studio").assertDoesNotExist()
+        rule.onNodeWithContentDescription("위젯 미리보기: TikTok").assertExists()
+        rule.onNodeWithContentDescription("위젯 미리보기: Instagram").assertDoesNotExist()
         rule.onNodeWithText("미리보기를 불러오지 못했어요").assertDoesNotExist()
         capture("design-widget-preview.png")
     }
@@ -115,10 +115,21 @@ class DesignRuntimeTest {
         rule.onNodeWithTag("widget-option-TikTok").performScrollTo().performClick()
         rule.onNodeWithText("모아보기 · 대형").performScrollTo().performClick()
         rule.onNodeWithTag("widget-preview").performScrollTo()
-        rule.onNodeWithContentDescription("위젯 미리보기: Instagram @sample_studio, TikTok @sample_music").assertExists()
+        rule.onNodeWithContentDescription("위젯 미리보기: Instagram, TikTok").assertExists()
         rule.onNodeWithTag("widget-option-TikTok").assertDoesNotExist()
         rule.onNodeWithText("미리보기를 불러오지 못했어요").assertDoesNotExist()
         capture("design-widget-overview.png")
+    }
+
+    @Test fun widgetNameSwitchUpdatesThePreviewWithoutChangingTheSelectedAccount() {
+        rule.setContent { Frame("위젯") { WidgetScreen(state(row(Provider.INSTAGRAM), row(Provider.TIKTOK)), onConnect = {}) } }
+        rule.onNodeWithContentDescription("위젯 미리보기: Instagram").assertExists()
+        rule.onNodeWithContentDescription("계정명 표시").performScrollTo().performClick()
+        rule.onNodeWithTag("widget-preview").performScrollTo()
+        rule.onNodeWithContentDescription("위젯 미리보기: Instagram @sample_studio").assertExists()
+        rule.onNodeWithContentDescription("계정명 표시").performScrollTo().performClick()
+        rule.onNodeWithTag("widget-preview").performScrollTo()
+        rule.onNodeWithContentDescription("위젯 미리보기: Instagram").assertExists()
     }
 
     @Test fun widgetDesignBoardRendersAllProvidersAndBothWidgetKinds() {
@@ -129,17 +140,17 @@ class DesignRuntimeTest {
         }
         rule.setContent { Frame("위젯 디자인 · 예시 데이터") {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("내 계정 · 1×1", style = MaterialTheme.typography.titleSmall)
-                rows.chunked(3).forEach { group ->
+                Text("내 계정 · 2×1", style = MaterialTheme.typography.titleSmall)
+                rows.chunked(2).forEach { group ->
                     Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        group.forEach { owner -> NativeWidgetPreview(listOf(owner), true, DpSize(88.dp, 88.dp), Modifier.size(88.dp)) }
+                        group.forEach { owner -> NativeWidgetPreview(listOf(owner), true, DpSize(150.dp, 72.dp), Modifier.size(150.dp, 72.dp)) }
                     }
                 }
                 Text("소셜 모아보기 · 모든 계정", style = MaterialTheme.typography.titleSmall)
                 NativeWidgetPreview(rows, false, DpSize(300.dp, 360.dp), Modifier.size(300.dp, 360.dp))
             }
         } }
-        rule.onNodeWithContentDescription("위젯 미리보기: " + rows.joinToString { "${it.account.connectionTitle} ${it.account.identityLabel}" }).assertExists()
+        rule.onNodeWithContentDescription("위젯 미리보기: " + rows.joinToString { it.account.connectionTitle }).assertExists()
         rule.onNodeWithText("미리보기를 불러오지 못했어요").assertDoesNotExist()
         capture("design-widget-two-kinds.png")
     }

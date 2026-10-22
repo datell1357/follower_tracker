@@ -26,12 +26,12 @@ import androidx.glance.material3.ColorProviders
 import androidx.glance.unit.ColorProvider
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.Provider
 import dev.datell.followertracker.core.SyncStatus
 import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.ui.MainActivity
-import dev.datell.followertracker.ui.formatChange
 import dev.datell.followertracker.ui.formatCount
 import dev.datell.followertracker.ui.compactObservationTime
 import dev.datell.followertracker.ui.providerPalette
@@ -42,6 +42,7 @@ import kotlin.math.min
 private val WidgetColors = ColorProviders(trackerColorScheme(false), trackerColorScheme(true))
 internal val WidgetAccountKey = stringPreferencesKey("accountKey")
 internal val WidgetKindKey = stringPreferencesKey("kind")
+internal val WidgetShowAccountNameKey = booleanPreferencesKey("showAccountName")
 
 private data class WidgetEnvironment(val density: Float, val fontScale: Float, val dark: Boolean) {
     companion object {
@@ -80,17 +81,17 @@ abstract class BaseTrackerWidget(private val overview: Boolean) : GlanceAppWidge
             }
             val all = isOverviewWidget(overview, selected, preferences[WidgetKindKey])
             val rows = records?.filter { all || it.account.key == selected }
-            TrackerWidgetContent(rows, singleAccount = !all)
+            TrackerWidgetContent(rows, singleAccount = !all, showAccountName = preferences[WidgetShowAccountNameKey] ?: false)
         }
     }
 }
 
 @Composable
-internal fun TrackerWidgetContent(rows: List<AccountOverview>?, singleAccount: Boolean = false, inlineOverview: Boolean = false) {
+internal fun TrackerWidgetContent(rows: List<AccountOverview>?, singleAccount: Boolean = false, inlineOverview: Boolean = false, showAccountName: Boolean = false) {
     CompositionLocalProvider(LocalWidgetEnvironment provides WidgetEnvironment.from(LocalContext.current)) {
       GlanceTheme(colors = WidgetColors) {
-        if (singleAccount && !rows.isNullOrEmpty()) SingleAccount(rows.first())
-        else Overview(rows, singleAccount, inlineOverview)
+        if (singleAccount && !rows.isNullOrEmpty()) SingleAccount(rows.first(), showAccountName)
+        else Overview(rows, singleAccount, inlineOverview, showAccountName)
       }
     }
 }
@@ -99,63 +100,45 @@ private fun openAccounts(context: Context) = actionStartActivity(Intent(context,
     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
 
 @Composable
-private fun SingleAccount(row: AccountOverview) {
+private fun SingleAccount(row: AccountOverview, showAccountName: Boolean) {
     val size = LocalSize.current
     val fontScale = LocalWidgetEnvironment.current.fontScale
-    val micro = size.height.value / fontScale < 110f || size.width.value / fontScale < 110f
-    val tiny = size.height < 56.dp
-    val padding = if (tiny) 4.dp else if (micro) 6.dp else 12.dp
-    val iconSize = if (tiny) 8.dp else if (micro) 12.dp else 24.dp
-    val showChange = size.height >= 64.dp
-    val showAuxiliary = size.height >= 84.dp
-    val headerHeight = if (micro) iconSize.value else 29f * fontScale
-    val timeHeight = if (micro) { if (tiny) 8f else 11f } else 15f * fontScale
-    val metaHeight = (if (showChange) { if (micro) 12f else 16f * fontScale } else 0f) +
-        (if (showAuxiliary) { if (micro) 12f else 15f * fontScale } else 0f) +
-        (if (!micro && row.comparisonAt != null) 13f * fontScale else 0f) +
-        (if (!micro && row.account.status != SyncStatus.READY) 14f * fontScale else 0f)
-    val countBudget = (size.height.value - padding.value * 2 - headerHeight - timeHeight - metaHeight).coerceAtLeast(1f)
-    val maximum = min(if (micro) 26f else if (size.height >= 250.dp) 70f else 42f, countBudget / (1.55f * fontScale))
-    val width = (size.width - padding * 2).value
-    val count = countLabel(row, width, maximum, 14f)
-    val auxiliary = row.latest?.following?.let { "팔로잉 " + if (micro) compactWidgetCount(it) else formatCount(it) }
-        ?: row.previous?.let { "이전 " + if (micro) compactWidgetCount(it.followers) else formatCount(it.followers) }
-        ?: "첫 기록"
-    val fullDescription = "${row.account.connectionTitle} ${row.account.identityLabel}, 팔로워 ${row.latest?.let { formatCount(it.followers) } ?: "기록 없음"}, ${formatChange(row)}, $auxiliary, ${widgetStatus(row)}"
+    // Older installed hosts can temporarily remain below the new 2×1 minimum.
+    val padding = if (size.height < 60.dp) 4.dp else if (size.height < 90.dp) 8.dp else 12.dp
+    val width = (size.width - padding * 2).value.coerceAtLeast(1f)
+    val footerSize = min(14f, size.height.value * .22f / fontScale)
+    val mainHeight = (size.height.value - padding.value * 2 - footerSize * fontScale * 1.4f - 4f).coerceAtLeast(1f)
+    val iconSize = min(64f, min(mainHeight, width * .26f)).coerceAtLeast(8f)
+    val attention = row.account.status !in setOf(SyncStatus.READY, SyncStatus.REFRESHING)
+    val countWidth = (width - iconSize - 12f - if (attention) 12f else 0f).coerceAtLeast(1f)
+    val count = countLabel(row, countWidth, min(60f, mainHeight / (1.4f * fontScale)), 20f)
+    val identity = if (showAccountName) " ${row.account.identityLabel}" else ""
+    val description = "${row.account.connectionTitle}$identity, 팔로워 ${row.latest?.let { formatCount(it.followers) } ?: "기록 없음"}, ${widgetStatus(row)}"
     Column(GlanceModifier.fillMaxSize().background(ImageProvider(WidgetArtwork.background(row.account.provider, true)))
-        .appWidgetBackground().cornerRadius(if (micro) 18.dp else 26.dp)
-        .clickable(openAccounts(LocalContext.current)).semantics { contentDescription = fullDescription }.padding(padding)) {
-        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            ProviderIcon(row.account.provider, iconSize.value)
-            if (!tiny) {
-                Spacer(GlanceModifier.width(if (micro) 4.dp else 7.dp))
-                if (micro) {
-                    Text(row.account.identityLabel, GlanceModifier.defaultWeight(), style = fixedWhiteStyle(9f), maxLines = 1)
-                    if (row.account.status !in setOf(SyncStatus.READY, SyncStatus.REFRESHING)) Text("!", style = fixedWhiteStyle(9f, bold = true))
-                } else Column(GlanceModifier.defaultWeight()) {
-                    Text(row.account.connectionTitle, style = whiteStyle(11f, true), maxLines = 1)
-                    Text(row.account.identityLabel, style = whiteStyle(9f, alpha = .9f), maxLines = 1)
-                }
-            }
+        .appWidgetBackground().cornerRadius(24.dp).clickable(openAccounts(LocalContext.current))
+        .semantics { contentDescription = description }.padding(padding)) {
+        Row(GlanceModifier.fillMaxWidth().defaultWeight(), verticalAlignment = Alignment.CenterVertically) {
+            ProviderIcon(row.account.provider, iconSize)
+            if (attention) Text("!", style = whiteStyle(min(14f, mainHeight / (1.4f * fontScale)), true))
+            Spacer(GlanceModifier.width(12.dp))
+            Text(count.first, GlanceModifier.defaultWeight(), style = TextStyle(color = ColorProvider(Color.White),
+                fontSize = count.second, fontWeight = FontWeight.Bold, textAlign = TextAlign.End), maxLines = 1)
         }
-        Spacer(GlanceModifier.defaultWeight())
-        Text(count.first, GlanceModifier.fillMaxWidth(), style = TextStyle(color = ColorProvider(Color.White), fontSize = count.second, fontWeight = FontWeight.Bold), maxLines = 1)
-        if (showChange) Text((if (micro) "" else "팔로워 · ") + formatChange(row),
-            style = if (micro) fixedWhiteStyle(9f, bold = true) else whiteStyle(11f, true), maxLines = 1)
-        if (showAuxiliary) Text(auxiliary, style = TextStyle(color = ColorProvider(Color.White.copy(alpha = .9f)),
-            fontSize = fittedCountSize(auxiliary, width, if (micro) 9f / fontScale else 10f)), maxLines = 1)
-        if (!micro) row.comparisonAt?.let { Text("${compactObservationTime(it)} 대비", style = whiteStyle(9f, alpha = .85f), maxLines = 1) }
-        Spacer(GlanceModifier.defaultWeight())
-        if (row.account.status != SyncStatus.READY && !micro) Text(row.account.status.label, style = whiteStyle(9f), maxLines = 1)
-        val stamp = row.latest?.let { compactObservationTime(it.observedAt) } ?: "수집 전"
-        val label = if (micro) stamp else "$stamp 수집"
-        Text(label, style = TextStyle(color = ColorProvider(Color.White.copy(alpha = .9f)),
-            fontSize = fittedCountSize(label, width, if (micro) (if (tiny) 7f else 9f) / fontScale else 10f)), maxLines = 1)
+        Spacer(GlanceModifier.height(4.dp))
+        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (showAccountName) Text(row.account.identityLabel, GlanceModifier.defaultWeight(),
+                style = whiteStyle(footerSize, alpha = .95f), maxLines = 1)
+            else Spacer(GlanceModifier.defaultWeight())
+            val stamp = row.latest?.let { compactObservationTime(it.observedAt) } ?: "수집 전"
+            val timeWidth = if (showAccountName) width * .62f else width
+            Text(stamp, style = TextStyle(color = ColorProvider(Color.White.copy(alpha = .9f)),
+                fontSize = fittedCountSize(stamp, timeWidth, footerSize), textAlign = TextAlign.End), maxLines = 1)
+        }
     }
 }
 
 @Composable
-private fun Overview(rows: List<AccountOverview>?, singleAccount: Boolean, inline: Boolean) {
+private fun Overview(rows: List<AccountOverview>?, singleAccount: Boolean, inline: Boolean, showAccountName: Boolean) {
     val dark = LocalWidgetEnvironment.current.dark
     val size = LocalSize.current
     val padding = if (size.height < 64.dp) 4.dp else if (size.width < 180.dp) 10.dp else 16.dp
@@ -181,25 +164,25 @@ private fun Overview(rows: List<AccountOverview>?, singleAccount: Boolean, inlin
         } else {
             Row(GlanceModifier.fillMaxWidth().clickable(openAccounts(LocalContext.current)), verticalAlignment = Alignment.CenterVertically) {
                 Column(GlanceModifier.defaultWeight()) {
-                    Text("소셜 모아보기", style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold, color = GlanceTheme.colors.onSurface), maxLines = 1)
-                    Text("팔로워 · 이전 수집 대비", style = TextStyle(fontSize = 10.sp, color = GlanceTheme.colors.onSurfaceVariant), maxLines = 1)
+                    Text("소셜 모아보기", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, color = GlanceTheme.colors.onSurface), maxLines = 1)
+                    Text("팔로워", style = TextStyle(fontSize = 13.sp, color = GlanceTheme.colors.onSurfaceVariant), maxLines = 1)
                 }
                 Text("${rows.size}개 계정", GlanceModifier.background(GlanceTheme.colors.surface).cornerRadius(12.dp).padding(horizontal = 9.dp, vertical = 5.dp),
-                    style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Medium, color = GlanceTheme.colors.onSurfaceVariant), maxLines = 1)
+                    style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, color = GlanceTheme.colors.onSurfaceVariant), maxLines = 1)
             }
             Spacer(GlanceModifier.height(12.dp))
             val fontScale = LocalWidgetEnvironment.current.fontScale
-            val rowHeight = 54f * fontScale.coerceAtLeast(1f)
+            val rowHeight = (if (showAccountName) 98f else 78f) * fontScale.coerceAtLeast(1f)
             val attentionHeight = rows.count { it.account.status !in setOf(SyncStatus.READY, SyncStatus.REFRESHING) } * 15f * fontScale
             val fits = size.height.value - padding.value * 2 - 48f * fontScale >= rows.size * rowHeight + attentionHeight
             if (inline || (fits && rows.size <= 8)) {
                 Column(GlanceModifier.fillMaxWidth()) {
-                    rows.chunked(8).forEach { chunk -> Column(GlanceModifier.fillMaxWidth()) { chunk.forEach { WidgetRow(it, dark) } } }
+                    rows.chunked(8).forEach { chunk -> Column(GlanceModifier.fillMaxWidth()) { chunk.forEach { WidgetRow(it, dark, showAccountName) } } }
                 }
             } else {
                 // No take()/prefix(): every connected account remains reachable at every large size.
                 LazyColumn(GlanceModifier.fillMaxWidth().defaultWeight()) {
-                    items(rows, itemId = { stableAccountId(it.account.key) }) { WidgetRow(it, dark) }
+                    items(rows, itemId = { stableAccountId(it.account.key) }) { WidgetRow(it, dark, showAccountName) }
                 }
             }
         }
@@ -207,34 +190,25 @@ private fun Overview(rows: List<AccountOverview>?, singleAccount: Boolean, inlin
 }
 
 @Composable
-private fun WidgetRow(row: AccountOverview, dark: Boolean) {
+private fun WidgetRow(row: AccountOverview, dark: Boolean, showAccountName: Boolean) {
     val palette = providerPalette(row.account.provider, dark)
-    val background = ColorProvider(palette.background.first())
-    Column(GlanceModifier.fillMaxWidth().padding(bottom = 4.dp)) {
-        Column(GlanceModifier.fillMaxWidth().background(background).cornerRadius(14.dp).clickable(openAccounts(LocalContext.current))
-            .semantics { contentDescription = "${row.account.connectionTitle} ${row.account.identityLabel}, 팔로워 ${row.latest?.let { formatCount(it.followers) } ?: "기록 없음"}, ${formatChange(row)}, ${widgetStatus(row)}" }
-            .padding(horizontal = 10.dp, vertical = 5.dp)) {
+    val identity = if (showAccountName) " ${row.account.identityLabel}" else ""
+    Column(GlanceModifier.fillMaxWidth().padding(bottom = 6.dp)) {
+        Column(GlanceModifier.fillMaxWidth().background(ColorProvider(palette.background.first())).cornerRadius(16.dp)
+            .clickable(openAccounts(LocalContext.current))
+            .semantics { contentDescription = "${row.account.connectionTitle}$identity, 팔로워 ${row.latest?.let { formatCount(it.followers) } ?: "기록 없음"}, ${widgetStatus(row)}" }
+            .padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ProviderIcon(row.account.provider, 25f)
-                Spacer(GlanceModifier.width(8.dp))
-                Column(GlanceModifier.defaultWeight()) {
-                    Text(row.account.connectionTitle, style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ColorProvider(palette.accent)), maxLines = 1)
-                    Text(row.account.identityLabel, style = TextStyle(fontSize = 9.sp, color = GlanceTheme.colors.onSurfaceVariant), maxLines = 1)
-                }
-                Spacer(GlanceModifier.width(8.dp))
-                val count = countLabel(row, (LocalSize.current.width.value - 148f).coerceAtLeast(70f), 20f, 12f)
-                Text(count.first, style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = count.second, fontWeight = FontWeight.Bold), maxLines = 1)
+                ProviderIcon(row.account.provider, 40f)
+                Spacer(GlanceModifier.width(12.dp))
+                val count = countLabel(row, (LocalSize.current.width.value - 110f).coerceAtLeast(1f), 32f, 20f)
+                Text(count.first, GlanceModifier.defaultWeight(), style = TextStyle(color = GlanceTheme.colors.onSurface,
+                    fontSize = count.second, fontWeight = FontWeight.Bold, textAlign = TextAlign.End), maxLines = 1)
             }
-            if (row.account.status !in setOf(SyncStatus.READY, SyncStatus.REFRESHING)) {
-                Text(row.account.status.label, style = TextStyle(fontSize = 9.sp, color = GlanceTheme.colors.error), maxLines = 1)
-            }
-            Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                val stamp = row.latest?.let { "${compactObservationTime(it.observedAt)} 수집" } ?: "수집 기록 없음"
-                Text(stamp, GlanceModifier.defaultWeight(), style = TextStyle(fontSize = 8.sp, color = GlanceTheme.colors.onSurfaceVariant), maxLines = 1)
-                Spacer(GlanceModifier.width(6.dp))
-                Text(formatChange(row) + (row.comparisonAt?.let { " · ${compactObservationTime(it)} 대비" } ?: ""),
-                    style = TextStyle(fontSize = 8.sp, color = ColorProvider(palette.accent)), maxLines = 1)
-            }
+            if (showAccountName) Text(row.account.identityLabel, GlanceModifier.fillMaxWidth(),
+                style = TextStyle(fontSize = 14.sp, textAlign = TextAlign.End, color = GlanceTheme.colors.onSurfaceVariant), maxLines = 1)
+            Text(widgetStatus(row), GlanceModifier.fillMaxWidth(), style = TextStyle(fontSize = 12.sp, textAlign = TextAlign.End,
+                color = if (row.account.status in setOf(SyncStatus.READY, SyncStatus.REFRESHING)) GlanceTheme.colors.onSurfaceVariant else GlanceTheme.colors.error), maxLines = 1)
         }
     }
 }
@@ -248,16 +222,13 @@ private fun ProviderIcon(provider: Provider, size: Float) {
     }
     Box(GlanceModifier.size(size.dp).background(backdrop).cornerRadius((size * .29f).dp), contentAlignment = Alignment.Center) {
         Image(ImageProvider(WidgetArtwork.icon(provider)), contentDescription = provider.title,
-            modifier = GlanceModifier.size((if (provider == Provider.REDDIT) size else size * .66f).dp))
+            modifier = GlanceModifier.size((if (provider == Provider.REDDIT) size else size * .8f).dp))
     }
 }
 
 @Composable
 private fun whiteStyle(size: Float, bold: Boolean = false, alpha: Float = 1f) = TextStyle(
     color = ColorProvider(Color.White.copy(alpha = alpha)), fontSize = size.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal)
-
-@Composable
-private fun fixedWhiteStyle(size: Float, bold: Boolean = false) = whiteStyle(size / LocalWidgetEnvironment.current.fontScale, bold)
 
 @Composable
 private fun countLabel(row: AccountOverview, availableWidth: Float, maximum: Float, readable: Float): Pair<String, TextUnit> {

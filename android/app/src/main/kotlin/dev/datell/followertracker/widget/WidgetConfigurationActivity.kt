@@ -12,6 +12,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,6 +46,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
         setContent { TrackerTheme {
             var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
             var selected by rememberSaveable { mutableStateOf<String?>(null) }
+            var showAccountName by rememberSaveable { mutableStateOf(false) }
             var initialized by rememberSaveable { mutableStateOf(false) }
             var loading by remember { mutableStateOf(true) }
             var loadError by remember { mutableStateOf(false) }
@@ -57,6 +60,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                     if (!initialized) {
                         val glanceId = GlanceAppWidgetManager(this@WidgetConfigurationActivity).getGlanceIdBy(id)
                         val saved = getAppWidgetState(this@WidgetConfigurationActivity, PreferencesGlanceStateDefinition, glanceId)
+                        showAccountName = saved[WidgetShowAccountNameKey] ?: false
                         selected = saved[WidgetAccountKey] ?: getSharedPreferences("widget_preferences", MODE_PRIVATE).getString("accountKey", null)
                     }
                     selected = selected?.takeIf { key -> accounts.any { it.key == key } } ?: accounts.firstOrNull()?.key
@@ -68,17 +72,24 @@ class WidgetConfigurationActivity : ComponentActivity() {
             Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 Column(Modifier.fillMaxSize().systemBarsPadding()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { finish() }) { Icon(Icons.Outlined.Close, "위젯 추가 취소") }
+                        IconButton(onClick = { finish() }) { Icon(Icons.Outlined.Close, "위젯 설정 닫기") }
                         Text(if (overview) "모아보기 위젯" else "위젯에 표시할 계정", style = MaterialTheme.typography.titleLarge)
                     }
                     LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        item { InfoPanel(if (overview) "모든 SNS를 한곳에" else "한 계정을 가장 작게", if (overview) "연결된 모든 계정의 팔로워·변화·수집 시각을 표시해요. 계정이 많으면 위젯 안에서 스크롤할 수 있어요." else "1×1 크기로 추가할 수 있어요. SNS 색상과 팔로워 수를 표시하고, 크기를 늘리면 증감과 계정 정보도 보여요.", icon = Icons.Outlined.Widgets) }
+                        item { InfoPanel(if (overview) "모든 SNS를 한곳에" else "한 계정을 가장 작게", if (overview) "연결된 모든 계정의 큰 SNS 아이콘과 팔로워 수·수집 시각을 표시해요. 계정이 많으면 위젯 안에서 스크롤할 수 있어요." else "최소 2×1 크기로 큰 SNS 아이콘과 우측 팔로워 수를 표시해요. 계정명은 켜고 끌 수 있어요.", icon = Icons.Outlined.Widgets) }
                         if (loading) item { CircularProgressIndicator() }
                         if (loadError) item {
                             Text("저장된 계정을 읽지 못했어요. 기존 데이터를 보존했어요.", color = MaterialTheme.colorScheme.error)
                             OutlinedButton(onClick = { loadRequest++ }) { Text("다시 읽기") }
                         }
                         if (!loading && !loadError) {
+                            item {
+                                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("계정명 표시", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                    Switch(checked = showAccountName, onCheckedChange = { showAccountName = it }, enabled = !saving,
+                                        modifier = Modifier.semantics { contentDescription = "계정명 표시" })
+                                }
+                            }
                             if (overview) item { ConfigurationOption("모든 계정", "새로 연결한 계정도 자동으로 포함해요", null, true, false) {} }
                             items(accounts, key = { it.key }) { account ->
                                 ConfigurationOption(account.connectionTitle, account.identityLabel, account, overview || selected == account.key, !saving && !overview) { selected = account.key }
@@ -87,17 +98,17 @@ class WidgetConfigurationActivity : ComponentActivity() {
                         }
                         if (saveError) item { Text("위젯을 저장하지 못했어요. 다시 시도해주세요.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
                     }
-                    Button(onClick = { saving = true; saveError = false; configure(id, if (overview) null else selected, kind) { saving = false; saveError = true } },
+                    Button(onClick = { saving = true; saveError = false; configure(id, if (overview) null else selected, kind, showAccountName) { saving = false; saveError = true } },
                         enabled = !saving && !loading && !loadError, modifier = Modifier.fillMaxWidth().padding(20.dp).heightIn(min = 48.dp)) {
-                        Text(if (saving) "추가하는 중" else "선택한 구성으로 추가")
+                        Text(if (saving) "적용하는 중" else "위젯에 적용")
                     }
                 }
             }
         } }
     }
-    private fun configure(id: Int, key: String?, kind: WidgetKind, failure: () -> Unit) = lifecycleScope.launch {
+    private fun configure(id: Int, key: String?, kind: WidgetKind, showAccountName: Boolean, failure: () -> Unit) = lifecycleScope.launch {
         try {
-            check(WidgetPinning.configure(this@WidgetConfigurationActivity, id, key, kind))
+            check(WidgetPinning.configure(this@WidgetConfigurationActivity, id, key, kind, showAccountName))
             setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id))
             finish()
         } catch (cancelled: CancellationException) { throw cancelled }

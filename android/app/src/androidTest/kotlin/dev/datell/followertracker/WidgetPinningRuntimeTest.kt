@@ -24,9 +24,9 @@ class WidgetPinningRuntimeTest {
         if (Build.VERSION.SDK_INT >= 31) {
             val single = providers.single { it.provider.className == TrackerWidgetReceiver::class.java.name }
             val overview = providers.single { it.provider.className == OverviewWidgetReceiver::class.java.name }
-            assertEquals(1, single.targetCellWidth); assertEquals(1, single.targetCellHeight)
+            assertEquals(2, single.targetCellWidth); assertEquals(1, single.targetCellHeight)
             assertEquals(4, overview.targetCellWidth); assertEquals(4, overview.targetCellHeight)
-            assertNull("Overview includes every account without configuration", overview.configure)
+            assertEquals("Both widgets expose the name visibility option", single.configure, overview.configure)
         }
     }
 
@@ -48,6 +48,15 @@ class WidgetPinningRuntimeTest {
         assertFalse(WidgetPinning.configure(context, AppWidgetManager.INVALID_APPWIDGET_ID, "fixture-first"))
         assertFalse(WidgetPinning.configure(context, Int.MAX_VALUE, null))
         assertTrue("Invalid callbacks must preserve the default selection", preferences.all == before)
+    }
+
+    @Test fun nameVisibilityTravelsWithEachPinSelectionAndDefaultsToHidden() {
+        val hidden = android.content.Intent().putExtra("accountKey", "fixture-first")
+        val visible = android.content.Intent().putExtra("accountKey", "fixture-second").putExtra("showAccountName", true)
+        assertFalse(WidgetPinning.showsAccountName(hidden))
+        assertTrue(WidgetPinning.showsAccountName(visible))
+        assertEquals("fixture-first", WidgetPinning.selection(hidden))
+        assertEquals("fixture-second", WidgetPinning.selection(visible))
     }
 
     @Test fun pinCallbackReceiverIsPrivateToTheApplication() {

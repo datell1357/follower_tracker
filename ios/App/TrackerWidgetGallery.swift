@@ -7,6 +7,7 @@ struct TrackerWidgetGallery: View {
     let onConnect: () -> Void
     @SceneStorage("tracker.widgetPreviewAccount") private var selection = "all"
     @State private var overviewPage = 0
+    @SceneStorage("tracker.widgetPreviewAccountName") private var showAccountName = false
     private var validSelection: String { accounts.contains { $0.id == selection } ? selection : "all" }
     private var rows: [AccountOverview] { validSelection == "all" ? Array(accounts.prefix(1)) : accounts.filter { $0.id == validSelection } }
     var body: some View {
@@ -16,23 +17,25 @@ struct TrackerWidgetGallery: View {
                     Text("첫 연결 계정").tag("all")
                     ForEach(accounts) { row in Text(row.account.connectionTitle + " · " + row.account.identityLabel).tag(row.id) }
                 }.pickerStyle(.menu).frame(minHeight: 48).disabled(accounts.isEmpty || storageError)
-                TrackerSectionTitle(title: "내 계정 · 최소 크기")
+                Toggle("계정명 표시", isOn: $showAccountName)
+                Text("미리보기에 적용해요. 홈 위젯은 길게 눌러 ‘위젯 편집’에서 바꿀 수 있어요.").font(.caption).foregroundStyle(TrackerStyle.muted)
+                TrackerSectionTitle(title: "내 계정 · 가로형")
                 HStack {
                     Spacer()
-                    TrackerWidgetContent(rows: rows, storageError: storageError).frame(width: 172, height: 184)
+                    TrackerWidgetContent(rows: rows, storageError: storageError, showAccountName: showAccountName).frame(height: 160)
                         .clipShape(RoundedRectangle(cornerRadius: 24))
                     Spacer()
                 }.dynamicTypeSize(.medium)
                 TrackerSectionTitle(title: "소셜 모아보기 · 대형")
                 TrackerWidgetContent(rows: accounts, storageError: storageError, size: .large, pageIndex: overviewPage,
-                    onPage: { overviewPage = $0 }).frame(height: 360)
+                    onPage: { overviewPage = $0 }, showAccountName: showAccountName).frame(height: 360)
                     .clipShape(RoundedRectangle(cornerRadius: 24)).dynamicTypeSize(.medium)
                 Text("숫자와 함께 마지막 실제 수집 시각을 확인하세요.").font(.caption).foregroundStyle(TrackerStyle.muted)
                 TrackerSectionTitle(title: "위젯 추가하기")
                 VStack(alignment: .leading, spacing: 18) {
                     step("1", "홈 화면의 빈 곳을 길게 눌러요.")
                     step("2", "편집 또는 + 버튼에서 위젯 추가를 열고 ‘팔로워 트래커’를 찾아요.")
-                    step("3", "내 계정 또는 소셜 모아보기를 추가해요. 내 계정은 위젯 편집에서 SNS를 선택해요.")
+                    step("3", "내 계정 또는 소셜 모아보기를 추가해요. 위젯 편집에서 계정과 계정명 표시 여부를 선택해요.")
                 }.trackerPanel()
                 TrackerInfoPanel(title: "위젯을 누르면 계정으로", detail: "iOS가 갱신 시각을 정해요. 숫자가 같을 때도 수집 시각을 확인하세요. 위젯을 누르면 앱의 계정 탭에서 수집 상태를 볼 수 있어요.", icon: "hand.tap")
                 if accounts.isEmpty && !storageError { Button("SNS 연결하기", systemImage: "plus", action: onConnect).buttonStyle(TrackerPrimaryButtonStyle()).disabled(busy) }

@@ -106,8 +106,11 @@ final class DesignRuntimeTests: XCTestCase {
             try save(AccountCard(row: value).frame(width: 280).environment(\.colorScheme, scheme), "account-" + name)
             try save(AccountCard(row: value).frame(width: 280).environment(\.dynamicTypeSize, .accessibility1).environment(\.colorScheme, scheme), "account-large-" + name)
             for size: TrackerWidgetSize in [.small, .large] {
-                let width: CGFloat = size == .small ? 172 : 340, height: CGFloat = size == .large ? 360 : 184
-                try save(TrackerWidgetContent(rows: [value], size: size).frame(width: width, height: height).background(TrackerStyle.surface).environment(\.colorScheme, scheme), "widget-\(size)-" + name)
+                let width: CGFloat = 340, height: CGFloat = size == .large ? 360 : 160
+                for showName in [false, true] {
+                    try save(TrackerWidgetContent(rows: [value], size: size, showAccountName: showName).frame(width: width, height: height)
+                        .background(TrackerStyle.surface).environment(\.colorScheme, scheme), "widget-\(size)-names-\(showName)-" + name)
+                }
             }
         }
     }

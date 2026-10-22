@@ -36,6 +36,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.glance.appwidget.ExperimentalGlanceRemoteViewsApi
 import androidx.glance.appwidget.GlanceRemoteViews
 import dev.datell.followertracker.data.AccountOverview
+import dev.datell.followertracker.core.SyncStatus
 import dev.datell.followertracker.widget.TrackerWidgetContent
 import dev.datell.followertracker.widget.WidgetPinning
 import kotlinx.coroutines.CancellationException
@@ -47,6 +48,7 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
     val canPin = remember(context) { AppWidgetManager.getInstance(context).isRequestPinAppWidgetSupported }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var wide by rememberSaveable { mutableStateOf(false) }
+    var showAccountName by rememberSaveable { mutableStateOf(false) }
     var requesting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -57,20 +59,31 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                SegmentedButton(selected = !wide, onClick = { wide = false }, shape = SegmentedButtonDefaults.itemShape(0, 2), icon = { Icon(Icons.Outlined.CropSquare, null, Modifier.size(18.dp)) }) { Text("내 계정 · 1×1") }
+                SegmentedButton(selected = !wide, onClick = { wide = false }, shape = SegmentedButtonDefaults.itemShape(0, 2), icon = { Icon(Icons.Outlined.CropLandscape, null, Modifier.size(18.dp)) }) { Text("내 계정 · 2×1") }
                 SegmentedButton(selected = wide, onClick = { wide = true }, shape = SegmentedButtonDefaults.itemShape(1, 2), icon = { Icon(Icons.Outlined.Dashboard, null, Modifier.size(18.dp)) }) { Text("모아보기 · 대형") }
             }
         }
         item {
             val shape = RoundedCornerShape(28.dp)
             BoxWithConstraints(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.surfaceContainerLow)), shape).padding(20.dp).testTag("widget-preview"), contentAlignment = Alignment.Center) {
-                val width = if (wide) minOf(maxWidth, 330.dp) else 88.dp
-                val size = DpSize(width, if (wide) 360.dp else 88.dp)
+                val width = if (wide) minOf(maxWidth, 330.dp) else minOf(maxWidth, 220.dp)
+                val size = DpSize(width, if (wide) 360.dp else 96.dp)
                 Box(Modifier.fillMaxWidth().heightIn(min = if (wide) 360.dp else 112.dp), contentAlignment = Alignment.Center) {
-                    NativeWidgetPreview(rows, !wide, size, Modifier.size(size.width, size.height).shadow(6.dp, RoundedCornerShape(if (wide) 26.dp else 18.dp)))
+                    NativeWidgetPreview(rows, !wide, size, Modifier.size(size.width, size.height).shadow(6.dp, RoundedCornerShape(if (wide) 26.dp else 24.dp)), showAccountName = showAccountName)
                 }
             }
-            Text(if (wide) "연결된 ${state.accounts.size}개 계정 · 많아지면 위젯 안에서 스크롤" else "가장 작은 1×1 · 숫자가 길면 축약 표시", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (wide) "연결된 ${state.accounts.size}개 계정 · 많아지면 위젯 안에서 스크롤" else "최소 2×1 · 큰 아이콘과 팔로워 수", Modifier.padding(top = 10.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("계정명 표시", style = MaterialTheme.typography.titleMedium)
+                    Text("추가할 위젯에 적용해요. 기존 위젯은 길게 눌러 편집할 수 있어요.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = showAccountName, onCheckedChange = { showAccountName = it },
+                    modifier = Modifier.semantics { contentDescription = "계정명 표시" })
+            }
         }
         if (!wide && state.accounts.isNotEmpty()) item {
             SectionHeading("표시할 계정")
@@ -94,11 +107,12 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
             if (state.accounts.isEmpty()) Button(onClick = onConnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("SNS 연결하기") }
             else Button(onClick = {
                 val requestedAccount = if (wide) null else selected
+                val requestedName = showAccountName
                 requesting = true; error = false
                 scope.launch {
                     try {
                         if (requestedAccount != null) context.getSharedPreferences("widget_preferences", Context.MODE_PRIVATE).edit { putString("accountKey", requestedAccount) }
-                        error = !WidgetPinning.request(context, requestedAccount)
+                        error = !WidgetPinning.request(context, requestedAccount, requestedName)
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { error = true }
                     finally { requesting = false }
@@ -117,22 +131,25 @@ fun WidgetScreen(state: TrackerState, onConnect: () -> Unit) {
 /** Render the real RemoteViews, rather than maintaining a separate look-alike Compose preview. */
 @OptIn(ExperimentalGlanceRemoteViewsApi::class)
 @Composable
-internal fun NativeWidgetPreview(rows: List<AccountOverview>, single: Boolean, size: DpSize, modifier: Modifier = Modifier) {
+internal fun NativeWidgetPreview(rows: List<AccountOverview>, single: Boolean, size: DpSize, modifier: Modifier = Modifier, showAccountName: Boolean = false) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     // API 26–31 collections need a launcher-bound widget ID. Keep the exact row renderer
     // and let the in-app host scroll a full-height preview on those OS versions instead.
     val inline = Build.VERSION.SDK_INT <= 31 && !single
-    val renderSize = if (inline) DpSize(size.width, maxOf(size.height.value, (84f + rows.size * 72f) * configuration.fontScale).dp) else size
+    val rowHeight = if (showAccountName) 104f else 84f
+    val attentionRows = rows.count { it.account.status !in setOf(SyncStatus.READY, SyncStatus.REFRESHING) }
+    val previewHeight = (84f + rows.size * rowHeight + attentionRows * 18f) * configuration.fontScale
+    val renderSize = if (inline) DpSize(size.width, maxOf(size.height.value, previewHeight).dp) else size
     var failed by remember { mutableStateOf(false) }
-    val remote by produceState<RemoteViews?>(null, rows, single, renderSize, configuration) {
+    val remote by produceState<RemoteViews?>(null, rows, single, renderSize, configuration, showAccountName) {
         failed = false
         try {
-            value = GlanceRemoteViews().compose(context, size = renderSize) { TrackerWidgetContent(rows, singleAccount = single, inlineOverview = inline) }.remoteViews
+            value = GlanceRemoteViews().compose(context, size = renderSize) { TrackerWidgetContent(rows, singleAccount = single, inlineOverview = inline, showAccountName = showAccountName) }.remoteViews
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { value = null; failed = true }
     }
-    val description = "위젯 미리보기: " + rows.joinToString { "${it.account.connectionTitle} ${it.account.identityLabel}" }
+    val description = "위젯 미리보기: " + rows.joinToString { if (showAccountName) "${it.account.connectionTitle} ${it.account.identityLabel}" else it.account.connectionTitle }
     Box(modifier.semantics { contentDescription = description }, contentAlignment = Alignment.Center) {
         val content = remote
         if (content != null) Box(Modifier.fillMaxSize().then(if (inline) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
