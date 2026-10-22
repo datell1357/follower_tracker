@@ -23,7 +23,7 @@ public enum FacebookPageDocument {
         guard ids.count <= 1, ids.isEmpty || ids == [expected.stableID], names.count <= 1 else { throw CollectionFailure(.checkRequired) }
 
         var queue = document.roots.map { ($0, 0) }, index = 0
-        var pages: [[String: Any]] = [], sparsePages: [[String: Any]] = [], users: [[String: Any]] = []
+        var pages: [[String: Any]] = [], sparsePages: [[String: Any]] = [], users: [[String: Any]] = [], untyped: [[String: Any]] = []
         while index < queue.count {
             if index & 511 == 0 { try Task.checkCancellation() }
             guard index < 100_000 else { throw CollectionFailure(.formatChanged) }
@@ -31,6 +31,10 @@ public enum FacebookPageDocument {
             guard depth <= 32 else { throw CollectionFailure(.formatChanged) }
             if let object = value as? [String: Any] {
                 if object["__typename"] as? String == "User", identifier(object["id"]) == expected.stableID { users.append(object) }
+                if object["__typename"] == nil, identifier(object["id"]) == expected.stableID {
+                    guard untyped.count < 512 else { throw CollectionFailure(.formatChanged) }
+                    untyped.append(object)
+                }
                 let delegated = object["__typename"] as? String == "User" && identifier((object["delegate_page"] as? [String: Any])?["id"]) != nil
                 if object["__typename"] as? String == "Page" || object["__isPage"] as? String == "Page" || delegated,
                    let id = identifier(object["id"]) {
@@ -65,6 +69,28 @@ public enum FacebookPageDocument {
         let ownUsers = users.filter { identifier($0["id"]) == expected.stableID }
         if !delegated && !ownUsers.isEmpty { throw CollectionFailure(.checkRequired) }
         if delegated { pages.append(contentsOf: ownUsers) }
+        // Sparse untyped fragments cannot prove Page identity, but may carry the count once it is bound.
+        var boundNames = names
+        for page in pages {
+            let target = (page["url"] as? String ?? page["profile_url"] as? String)
+                .flatMap { URL(string: $0, relativeTo: url)?.absoluteURL }.flatMap(address)
+            boundNames.formUnion([target?.name, (page["username"] as? String)?.lowercased()].compactMap { $0 })
+        }
+        guard boundNames.count <= 1 else { throw CollectionFailure(.checkRequired) }
+        for fragment in untyped {
+            let value = fragment["url"] as? String ?? fragment["profile_url"] as? String
+            let target = value.flatMap { URL(string: $0, relativeTo: url)?.absoluteURL }.flatMap(address)
+            let username = (fragment["username"] as? String)?.lowercased()
+            if value != nil && target == nil || target?.id != nil && target?.id != expected.stableID ||
+                target?.name != nil && username != nil && target?.name != username ||
+                !boundNames.isEmpty && [target?.name, username].compactMap({ $0 }).contains(where: { !boundNames.contains($0) }) {
+                throw CollectionFailure(.checkRequired)
+            }
+            boundNames.formUnion([target?.name, username].compactMap { $0 })
+            guard boundNames.count <= 1 else { throw CollectionFailure(.checkRequired) }
+            pages.append(fragment)
+        }
+        names = boundNames
 
         var counts: Set<Int64> = []
         let labelPattern = #"^(?:([0-9][0-9,\s\u00a0\u202f]*)\s*(?:명의?\s*)?(?:팔로워|followers?)|(?:팔로워|followers?)\s*([0-9][0-9,\s\u00a0\u202f]*)(?:명)?)$"#

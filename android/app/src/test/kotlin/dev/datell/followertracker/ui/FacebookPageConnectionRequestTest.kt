@@ -41,6 +41,23 @@ class FacebookPageConnectionRequestTest {
         assertEquals(FacebookPageAction.WAIT, action(numeric, current = "https://facebook.com/profile.php?id=99"))
     }
 
+    @Test fun numericPageRoutesIdentifyTheSameTargetAcrossFacebookRedirects() {
+        val request = checkNotNull(FacebookPageConnectionRequest.create("https://facebook.com/profile.php?id=99", true))
+        for (path in listOf("/99", "/people/Fixture/99/", "/p/Fixture-99/")) {
+            assertEquals(FacebookPageAction.CAPTURE, action(request, current = "https://m.facebook.com$path"))
+            assertEquals(FacebookPageAction.WAIT, action(request, current = "https://m.facebook.com" + path.replace("99", "88")))
+        }
+    }
+
+    @Test fun nameAndNumericRedirectsAreInspectedBeforeTheDocumentProvesTheSubmittedTarget() {
+        val request = checkNotNull(FacebookPageConnectionRequest.create(page, true))
+        assertEquals(FacebookPageAction.CAPTURE, action(request, current = "https://facebook.com/profile.php?id=99"))
+        val numeric = checkNotNull(FacebookPageConnectionRequest.create("https://facebook.com/profile.php?id=99", true))
+        assertEquals(FacebookPageAction.CAPTURE, action(numeric))
+        assertEquals(FacebookPageAction.WAIT, action(request, current = "https://facebook.com/checkpoint/"))
+        assertEquals(FacebookPageAction.WAIT, action(request, current = "https://example.test/profile.php?id=99"))
+    }
+
     @Test fun opaqueShareLinksRequireConfirmationOfTheResolvedDestination() {
         val share = "https://www.facebook.com/share/fixture123/?mibextid=example"
         val request = checkNotNull(FacebookPageConnectionRequest.create(share, true))

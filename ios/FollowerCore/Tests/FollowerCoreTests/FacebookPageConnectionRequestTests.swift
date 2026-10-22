@@ -39,6 +39,21 @@ final class FacebookPageConnectionRequestTests: XCTestCase {
         let numeric = try XCTUnwrap(FacebookPageConnectionRequest(input: "https://facebook.com/profile.php?id=42", authenticated: true))
         XCTAssertEqual(action(numeric, current: "https://facebook.com/profile.php?id=99"), .wait)
     }
+    func testNumericPageRoutesIdentifyTheSameTargetAcrossRedirects() throws {
+        let request = try XCTUnwrap(FacebookPageConnectionRequest(input: "https://facebook.com/profile.php?id=99", authenticated: true))
+        for path in ["/99", "/people/Fixture/99/", "/p/Fixture-99/"] {
+            XCTAssertEqual(action(request, current: "https://m.facebook.com" + path), .capture)
+            XCTAssertEqual(action(request, current: "https://m.facebook.com" + path.replacingOccurrences(of: "99", with: "88")), .wait)
+        }
+    }
+    func testNameAndNumericRedirectsRequireDocumentProofBeforeSaving() throws {
+        let request = try XCTUnwrap(FacebookPageConnectionRequest(input: page.absoluteString, authenticated: true))
+        XCTAssertEqual(action(request, current: "https://facebook.com/profile.php?id=99"), .capture)
+        let numeric = try XCTUnwrap(FacebookPageConnectionRequest(input: "https://facebook.com/profile.php?id=99", authenticated: true))
+        XCTAssertEqual(action(numeric), .capture)
+        XCTAssertEqual(action(request, current: "https://facebook.com/checkpoint/"), .wait)
+        XCTAssertEqual(action(request, current: "https://example.test/profile.php?id=99"), .wait)
+    }
     func testOpaqueShareLinksRequireConfirmationOfTheResolvedDestination() throws {
         let share = URL(string: "https://www.facebook.com/share/fixture123/?mibextid=example")!
         let request = try XCTUnwrap(FacebookPageConnectionRequest(input: share.absoluteString, authenticated: true))

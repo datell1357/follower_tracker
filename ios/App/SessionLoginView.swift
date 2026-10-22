@@ -111,14 +111,14 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                         pageConfirmationRequested = false; checking = true; notice = nil
                         do {
                             var payload = try await captureWebSession(webView, provider: provider, identity: candidate.identity(provider), script: script,
-                                allowRequest: false, facebookPage: true, expectedPageID: expectedPage?.stableID)
+                                allowRequest: false, facebookPage: true, expectedPageID: expectedPage?.stableID, requestedPageURL: pageRequest?.target)
                             for _ in 0..<30 {
                                 let error = try ResponseParser.objectBody(payload)["error"] as? String ?? ""
                                 guard ["page_required", "page_identity_missing", "exact_count_missing", "rounded_count_only", "document_changed"].contains(error),
                                       navigationVersion == version else { break }
                                 try await Task.sleep(for: .milliseconds(500))
                                 payload = try await captureWebSession(webView, provider: provider, identity: candidate.identity(provider), script: script,
-                                    allowRequest: false, facebookPage: true, expectedPageID: expectedPage?.stableID)
+                                    allowRequest: false, facebookPage: true, expectedPageID: expectedPage?.stableID, requestedPageURL: pageRequest?.target)
                             }
                             try Task.checkCancellation()
                             guard navigationVersion == version, pageWriteIf() else { checking = false; continue }
@@ -220,11 +220,12 @@ final class LoginBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
 
 @MainActor
 func captureWebSession(_ webView: WKWebView, provider: Provider, identity: String?, script: String, allowRequest: Bool = true,
-                       facebookPage: Bool = false, expectedPageID: String? = nil) async throws -> String {
+                       facebookPage: Bool = false, expectedPageID: String? = nil, requestedPageURL: URL? = nil) async throws -> String {
     guard let url = webView.url, provider.allows(url) else { throw CollectionFailure(.checkRequired) }
-    let body = script + ";return JSON.stringify(page ? FollowerTrackerCapture.captureFacebookPage(identity, target) : allowNetwork ? await FollowerTrackerCapture.captureAsync(provider, identity) : FollowerTrackerCapture.capture(provider, identity));"
+    let body = script + ";return JSON.stringify(page ? FollowerTrackerCapture.captureFacebookPage(identity, target, undefined, requested) : allowNetwork ? await FollowerTrackerCapture.captureAsync(provider, identity) : FollowerTrackerCapture.capture(provider, identity));"
     let value = try await webView.callAsyncJavaScript(body, arguments: ["provider": provider.rawValue, "identity": identity as Any? ?? NSNull(), "allowNetwork": allowRequest,
-        "page": facebookPage, "target": expectedPageID as Any? ?? NSNull()], in: nil, contentWorld: .page)
+        "page": facebookPage, "target": expectedPageID as Any? ?? NSNull(),
+        "requested": requestedPageURL?.absoluteString as Any? ?? NSNull()], in: nil, contentWorld: .page)
     try Task.checkCancellation()
     guard webView.url == url else { throw CollectionFailure(.checkRequired) }
     guard let payload = value as? String else { throw CollectionFailure(.formatChanged) }
@@ -293,7 +294,7 @@ struct SessionLoginView: View {
 private func facebookPageFailureMessage(_ error: String) -> String {
     switch error {
     case "identity_missing", "reauth_required": "Facebook 로그인을 완료해주세요. 페이지 링크는 위에 입력할 수 있어요."
-    case "page_mismatch": "기존에 연결한 페이지를 열어주세요. 다른 페이지는 SNS 연결에서 새로 추가할 수 있어요."
+    case "page_mismatch": "입력하거나 기존에 연결한 페이지와 다른 페이지예요. 페이지 주소를 확인해주세요."
     case "page_identity_missing": "페이지 식별 정보를 읽지 못했어요. 페이지 첫 화면에서 다시 확인해주세요."
     case "rounded_count_only": "축약된 팔로워 수만 보여 정확한 수를 저장할 수 없어요."
     case "page_required", "own_profile_required": "Facebook 페이지 정보를 찾지 못했어요. 개인 프로필이나 게시물 대신 페이지 링크를 입력해주세요."

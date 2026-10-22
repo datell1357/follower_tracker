@@ -24,4 +24,29 @@ public enum FacebookPageAddress {
             "gaming", "help", "privacy", "policies", "photos", "stories"]
         return path.range(of: "^[A-Za-z0-9.]{1,255}$", options: .regularExpression) != nil && !path.lowercased().hasSuffix(".php") && !reserved.contains(path.lowercased())
     }
+
+    public static func sameTarget(_ requested: URL, _ current: URL) -> Bool {
+        guard isTarget(requested), isTarget(current) else { return false }
+        let a = identifier(requested), b = identifier(current)
+        if a != nil || b != nil { return a != nil && a == b }
+        return requested.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased() ==
+            current.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+    }
+
+    /// Navigation permission only. Capture must prove the submitted name/ID in the current document.
+    public static func canInspectRedirect(_ requested: URL, _ current: URL) -> Bool {
+        guard isTarget(requested), isTarget(current) else { return false }
+        return sameTarget(requested, current) || (identifier(requested) == nil) != (identifier(current) == nil)
+    }
+
+    private static func identifier(_ url: URL) -> String? {
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if path == "profile.php" {
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value
+        }
+        if path.range(of: "^[0-9]+$", options: .regularExpression) != nil { return path }
+        if path.hasPrefix("pages/") || path.hasPrefix("people/") { return path.split(separator: "/").last.map(String.init) }
+        if path.hasPrefix("p/") { return path.split(separator: "-").last.map(String.init) }
+        return nil
+    }
 }

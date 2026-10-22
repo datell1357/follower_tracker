@@ -64,12 +64,12 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
         focus.clearFocus(); pageRequest = request; loginBrowser.notice = null
         web.loadUrl(request.target, mapOf("Cache-Control" to "no-cache"))
     }
-    suspend fun connectCurrentPage(web: WebView) {
+    suspend fun connectCurrentPage(web: WebView, requestedPageUrl: String? = null) {
         checking = true; loginBrowser.notice = null; focus.clearFocus()
         try {
             val identity = context.appGraph.sessions.identity(provider)
             val agent = web.settings.userAgentString
-            val payload = captureConfirmedFacebookPage(web, identity, script, expectedPage?.stableId) { loginBrowser.loading }
+            val payload = captureConfirmedFacebookPage(web, identity, script, expectedPage?.stableId, requestedPageUrl) { loginBrowser.loading }
             val result = JSONObject(payload)
             val failure = webCaptureFailure(result)
             if (identity != context.appGraph.sessions.identity(provider)) loginBrowser.notice = facebookPageFailureMessage("identity_missing")
@@ -111,7 +111,7 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
                     }
                     FacebookPageAction.CAPTURE -> {
                         pageRequest = request.copy(captureAttempted = true)
-                        connectCurrentPage(web)
+                        connectCurrentPage(web, request.target)
                     }
                     FacebookPageAction.WAIT -> Unit
                 }
@@ -221,7 +221,7 @@ fun SessionLoginDialog(provider: Provider, busy: Boolean, message: String?, onDi
 
 fun facebookPageFailureMessage(error: String): String = when (error) {
     "identity_missing", "reauth_required" -> "Facebook 로그인을 완료해주세요. 페이지 링크는 위에 입력할 수 있어요."
-    "page_mismatch" -> "기존에 연결한 페이지를 열어주세요. 다른 페이지는 SNS 연결에서 새로 추가할 수 있어요."
+    "page_mismatch" -> "입력하거나 기존에 연결한 페이지와 다른 페이지예요. 페이지 주소를 확인해주세요."
     "page_identity_missing" -> "페이지 식별 정보를 읽지 못했어요. 페이지를 새로고침한 뒤 다시 확인해주세요."
     "rounded_count_only" -> "Facebook이 팔로워 수를 축약해서 표시하고 있어요. 이 화면에서는 정확한 수를 확보하지 못했어요."
     "page_required", "own_profile_required" -> "Facebook 페이지 정보를 찾지 못했어요. 개인 프로필이나 게시물 대신 페이지 링크를 입력해주세요."

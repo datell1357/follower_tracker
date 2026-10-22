@@ -27,7 +27,7 @@ public struct FacebookPageConnectionRequest: Sendable {
     public func next(current: URL, authenticated: Bool, loading: Bool, busy: Bool) -> FacebookPageAction {
         guard !captureAttempted, canAutoConnect(.facebook, url: current, authenticated: authenticated, loading: loading, busy: busy) else { return .wait }
         if returnAfterLogin && !returnedAfterLogin { return .openTarget }
-        if Self.sameTarget(target, current) { return .capture }
+        if !requiresConfirmation, FacebookPageAddress.canInspectRedirect(target, current) { return .capture }
         // Opaque share tokens do not identify a Page. Confirm the resolved destination explicitly.
         if requiresConfirmation, FacebookPageAddress.isTarget(current) { return .wait }
         return .wait
@@ -35,12 +35,5 @@ public struct FacebookPageConnectionRequest: Sendable {
 
     private static func isShareLink(_ url: URL) -> Bool {
         Provider.facebook.allows(url) && url.path.range(of: "^/share/[A-Za-z0-9]{1,512}/?$", options: .regularExpression) != nil
-    }
-    private static func sameTarget(_ requested: URL, _ current: URL) -> Bool {
-        guard FacebookPageAddress.isTarget(requested), FacebookPageAddress.isTarget(current),
-              requested.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased() == current.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased() else { return false }
-        guard requested.path == "/profile.php" else { return true }
-        func id(_ url: URL) -> String? { URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value }
-        return id(requested) == id(current)
     }
 }

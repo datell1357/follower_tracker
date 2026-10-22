@@ -24,6 +24,7 @@ class FacebookPageLinkRuntimeTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
     private val target = "https://www.facebook.com/profile.php?id=99"
     private val share = "https://www.facebook.com/share/fixture123/"
+    private val named = "https://www.facebook.com/fixture.page/"
     private val connections = AtomicInteger()
     private val targetLoads = AtomicInteger()
     private lateinit var web: WebView
@@ -58,16 +59,17 @@ class FacebookPageLinkRuntimeTest {
     }
 
     private fun show(authenticated: Boolean = true, delayedExact: Boolean = false, redirectID: String? = null,
-        staleCookieLogin: Boolean = false, publicBeforeLogin: Boolean = false) {
+        staleCookieLogin: Boolean = false, publicBeforeLogin: Boolean = false, namedProof: String? = null,
+        delayedNameProof: Boolean = false) {
         if (authenticated) session(true)
         val factory: (Context) -> WebView = { context ->
             object : WebView(context) {
                 override fun loadUrl(url: String) {
                     settings.blockNetworkLoads = true
                     if (originalAgent == null) originalAgent = settings.userAgentString
-                    if (url == target || url == share) targetLoads.incrementAndGet()
+                    if (url in setOf(target, share, named)) targetLoads.incrementAndGet()
                     val authenticatedNow = rule.activity.appGraph.sessions.hasAuthentication(Provider.FACEBOOK)
-                    val page = (authenticatedNow || publicBeforeLogin) && url in setOf(target, share) && !(staleCookieLogin && targetLoads.get() == 1)
+                    val page = (authenticatedNow || publicBeforeLogin) && url in setOf(target, share, named) && !(staleCookieLogin && targetLoads.get() == 1)
                     val id = redirectID ?: "99"
                     val location = if (page) "https://www.facebook.com/profile.php?id=$id" else "https://www.facebook.com/login/"
                     val desktop = settings.userAgentString != originalAgent
@@ -75,6 +77,10 @@ class FacebookPageLinkRuntimeTest {
                     val html = if (!page) "<html><body>Fixture login</body></html>" else """
                         <html><head><link rel="canonical" href="$location"><meta property="al:android:url" content="fb://page/$id"></head>
                         <body><header><h1>Fixture Page</h1><span id="followers">$count</span><span>Page · Brand</span></header>
+                        ${if (namedProof != null) "<script type=\"application/json\">" + JSONObject(mapOf("records" to listOf(
+                            mapOf("id" to id, "follower_count" to 0),
+                            mapOf("__typename" to "Page", "id" to id, "username" to if (delayedNameProof) "" else namedProof, "name" to "Fixture Page")))) + "</script>" else ""}
+                        ${if (delayedNameProof) "<script>setTimeout(function(){const node=document.querySelector('script[type=\"application/json\"]');const data=JSON.parse(node.textContent);data.records[1].username='fixture.page';node.textContent=JSON.stringify(data);},2200);</script>" else ""}
                         ${if (delayedExact && desktop) "<script>setTimeout(function(){document.getElementById('followers').textContent='12,345 followers';},900);</script>" else ""}
                         </body></html>
                     """.trimIndent()
@@ -167,5 +173,30 @@ class FacebookPageLinkRuntimeTest {
         rule.waitUntil(25_000) { connections.get() == 1 }
         assertEquals(12_345L, JSONObject(checkNotNull(payload)).getLong("followers"))
         assertEquals(2, targetLoads.get()); assertEquals(originalAgent, connectedAgent)
+    }
+
+    @Test fun aNamedPageRedirectConnectsOnlyAfterItsDocumentProvesTheSubmittedName() {
+        show(namedProof = "fixture.page"); submitLink(named)
+        rule.waitUntil(12_000) { connections.get() == 1 }
+        assertEquals("99", JSONObject(checkNotNull(payload)).getString("stableId"))
+        assertEquals(0L, JSONObject(checkNotNull(payload)).getLong("followers"))
+        assertEquals(1, targetLoads.get())
+    }
+
+    @Test fun aRedirectWithoutTheSubmittedNameNeverSavesUntilTheUserSelectsTheVisiblePage() {
+        show(namedProof = "other.page"); submitLink(named)
+        rule.waitUntil(12_000) { rule.onAllNodesWithText(facebookPageFailureMessage("page_mismatch")).fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(0, connections.get())
+        rule.onNodeWithText("이 페이지 연결").performClick()
+        rule.waitUntil(12_000) { connections.get() == 1 }
+        assertEquals("99", JSONObject(checkNotNull(payload)).getString("stableId"))
+    }
+
+    @Test fun aDelayedRedirectNameIsReadLocallyBeforeConnectingTheSubmittedPage() {
+        show(namedProof = "fixture.page", delayedNameProof = true); submitLink(named)
+        rule.waitUntil(20_000) { connections.get() == 1 }
+        assertEquals("99", JSONObject(checkNotNull(payload)).getString("stableId"))
+        assertEquals(0L, JSONObject(checkNotNull(payload)).getLong("followers"))
+        assertTrue(targetLoads.get() in 1..2)
     }
 }

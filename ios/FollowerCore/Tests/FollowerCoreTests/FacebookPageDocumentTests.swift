@@ -73,6 +73,21 @@ final class FacebookPageDocumentTests: XCTestCase {
         var contradictory = sparse; contradictory["username"] = "other.page"
         assertFailure(try document([proof, contradictory], metadata: metadata), status: .checkRequired, current: current)
     }
+    func testUntypedCountFragmentsRequireBoundPageProofAndRejectConflictingIdentity() throws {
+        let proof = record(nil)
+        let sparse: [String: Any] = ["id": "99", "follower_count": 0]
+        let metadata = #"<link rel="canonical" href="https://www.facebook.com/fixture.page/">"#
+        let current = URL(string: "https://www.facebook.com/fixture.page/")!
+        for fragments in [[proof, sparse], [sparse, proof]] {
+            XCTAssertEqual(try read(document(fragments, metadata: metadata), current: current).1.followers, 0)
+        }
+        assertFailure(try document(sparse), status: .foregroundOnly)
+        for addition in [["username": "other.page"], ["url": "https://example.test/fixture.page"],
+                         ["url": "https://www.facebook.com/profile.php?id=88"]] {
+            var contradictory = sparse; addition.forEach { contradictory[$0.key] = $0.value }
+            assertFailure(try document([proof, contradictory], metadata: metadata), status: .checkRequired, current: current)
+        }
+    }
     func testAuthenticationOwnerAndArchivedConnectionAreCheckedBeforeReading() throws {
         let html = try document(record())
         assertFailure(html, status: .reauthRequired, saved: session(authenticated: false))

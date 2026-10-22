@@ -174,7 +174,7 @@
   }
 
   /** The user explicitly confirms this target. Its identity is separate from the authenticated person. */
-  function captureFacebookPage(expectedID, expectedPageID, suppliedDocument) {
+  function captureFacebookPage(expectedID, expectedPageID, suppliedDocument, requestedPageURL) {
     if (typeof expectedID !== 'string' || !/^[0-9]+$/.test(expectedID)) return { error: 'identity_missing' };
     const doc = suppliedDocument || document, current = facebookPageAddress(doc.location.href);
     if (!current) return { error: 'page_required' };
@@ -187,17 +187,21 @@
     const ids = new Set([current.id, canonical?.id, native?.[2], pageMetaID].filter(Boolean));
     if (ids.size > 1 || canonical?.username && current.username && canonical.path !== current.path)
       return { error: 'page_identity_missing' };
-    const roots = jsonRoots(doc, true), queue = roots.slice(), records = [], users = [];
+    const roots = jsonRoots(doc, true), queue = roots.slice(), proofs = [], fragments = [], users = [];
     const delegatedPage = record => record.__typename === 'User' && /^[0-9]+$/.test(textID(record.delegate_page?.id) || '');
     for (let i = 0; i < queue.length && i < 100000; i++) {
       const record = queue[i];
       if (!record || typeof record !== 'object') continue;
       if (!Array.isArray(record) && record.__typename === 'User') users.push(record);
+      if (!Array.isArray(record) && /^[0-9]+$/.test(textID(record.id) || '')) {
+        if (fragments.length >= 4096) return { error: 'exact_count_missing' };
+        fragments.push(record);
+      }
       if (!Array.isArray(record) && (record.__typename === 'Page' || record.__isPage === 'Page' || delegatedPage(record))) {
         const id = textID(record.id), address = facebookPageAddress(record.url || record.profile_url, doc.location.href);
         const matches = id && /^[0-9]+$/.test(id) && (ids.has(id) ||
           current.username && (String(record.username || '').toLowerCase() === current.username.toLowerCase() || address?.path === current.path));
-        if (matches) { records.push(record); ids.add(id); }
+        if (matches) { proofs.push(record); ids.add(id); }
       }
       for (const child of Object.values(record)) if (child && typeof child === 'object') queue.push(child);
     }
@@ -205,15 +209,11 @@
     const id = ids.values().next().value;
     if (id === expectedID) return { error: 'page_required' };
     if (expectedPageID && id !== expectedPageID) return { error: 'page_mismatch' };
-    const delegated = records.some(delegatedPage);
+    const delegated = proofs.some(delegatedPage);
     // New Pages expose a public User profile backed by a delegate Page. Other User fragments
     // for that same profile do not repeat the delegate, so the bound profile supplies its proof.
     if (!delegated && users.some(r => textID(r.id) === id))
       return { error: 'page_required' };
-    if (delegated) {
-      const known = new Set(records);
-      for (const user of users) if (textID(user.id) === id && !known.has(user)) { records.push(user); known.add(user); }
-    }
     const header = facebookProfileCounts(doc, true);
     const pageLabel = Array.from(doc.querySelectorAll('h1')).slice(0,32).some(heading => {
       for (let scope = heading.parentElement, depth = 0; scope && depth < 5; scope = scope.parentElement, depth++) {
@@ -228,9 +228,30 @@
       }
       return false;
     });
-    if (!records.length && !pageMetaID && native?.[1] !== 'page' && !pageLabel) return { error: 'page_required' };
+    if (!proofs.length && !pageMetaID && native?.[1] !== 'page' && !pageLabel) return { error: 'page_required' };
+    // Relay fragments need not repeat their type, name or Page proof, and may precede that proof.
+    // Join them only after one selected Page ID has been established for this document.
+    const records = fragments.filter(r => textID(r.id) === id &&
+      (!r.__typename || r.__typename === 'Page' || r.__isPage === 'Page' || delegated && r.__typename === 'User'));
+    const names = new Set([current.username, canonical?.username].filter(Boolean).map(n => n.toLowerCase()));
+    for (const record of records) {
+      const value = record.url ?? record.profile_url;
+      const address = value == null ? null : facebookPageAddress(value, doc.location.href);
+      const username = typeof record.username === 'string' && record.username ? record.username.toLowerCase() : null;
+      if (value != null && !address || address?.id && address.id !== id ||
+          address?.username && username && address.username.toLowerCase() !== username)
+        return { error: 'page_identity_missing' };
+      for (const name of [username, address?.username?.toLowerCase()]) if (name) names.add(name);
+    }
+    if (names.size > 1) return { error: 'page_identity_missing' };
+    if (requestedPageURL != null) {
+      const requested = facebookPageAddress(requestedPageURL);
+      if (requested?.username && !names.size) return { error: 'page_identity_missing' };
+      if (!requested || requested.id && requested.id !== id || requested.username && !names.has(requested.username.toLowerCase()))
+        return { error: 'page_mismatch' };
+    }
     const social = records.map(r => facebookPageSocialFollowers(r, doc, current, id));
-    const exact = new Set([...records.map(r => exactCount(r.followers_count ?? r.follower_count ?? r.followers?.count)),
+    const exact = new Set([...records.flatMap(r => [r.followers_count, r.follower_count, r.followers?.count].map(exactCount)),
       ...social.flatMap(s => s.exact)].filter(n => n !== null));
     if (exact.size > 1 || exact.size === 1 && header && !exact.has(header.followers)) return { error: 'exact_count_missing' };
     const followers = exact.size === 1 ? exact.values().next().value : header?.followers;

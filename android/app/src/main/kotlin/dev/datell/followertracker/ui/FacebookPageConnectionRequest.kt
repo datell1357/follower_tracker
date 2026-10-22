@@ -21,7 +21,7 @@ data class FacebookPageConnectionRequest(
     fun next(current: String, authenticated: Boolean, loading: Boolean, busy: Boolean): FacebookPageAction {
         if (captureAttempted || !canAutoConnect(Provider.FACEBOOK, current, authenticated, loading, busy)) return FacebookPageAction.WAIT
         if (returnAfterLogin && !returnedAfterLogin) return FacebookPageAction.OPEN_TARGET
-        if (sameFacebookPageTarget(target, current)) return FacebookPageAction.CAPTURE
+        if (!requiresConfirmation && canInspectFacebookPageRedirect(target, current)) return FacebookPageAction.CAPTURE
         // Opaque share tokens do not identify a Page. Confirm the resolved destination explicitly.
         if (requiresConfirmation && facebookPageDesktopUrl(current) != null) return FacebookPageAction.WAIT
         return FacebookPageAction.WAIT

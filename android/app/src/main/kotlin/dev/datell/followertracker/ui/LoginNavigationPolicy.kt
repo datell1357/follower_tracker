@@ -84,6 +84,15 @@ private fun facebookProfileID(uri: URI): String? = runCatching {
     }.filter { it.first == "id" }.singleOrNull()?.second?.takeIf { it.matches(Regex("[0-9]+")) }
 }.getOrNull()
 
+private fun facebookPageTargetID(uri: URI): String? {
+    val path = uri.path.trim('/')
+    if (path == "profile.php") return facebookProfileID(uri)
+    if (path.matches(Regex("[0-9]+"))) return path
+    if (path.matches(Regex("(pages|people)/[^/]+/[0-9]+"))) return path.substringAfterLast('/')
+    if (path.matches(Regex("p/[^/]+-[0-9]+"))) return path.substringAfterLast('-')
+    return null
+}
+
 /** Used only after a Page confirmation; login retains its normal mobile user agent. */
 fun facebookPageDesktopUrl(source: String): String? {
     if (!Provider.FACEBOOK.allows(source)) return null
@@ -98,8 +107,16 @@ fun facebookPageDesktopUrl(source: String): String? {
 fun sameFacebookPageTarget(requested: String, current: String): Boolean {
     if (facebookPageDesktopUrl(requested) == null || facebookPageDesktopUrl(current) == null) return false
     val a = URI(requested); val b = URI(current)
-    if (!a.path.trimEnd('/').equals(b.path.trimEnd('/'), true)) return false
-    return a.path.trimEnd('/') != "/profile.php" || facebookProfileID(a) == facebookProfileID(b)
+    val aID = facebookPageTargetID(a); val bID = facebookPageTargetID(b)
+    if (aID != null || bID != null) return aID != null && aID == bID
+    return a.path.trimEnd('/').equals(b.path.trimEnd('/'), true)
+}
+
+/** Navigation permission only: capture must still prove the submitted name/ID in this document. */
+fun canInspectFacebookPageRedirect(requested: String, current: String): Boolean {
+    if (sameFacebookPageTarget(requested, current)) return true
+    if (facebookPageDesktopUrl(requested) == null || facebookPageDesktopUrl(current) == null) return false
+    return (facebookPageTargetID(URI(requested)) == null) != (facebookPageTargetID(URI(current)) == null)
 }
 
 /** Collection must stay on the authenticated person's profile, including native-app fallbacks. */

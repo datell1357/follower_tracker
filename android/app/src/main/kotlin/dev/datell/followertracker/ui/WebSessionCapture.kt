@@ -11,10 +11,11 @@ import org.json.JSONObject
 
 /** A manual Page confirmation can request one desktop document; subsequent reads are local DOM polls. */
 suspend fun captureConfirmedFacebookPage(web: WebView, identity: String?, script: String,
-    expectedPageId: String?, loading: () -> Boolean): String = withContext(Dispatchers.Main.immediate) {
+    expectedPageId: String?, requestedPageUrl: String? = null, loading: () -> Boolean): String = withContext(Dispatchers.Main.immediate) {
     val selected = web.url.orEmpty()
+    val requested = requestedPageUrl ?: selected
     var latest = captureWebSession(web, Provider.FACEBOOK, identity, script, allowRequest = false,
-        facebookPage = true, expectedPageId = expectedPageId)
+        facebookPage = true, expectedPageId = expectedPageId, requestedPageUrl = requested)
     if (JSONObject(latest).optString("error") !in setOf("page_required", "page_identity_missing", "exact_count_missing", "rounded_count_only"))
         return@withContext latest
     val desktopUrl = facebookPageDesktopUrl(selected) ?: return@withContext latest
@@ -30,11 +31,11 @@ suspend fun captureConfirmedFacebookPage(web: WebView, identity: String?, script
             delay(250)
             repeat(30) {
                 currentCoroutineContext().ensureActive()
-                if (!sameFacebookPageTarget(selected, web.url.orEmpty()))
+                if (!canInspectFacebookPageRedirect(selected, web.url.orEmpty()))
                     throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
                 if (!loading()) {
                     latest = captureWebSession(web, Provider.FACEBOOK, identity, script, allowRequest = false,
-                        facebookPage = true, expectedPageId = expectedPageId)
+                        facebookPage = true, expectedPageId = expectedPageId, requestedPageUrl = requested)
                     val error = JSONObject(latest).optString("error")
                     if (error !in setOf("page_required", "page_identity_missing", "exact_count_missing", "rounded_count_only", "document_changed"))
                         return@withTimeoutOrNull latest
@@ -54,13 +55,15 @@ suspend fun captureConfirmedFacebookPage(web: WebView, identity: String?, script
 
 /** Executes only within the bounded provider WebView; no JavaScript bridge or form access. */
 suspend fun captureWebSession(web: WebView, provider: Provider, identity: String?, script: String,
-    allowRequest: Boolean = true, facebookPage: Boolean = false, expectedPageId: String? = null): String = withContext(Dispatchers.Main.immediate) {
+    allowRequest: Boolean = true, facebookPage: Boolean = false, expectedPageId: String? = null,
+    requestedPageUrl: String? = null): String = withContext(Dispatchers.Main.immediate) {
     if (!provider.allows(web.url.orEmpty())) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
     val initialUrl = web.url
     val slot = JSONObject.quote("__followerCapture_" + UUID.randomUUID().toString().replace("-", ""))
     val arguments = JSONObject.quote(provider.name) + "," + (identity?.let(JSONObject::quote) ?: "null")
     val localRead = if (facebookPage && provider == Provider.FACEBOOK) "FollowerTrackerCapture.captureFacebookPage(" +
-        (identity?.let(JSONObject::quote) ?: "null") + "," + (expectedPageId?.let(JSONObject::quote) ?: "null") + ")"
+        (identity?.let(JSONObject::quote) ?: "null") + "," + (expectedPageId?.let(JSONObject::quote) ?: "null") + ",undefined," +
+        (requestedPageUrl?.let(JSONObject::quote) ?: "null") + ")"
         else "FollowerTrackerCapture.capture($arguments)"
     val read = if (facebookPage) "Promise.resolve($localRead)" else "FollowerTrackerCapture.captureAsync($arguments)"
     try {

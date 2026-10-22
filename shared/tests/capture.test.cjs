@@ -411,6 +411,59 @@ function xDocument(users, path = "/home", links = []) {
     querySelector: () => null
   };
 }
+test('Page fragments join by a proved identity regardless of script order', () => {
+  const proof = { __typename: 'Page', id: '99', username: 'fixture.page', name: 'Fixture Page' };
+  for (const fragment of [{ __typename: 'Page', id: '99', follower_count: 0 }, { id: '99', followers: { count: 0 } }]) {
+    for (const records of [[fragment, proof], [proof, fragment]]) {
+      const doc = facebookPageDocument({ records }, [], '/fixture.page', false);
+      doc.metadata['link[rel="canonical"]'][1] = 'https://www.facebook.com/fixture.page/';
+      const query = doc.querySelectorAll;
+      doc.querySelectorAll = selector => selector.startsWith('script') ? records.map(record => ({ textContent: JSON.stringify(record) })) : query(selector);
+      assert.equal(captureFacebookPage('42', null, doc).followers, 0);
+    }
+  }
+  const sparse = facebookPageDocument({ id: '99', followers_count: 999 }, [], '/profile.php?id=99', false);
+  assert.equal(captureFacebookPage('42', null, sparse).error, 'page_required');
+});
+test('Page fragments never supply another target or hide conflicting exact fields', () => {
+  const proof = { __typename: 'Page', id: '99', username: 'fixture.page', name: 'Fixture Page' };
+  const doc = records => facebookPageDocument({ records }, [], undefined, false);
+  assert.equal(captureFacebookPage('42', null, doc([proof, { id: '88', followers_count: 999 }])).error, 'exact_count_missing');
+  for (const fragment of [{ id: '99', followers_count: 5, follower_count: 6 },
+    { id: '99', followers_count: 5, followers: { count: 6 } },
+    { id: '99', username: 'other.page', followers_count: 5 },
+    { id: '99', url: 'https://example.test/fixture.page', followers_count: 5 },
+    { id: '99', url: 'https://www.facebook.com/profile.php?id=88', followers_count: 5 }])
+    assert.ok(captureFacebookPage('42', null, doc([proof, fragment])).error);
+  assert.equal(captureFacebookPage('42', null, doc([{ ...proof, followers_count: 5, follower_count: 6 }])).error, 'exact_count_missing');
+});
+test('a named Page redirect to a numeric route must prove the submitted name', () => {
+  const proof = { __typename: 'Page', id: '99', username: 'fixture.page', name: 'Fixture Page', followers_count: 0 };
+  const doc = facebookPageDocument(proof, [], '/profile.php?id=99', false);
+  assert.equal(captureFacebookPage('42', null, doc, 'https://m.facebook.com/fixture.page/').followers, 0);
+  assert.equal(captureFacebookPage('42', null, doc, 'https://www.facebook.com/other.page/').error, 'page_mismatch');
+  assert.equal(captureFacebookPage('42', null, doc, 'https://example.test/fixture.page').error, 'page_mismatch');
+  assert.equal(captureFacebookPage('42', null, doc, 'https://facebook.com/profile.php?id=88').error, 'page_mismatch');
+  const noName = facebookPageDocument({}, ['0 followers'], '/profile.php?id=99');
+  assert.equal(captureFacebookPage('42', null, noName, 'https://facebook.com/fixture.page').error, 'page_identity_missing');
+});
+test('a Page name that hydrates later is locally retryable until the submitted target is proved', () => {
+  const proof = { __typename: 'Page', id: '99', name: 'Fixture Page', followers_count: 0 };
+  const doc = facebookPageDocument({}, [], '/profile.php?id=99', false), query = doc.querySelectorAll;
+  doc.querySelectorAll = selector => selector.startsWith('script') ? [{ textContent: JSON.stringify(proof) }] : query(selector);
+  const requested = 'https://www.facebook.com/fixture.page/';
+  assert.equal(captureFacebookPage('42', null, doc, requested).error, 'page_identity_missing');
+  proof.url = requested;
+  assert.equal(captureFacebookPage('42', null, doc, requested).followers, 0);
+});
+test('a numeric Page redirect to a named route preserves its selected ID', () => {
+  const proof = { __typename: 'Page', id: '99', username: 'fixture.page', name: 'Fixture Page', followers_count: 0 };
+  const doc = facebookPageDocument(proof, [], undefined, false);
+  for (const address of ['/99', '/profile.php?id=99', '/people/Fixture/99/', '/p/Fixture-99/'])
+    assert.equal(captureFacebookPage('42', null, doc, 'https://www.facebook.com' + address).followers, 0);
+  assert.equal(captureFacebookPage('42', null, doc, 'https://www.facebook.com/88').error, 'page_mismatch');
+});
+
 test("X mobile home connects the cookie owner from bootstrap state without a desktop profile link", () => {
   const doc = xDocument({
     "99": { id_str: "99", screen_name: "other", followers_count: 999 },

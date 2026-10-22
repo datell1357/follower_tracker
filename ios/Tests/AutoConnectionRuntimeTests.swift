@@ -179,6 +179,48 @@ final class AutoConnectionRuntimeTests: XCTestCase {
         try await waitUntil { observations == 1 }
     }
 
+    func testNamedFacebookPageRedirectUsesTheSubmittedNameAndSparseCountProof() async throws {
+        let url = URL(string: "https://www.facebook.com/profile.php?id=99")!
+        let html = pageHTML("99") + #"<script type="application/json">{"records":[{"id":"99","follower_count":0},{"__typename":"Page","id":"99","username":"fixture.page","name":"Fixture Page"}]}</script>"#
+        var observations = 0
+        let browser = start(html: html, url: url, provider: .facebook, facebookPage: true,
+            savedSession: pageSession(), onObservation: { session, payload in
+                let (page, count) = try ResponseParser.capturedFacebookPage(payload, session: session, expected: nil, now: 10)
+                XCTAssertEqual(page.id, "FACEBOOK:PAGE:99"); XCTAssertEqual(count.followers, 0)
+                observations += 1
+            })
+        try await waitUntil { !browser.loading && browser.sessionReady }
+        browser.openPageLink("https://www.facebook.com/fixture.page/")
+        try await waitUntil { observations == 1 }
+        let count = try await requests(browser)
+        XCTAssertEqual(count, 0)
+    }
+
+    func testNamedFacebookPageRedirectWithAnotherNameNeverConnectsAutomatically() async throws {
+        var observations = 0
+        let html = pageHTML("99") + #"<script type="application/json">{"__typename":"Page","id":"99","username":"other.page","name":"Fixture Page","followers_count":0}</script>"#
+        let browser = start(html: html, url: URL(string: "https://www.facebook.com/profile.php?id=99")!,
+            provider: .facebook, facebookPage: true, savedSession: pageSession(), onObservation: { _, _ in observations += 1 })
+        try await waitUntil { !browser.loading && browser.sessionReady }
+        browser.openPageLink("https://www.facebook.com/fixture.page/")
+        try await waitUntil { browser.notice?.contains("다른 페이지") == true }
+        XCTAssertEqual(observations, 0)
+        browser.confirmPage()
+        try await waitUntil { observations == 1 }
+    }
+
+    func testNamedFacebookPageRedirectWaitsLocallyForItsLateNameProof() async throws {
+        var observations = 0
+        let html = pageHTML("99") + #"<script id="page-proof" type="application/json">{"__typename":"Page","id":"99","name":"Fixture Page","followers_count":0}</script><script>setTimeout(function(){const node=document.getElementById('page-proof');const data=JSON.parse(node.textContent);data.username='fixture.page';node.textContent=JSON.stringify(data);},2200);</script>"#
+        let browser = start(html: html, url: URL(string: "https://www.facebook.com/profile.php?id=99")!,
+            provider: .facebook, facebookPage: true, savedSession: pageSession(), onObservation: { _, _ in observations += 1 })
+        try await waitUntil { !browser.loading && browser.sessionReady }
+        browser.openPageLink("https://www.facebook.com/fixture.page/")
+        try await waitUntil { observations == 1 }
+        let count = try await requests(browser)
+        XCTAssertEqual(count, 0)
+    }
+
     func testFacebookPageWaitsForExactHydrationAfterAnInitiallyRoundedLabel() async throws {
         let url = URL(string: "https://www.facebook.com/profile.php?id=99")!
         let html = pageHTML("99").replacingOccurrences(of: "0 followers", with: "1.2K followers") +
