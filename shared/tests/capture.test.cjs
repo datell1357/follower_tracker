@@ -374,6 +374,60 @@ test("conflicting exact JSON and Page header totals require another observation"
   assert.equal(captureFacebookPage('42', null, facebookPageDocument(record, ['6 followers'])).error, 'exact_count_missing');
   assert.equal(captureFacebookPage('42', null, facebookPageDocument(record, ['5 followers'])).followers, 5);
 });
+function facebookPageDescriptionDocument(description, options = {}) {
+  const record = { __typename: 'Page', id: '99', username: 'fixture.page', name: 'Fixture Page', ...options.record };
+  const doc = facebookPageDocument(record, options.header || ['팔로워 1.2만명']);
+  doc.metadata['meta[property="og:title"]'] = ['content', options.title || 'Fixture Page'];
+  doc.metadata['meta[property="og:description"]'] = ['content', description];
+  if (options.description != null) doc.metadata['meta[name="description"]'] = ['content', options.description];
+  return doc;
+}
+test('Page descriptions recover an exact total only for the already identified Page', () => {
+  for (const [description, expected] of [
+    ['Fixture Page. 팔로워 12,345명 · 이야기하고 있는 사람들 90명.', 12345],
+    ['Fixture Page. 12,345 followers · 90 talking about this.', 12345],
+    ['Fixture Page. Followers 0 · 0 talking about this.', 0]
+  ]) {
+    const doc = facebookPageDescriptionDocument(description);
+    const result = captureFacebookPage('42', '99', doc, 'https://www.facebook.com/fixture.page');
+    assert.equal(result.followers, expected); assert.equal(result.stableId, '99');
+    assert.equal(result.sessionOwnerId, '42'); assert.equal(result.precision, 'EXACT');
+  }
+});
+test('Page description totals reject rounded values, bio text, another name and another Page', () => {
+  for (const description of ['Fixture Page. 팔로워 1.2만명 · Public page.',
+    'Fixture Page. Followers 1.2K · Public page.', 'Fixture Page. 12,345 likes · 90 talking about this.',
+    'Fixture Page. Public page. 팔로워 12,345명', 'Fixture Page. Followers 12345 · Public page.',
+    'Other Page. 팔로워 12,345명 · 이야기하고 있는 사람들 90명.'])
+    assert.equal(captureFacebookPage('42', null, facebookPageDescriptionDocument(description)).error, 'exact_count_missing');
+  const title = facebookPageDescriptionDocument('Fixture Page. 팔로워 12,345명 · 이야기하고 있는 사람들 90명.', { title: 'Other Page' });
+  assert.equal(captureFacebookPage('42', null, title).error, 'exact_count_missing');
+  const personal = facebookPageDescriptionDocument('Fixture Page. 팔로워 12,345명 · 이야기하고 있는 사람들 90명.', { record: { __typename: 'User' } });
+  assert.equal(captureFacebookPage('42', null, personal).error, 'page_required');
+  assert.equal(captureFacebookPage('42', '88', facebookPageDescriptionDocument('Fixture Page. 팔로워 12,345명 · 이야기하고 있는 사람들 90명.')).error, 'page_mismatch');
+});
+test('Page description totals cannot override conflicting JSON, headers or other metadata', () => {
+  const description = 'Fixture Page. 팔로워 12,345명 · 이야기하고 있는 사람들 90명.';
+  for (const options of [{ record: { followers_count: 12346 } }, { header: ['12,346 followers'] },
+    { description: 'Fixture Page. 팔로워 12,346명 · 이야기하고 있는 사람들 90명.' }]) {
+    const result = captureFacebookPage('42', null, facebookPageDescriptionDocument(description, options));
+    assert.equal(result.error, 'exact_count_missing'); assert.equal(result.confirmedPage, undefined);
+  }
+});
+test('anonymous Page metadata requires a previously confirmed Page ID and matching name', () => {
+  const doc = facebookPageDescriptionDocument('Fixture Page. 팔로워 12,345명 · 이야기하고 있는 사람들 90명.',
+    { record: { __typename: 'User' } });
+  assert.equal(captureFacebookPage('42', null, doc).error, 'page_required');
+  assert.equal(captureFacebookPage('42', '99', doc).error, 'page_required');
+  assert.equal(captureFacebookPage('42', '99', doc, null, 'Fixture Page').followers, 12345);
+  assert.equal(captureFacebookPage('42', '88', doc, null, 'Fixture Page').error, 'page_mismatch');
+  assert.equal(captureFacebookPage('42', '99', doc, null, 'Other Page').error, 'page_required');
+  const headOnly = { location: doc.location, querySelector: doc.querySelector, querySelectorAll: () => [] };
+  assert.equal(captureFacebookPage('42', '99', headOnly, 'https://www.facebook.com/fixture.page', 'Fixture Page').followers, 12345);
+  assert.equal(captureFacebookPage('42', null, headOnly).error, 'page_required');
+  const rounded = captureFacebookPage('42', null, facebookPageDescriptionDocument('Fixture Page. 팔로워 1.2만명'));
+  assert.deepEqual(rounded.confirmedPage, { id: '99', name: 'Fixture Page' });
+});
 test("new Facebook Pages bind their User profile to its delegate Page and canonical profile ID", () => {
   const user = { __typename: 'User', id: '99', username: 'fixture.page', name: 'Fixture Page',
     url: 'https://www.facebook.com/fixture.page/', delegate_page: { id: '88' }, followers_count: 0 };

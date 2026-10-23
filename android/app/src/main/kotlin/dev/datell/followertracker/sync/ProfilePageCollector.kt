@@ -11,6 +11,7 @@ import dev.datell.followertracker.BuildConfig
 import dev.datell.followertracker.core.*
 import dev.datell.followertracker.diagnostics.*
 import dev.datell.followertracker.ui.captureWebSession
+import dev.datell.followertracker.ui.capturePublicFacebookPage
 import dev.datell.followertracker.ui.facebookCollectionFallback
 import dev.datell.followertracker.ui.facebookPageDesktopUrl
 import dev.datell.followertracker.ui.facebookPageUserAgent
@@ -43,6 +44,35 @@ class ProfilePageCollector(private val context: Context, private val sessions: S
     suspend fun cancelSession(provider: Provider) = withContext(Dispatchers.Main.immediate) {
         active?.takeIf { it.first == provider }?.second?.cancelAndJoin()
         release(provider)
+    }
+
+    /** Only a saved, verified Page may use anonymous metadata; no login page or SNS script is loaded. */
+    @SuppressLint("SetJavaScriptEnabled")
+    suspend fun readPublicPage(account: Account): String = mutex.withLock {
+        withContext(Dispatchers.Main.immediate) {
+            if (account.provider != Provider.FACEBOOK || account.accountType != AccountType.PAGE || account.loggedOut)
+                throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            val operation = currentCoroutineContext()[Job]!!
+            active = account.provider to operation
+            val web = createWebView(context)
+            try {
+                WebView.setWebContentsDebuggingEnabled(false)
+                web.settings.apply { javaScriptEnabled = true; blockNetworkLoads = true; blockNetworkImage = true
+                    allowFileAccess = false; allowContentAccess = false; domStorageEnabled = false }
+                val ready = CompletableDeferred<Unit>()
+                web.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, url: String) { ready.complete(Unit) }
+                }
+                web.loadDataWithBaseURL("https://www.facebook.com/", "<!doctype html><html><head></head><body></body></html>",
+                    "text/html", "UTF-8", null)
+                withTimeoutOrNull(5_000) { ready.await() } ?: throw CollectionFailure(SyncStatus.OFFLINE)
+                capturePublicFacebookPage(web, account.authenticationOwnerId, script, account.stableId,
+                    account.displayName, account.profileUrl)
+            } finally {
+                if (active?.second === operation) active = null
+                web.stopLoading(); web.destroy()
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")

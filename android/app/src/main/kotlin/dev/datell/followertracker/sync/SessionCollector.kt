@@ -34,6 +34,21 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
             if (expected.loggedOut) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
             return publicYouTube.read(expected.profileUrl, expected)
         }
+        if (provider == Provider.FACEBOOK && expected?.accountType == AccountType.PAGE && profileBrowser != null) {
+            if (expected.loggedOut) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            try {
+                val payload = profileBrowser!!.readPublicPage(expected)
+                val captured = ResponseParser.facebookPageCapture(payload, expected.authenticationOwnerId,
+                    expected, System.currentTimeMillis())
+                return captured.first.copy(status = SyncStatus.READY,
+                    capabilities = captured.first.capabilities.copy(count = Capability.OBSERVED,
+                        background = expected.capabilities.background.takeUnless { it == Capability.FOREGROUND_ONLY } ?: Capability.UNVERIFIED)) to
+                    captured.second.copy(source = "facebook-page-public-document")
+            } catch (failure: CollectionFailure) {
+                // Preserve the authenticated collector for restricted Pages, but always honor server cooldowns.
+                if (failure.status == SyncStatus.RATE_LIMITED) throw failure
+            }
+        }
         val attempt = currentCoroutineContext()[DiagnosticAttempt]?.id
         fun rejectSession(stage: DiagnosticStage): Nothing {
             DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.READ_FAILURE, provider, expected?.accountType,

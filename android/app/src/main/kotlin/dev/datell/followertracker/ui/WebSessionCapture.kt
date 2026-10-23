@@ -2,12 +2,58 @@ package dev.datell.followertracker.ui
 
 import android.webkit.WebView
 import dev.datell.followertracker.core.*
+import dev.datell.followertracker.sync.PublicFacebookPageDocument
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+
+private val publicFacebookDocuments by lazy { PublicFacebookPageDocument() }
+
+/** Parse an inert public document, bound to a Page already verified by the login document/account. */
+suspend fun capturePublicFacebookPage(web: WebView, identity: String, script: String,
+    pageId: String, pageName: String, address: String): String = withContext(Dispatchers.Main.immediate) {
+    val initialUrl = web.url
+    val document = publicFacebookDocuments.read(address)
+    if (web.url != initialUrl) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+    val originalLoads = web.settings.blockNetworkLoads
+    val originalImages = web.settings.blockNetworkImage
+    try {
+        web.settings.blockNetworkLoads = true
+        web.settings.blockNetworkImage = true
+        val read = """$script;(function(){
+            const parsed=new DOMParser().parseFromString(${JSONObject.quote(document.head)},'text/html');
+            const doc={location:{href:${JSONObject.quote(document.url)}},
+              querySelector:parsed.querySelector.bind(parsed),
+              querySelectorAll:function(selector){return selector.startsWith('script')?[]:parsed.querySelectorAll(selector);}};
+            return JSON.stringify(FollowerTrackerCapture.captureFacebookPage(${JSONObject.quote(identity)},
+              ${JSONObject.quote(pageId)},doc,${JSONObject.quote(address)},${JSONObject.quote(pageName)}));
+        })();""".trimIndent()
+        val encoded = withTimeoutOrNull(10_000) { web.evaluate(read) } ?: throw CollectionFailure(SyncStatus.OFFLINE)
+        if (web.url != initialUrl) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+        JSONArray("[$encoded]").getString(0)
+    } catch (_: JSONException) {
+        throw CollectionFailure(SyncStatus.FORMAT_CHANGED)
+    } finally {
+        runCatching { web.settings.blockNetworkImage = originalImages; web.settings.blockNetworkLoads = originalLoads }
+    }
+}
+
+private suspend fun publicPageFallback(web: WebView, identity: String?, script: String,
+    address: String, payload: String): String? {
+    val page = JSONObject(payload).optJSONObject("confirmedPage") ?: return null
+    if (identity == null) return null
+    val initialUrl = web.url
+    return try {
+        capturePublicFacebookPage(web, identity, script, page.getString("id"), page.getString("name"), address)
+            .takeUnless { JSONObject(it).has("error") }
+    } catch (failure: CollectionFailure) {
+        if (failure.status == SyncStatus.RATE_LIMITED || web.url != initialUrl) throw failure
+        null
+    }
+}
 
 /** A manual Page confirmation can request one desktop document; subsequent reads are local DOM polls. */
 suspend fun captureConfirmedFacebookPage(web: WebView, identity: String?, script: String,
@@ -18,6 +64,7 @@ suspend fun captureConfirmedFacebookPage(web: WebView, identity: String?, script
         facebookPage = true, expectedPageId = expectedPageId, requestedPageUrl = requested)
     if (JSONObject(latest).optString("error") !in setOf("page_required", "page_identity_missing", "exact_count_missing", "rounded_count_only"))
         return@withContext latest
+    publicPageFallback(web, identity, script, requested, latest)?.let { return@withContext it }
     val desktopUrl = facebookPageDesktopUrl(selected) ?: return@withContext latest
     val originalAgent = web.settings.userAgentString
     val desktopAgent = facebookPageUserAgent(originalAgent) ?: return@withContext latest
@@ -44,6 +91,7 @@ suspend fun captureConfirmedFacebookPage(web: WebView, identity: String?, script
             }
             latest
         } ?: latest
+        publicPageFallback(web, identity, script, requested, latest) ?: latest
     } finally {
         // The saved login and personal profile collector keep their original mobile representation.
         if (web.isAttachedToWindow) {

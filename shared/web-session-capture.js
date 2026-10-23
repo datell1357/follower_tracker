@@ -173,8 +173,24 @@
     return counts;
   }
 
+  function facebookPageDescriptionFollowers(doc, name) {
+    const title = doc.querySelector('meta[property="og:title"]')?.getAttribute('content');
+    if (title?.trim() !== name.trim()) return [];
+    const counts = [];
+    for (const selector of ['meta[property="og:description"]', 'meta[name="description"]']) {
+      const description = doc.querySelector(selector)?.getAttribute('content');
+      if (typeof description !== 'string' || description.length > 2048 || !description.startsWith(name + '.')) continue;
+      // Read only Meta's leading follower/engagement summary, never a number in the Page's bio.
+      const summary = description.slice(name.length + 1).trimStart();
+      const match = /^(?:([0-9][0-9,\u00a0\u202f ]*)\s*(?:명의?\s*)?(?:팔로워|followers)|(?:팔로워|followers)\s*([0-9][0-9,\u00a0\u202f ]*)(?:명)?)\s*[·•]\s*(?:[0-9][0-9,\u00a0\u202f ]*\s*(?:people\s+)?talking about this|이야기하고\s*있는\s*사람들\s*[0-9][0-9,\u00a0\u202f ]*명)(?:\.|\s|$)/i.exec(summary);
+      const count = match ? exactCount(match[1] ?? match[2]) : null;
+      if (count !== null) counts.push(count);
+    }
+    return counts;
+  }
+
   /** The user explicitly confirms this target. Its identity is separate from the authenticated person. */
-  function captureFacebookPage(expectedID, expectedPageID, suppliedDocument, requestedPageURL) {
+  function captureFacebookPage(expectedID, expectedPageID, suppliedDocument, requestedPageURL, confirmedPageName) {
     if (typeof expectedID !== 'string' || !/^[0-9]+$/.test(expectedID)) return { error: 'identity_missing' };
     const doc = suppliedDocument || document, current = facebookPageAddress(doc.location.href);
     if (!current) return { error: 'page_required' };
@@ -209,10 +225,14 @@
     const id = ids.values().next().value;
     if (id === expectedID) return { error: 'page_required' };
     if (expectedPageID && id !== expectedPageID) return { error: 'page_mismatch' };
+    // Only native code may supply a Page previously verified in the login document or local account.
+    // Anonymous documents can omit their delegate Page; their numeric identity and title must still agree.
+    const confirmedPage = expectedPageID === id && typeof confirmedPageName === 'string' &&
+      confirmedPageName.length > 0 && confirmedPageName.length <= 256 && meta('og:title') === confirmedPageName;
     const delegated = proofs.some(delegatedPage);
     // New Pages expose a public User profile backed by a delegate Page. Other User fragments
     // for that same profile do not repeat the delegate, so the bound profile supplies its proof.
-    if (!delegated && users.some(r => textID(r.id) === id))
+    if (!delegated && !confirmedPage && users.some(r => textID(r.id) === id))
       return { error: 'page_required' };
     const header = facebookProfileCounts(doc, true);
     const pageLabel = Array.from(doc.querySelectorAll('h1')).slice(0,32).some(heading => {
@@ -228,11 +248,11 @@
       }
       return false;
     });
-    if (!proofs.length && !pageMetaID && native?.[1] !== 'page' && !pageLabel) return { error: 'page_required' };
+    if (!proofs.length && !pageMetaID && native?.[1] !== 'page' && !pageLabel && !confirmedPage) return { error: 'page_required' };
     // Relay fragments need not repeat their type, name or Page proof, and may precede that proof.
     // Join them only after one selected Page ID has been established for this document.
     const records = fragments.filter(r => textID(r.id) === id &&
-      (!r.__typename || r.__typename === 'Page' || r.__isPage === 'Page' || delegated && r.__typename === 'User'));
+      (!r.__typename || r.__typename === 'Page' || r.__isPage === 'Page' || (delegated || confirmedPage) && r.__typename === 'User'));
     const names = new Set([current.username, canonical?.username].filter(Boolean).map(n => n.toLowerCase()));
     for (const record of records) {
       const value = record.url ?? record.profile_url;
@@ -250,16 +270,17 @@
       if (!requested || requested.id && requested.id !== id || requested.username && !names.has(requested.username.toLowerCase()))
         return { error: 'page_mismatch' };
     }
-    const social = records.map(r => facebookPageSocialFollowers(r, doc, current, id));
-    const exact = new Set([...records.flatMap(r => [r.followers_count, r.follower_count, r.followers?.count].map(exactCount)),
-      ...social.flatMap(s => s.exact)].filter(n => n !== null));
-    if (exact.size > 1 || exact.size === 1 && header && !exact.has(header.followers)) return { error: 'exact_count_missing' };
-    const followers = exact.size === 1 ? exact.values().next().value : header?.followers;
     const record = records.find(r => r.name);
-    const name = record?.name || header?.name;
+    const name = record?.name || header?.name || (confirmedPage ? confirmedPageName : null);
     if (!name || typeof name !== 'string' || !name.trim() || name.length > 256)
       return { error: 'exact_count_missing' };
-    if (exactCount(followers) === null) return { error: social.some(s => s.rounded) ? 'rounded_count_only' : 'exact_count_missing' };
+    const social = records.map(r => facebookPageSocialFollowers(r, doc, current, id));
+    const exact = new Set([...records.flatMap(r => [r.followers_count, r.follower_count, r.followers?.count].map(exactCount)),
+      ...social.flatMap(s => s.exact), ...facebookPageDescriptionFollowers(doc, name)].filter(n => n !== null));
+    if (exact.size > 1 || exact.size === 1 && header && !exact.has(header.followers)) return { error: 'exact_count_missing' };
+    const followers = exact.size === 1 ? exact.values().next().value : header?.followers;
+    if (exactCount(followers) === null) return { error: social.some(s => s.rounded) ? 'rounded_count_only' : 'exact_count_missing',
+      confirmedPage: { id, name } };
     const captured = result('FACEBOOK', id, record?.username || current.username || id, name,
       'https://www.facebook.com/profile.php?id=' + encodeURIComponent(id), followers, null, 'facebook-webview-page');
     return { ...captured, accountType: 'PAGE', sessionOwnerId: expectedID };
