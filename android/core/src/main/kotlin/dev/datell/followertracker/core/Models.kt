@@ -40,7 +40,7 @@ enum class Precision { EXACT, ROUNDED, ESTIMATED }
 enum class Capability { UNVERIFIED, OBSERVED, FOREGROUND_ONLY, UNAVAILABLE }
 
 @Serializable
-enum class CountTransport { SESSION_HTTP, PROFILE_BROWSER, PUBLIC_CHANNEL }
+enum class CountTransport { SESSION_HTTP, PROFILE_BROWSER, PUBLIC_CHANNEL, OFFICIAL_API }
 
 @Serializable
 enum class AccountType { PROFILE, PAGE }
@@ -79,15 +79,24 @@ data class Account(
     val key: String get() = if (accountType == AccountType.PAGE) "${provider.name}:PAGE:$stableId" else "${provider.name}:$stableId"
     val connectionTitle: String get() = if (accountType == AccountType.PAGE) "Facebook 페이지" else provider.title
     val identityLabel: String get() = if (accountType == AccountType.PAGE || provider == Provider.YOUTUBE) displayName else "@$username"
-    /** A selected Page is a collection target, never the person who owns the login session. */
-    val authenticationOwnerId: String get() = if (accountType == AccountType.PAGE) checkNotNull(sessionOwnerId) else stableId
+    /** Cookie collection uses the person; official Page tokens authenticate as the Page itself. */
+    val authenticationOwnerId: String get() = if (accountType == AccountType.PAGE && countTransport != CountTransport.OFFICIAL_API) checkNotNull(sessionOwnerId) else stableId
+    val isPublicYouTube: Boolean get() = provider == Provider.YOUTUBE && countTransport in setOf(CountTransport.PUBLIC_CHANNEL, CountTransport.OFFICIAL_API)
+    val statusLabel: String get() = if (countTransport != CountTransport.OFFICIAL_API) status.label else when (status) {
+        SyncStatus.REAUTH_REQUIRED -> "API 재연결 필요"
+        SyncStatus.CHECK_REQUIRED -> "API 연결 확인 필요"
+        SyncStatus.RATE_LIMITED -> "API 갱신 대기"
+        else -> status.label
+    }
     fun conflictsWith(other: Account): Boolean = !loggedOut && !other.loggedOut && provider == other.provider && accountType == AccountType.PROFILE &&
         other.accountType == AccountType.PROFILE && key != other.key
     init {
         require(stableId.isNotBlank() && username.isNotBlank())
         require(provider.allows(profileUrl))
         require(accountType != AccountType.PAGE || provider == Provider.FACEBOOK &&
-            stableId.matches(Regex("[0-9]+")) && sessionOwnerId?.matches(Regex("[0-9]+")) == true)
+            stableId.matches(Regex("[0-9]+")) && (countTransport == CountTransport.OFFICIAL_API || sessionOwnerId?.matches(Regex("[0-9]+")) == true))
+        require(countTransport != CountTransport.OFFICIAL_API || provider == Provider.YOUTUBE && accountType == AccountType.PROFILE ||
+            provider == Provider.FACEBOOK && accountType == AccountType.PAGE)
     }
 }
 

@@ -1,6 +1,10 @@
 # YouTube 채널 연결
 
-## Android: 로그인 없는 공개 채널 추적
+## Android 공식 API 경로 — 2026-10-23
+
+**설정 → 공식 API 연결**에서 YouTube Data API 키를 검증하면 기존 채널·이력·위젯 ID를 유지하며 `channels.list` JSON 조회로 전환한다. 반복 요청은 채널 ID와 구독자 통계만 사용한다. 축약 수치 표시는 유지하고 한도·키 오류 때 HTML로 우회하지 않는다. 실제 키 발급 전이므로 실 API 호출은 미검증이다. [발급 절차와 검사 결과](OFFICIAL_API_SETUP.md).
+
+## Android: API 키 연결 전의 공개 채널 추적
 
 `SNS 연결 → YouTube`에서 공식 채널 링크를 입력하고 연결한다. `youtube.com/@handle`과 `youtube.com/channel/UC…`를 받고 쿼리·공유 파라미터는 수집 주소에서 제외한다. Google 로그인·쿠키·API 키·유료 서비스는 사용하지 않는다. iOS는 아직 아래 Studio 실험 경로이며 이번 Android 변경과 구분한다.
 

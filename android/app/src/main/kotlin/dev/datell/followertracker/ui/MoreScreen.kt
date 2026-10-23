@@ -19,6 +19,7 @@ import dev.datell.followertracker.sync.PremiumWidgetTestAccess
 enum class MorePage(val title: String, val subtitle: String) {
     SETTINGS("수집 설정", "빠른 추적과 수집 상태"),
     ACCOUNTS("연결된 계정", "SNS 연결과 로그인 관리"),
+    OFFICIAL_APIS("공식 API 연결", "YouTube 채널 · Facebook 페이지"),
     SUPPORT("앱 지원", "기본 기능은 무료로"),
     PRIVACY("개인정보와 데이터", "내 기록이 저장되는 곳"),
     HELP("도움말", "궁금한 점을 빠르게 해결해요")
@@ -44,6 +45,8 @@ fun MoreScreen(state: TrackerState, onPage: (MorePage) -> Unit) {
                     MenuRow("연결된 계정", "SNS 추가, 로그인 확인, 연결 해제", Icons.Outlined.ManageAccounts, { onPage(MorePage.ACCOUNTS) })
                     HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     MenuRow("수집 설정", "빠른 추적 시작과 중지", Icons.Outlined.Tune, { onPage(MorePage.SETTINGS) })
+                    HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    MenuRow("공식 API 연결", "YouTube·Facebook 페이지 데이터 절약", Icons.Outlined.DataSaverOn, { onPage(MorePage.OFFICIAL_APIS) })
                 }
             }
         }

@@ -52,8 +52,8 @@ fun AccountManagementScreen(state: TrackerState, onReconnect: (Account) -> Unit,
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         OutlinedButton(onClick = { onReconnect(row.account) }, enabled = !state.busy,
                             border = BorderStroke(1.dp, palette.accent.copy(alpha = if (state.busy) .12f else .45f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.accent)) { Text(if (row.account.countTransport == CountTransport.PUBLIC_CHANNEL) "채널 링크 확인" else if (row.account.accountType == AccountType.PAGE) "페이지 갱신" else "로그인 확인") }
-                        TextButton(onClick = { onLogout(row.account.provider) }, enabled = !state.busy) { Text(if (row.account.countTransport == CountTransport.PUBLIC_CHANNEL) "추적 중지" else "로그아웃") }
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = palette.accent)) { Text(if (row.account.countTransport == CountTransport.OFFICIAL_API) "API 연결 확인" else if (row.account.isPublicYouTube) "채널 링크 확인" else if (row.account.accountType == AccountType.PAGE) "페이지 갱신" else "로그인 확인") }
+                        TextButton(onClick = { onLogout(row.account.provider) }, enabled = !state.busy) { Text(if (row.account.isPublicYouTube) "추적 중지" else "로그아웃") }
                         TextButton(onClick = { onDisconnect(row.account.key) }, enabled = !state.busy, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("연결 해제") }
                     }
                 }

@@ -2,10 +2,11 @@ package dev.datell.followertracker.core
 
 object RefreshPolicy {
     fun usesProfileBrowser(account: Account): Boolean =
-        account.countTransport == CountTransport.PROFILE_BROWSER || account.status == SyncStatus.FOREGROUND_ONLY ||
-            account.capabilities.count == Capability.FOREGROUND_ONLY
+        account.countTransport != CountTransport.OFFICIAL_API && (account.countTransport == CountTransport.PROFILE_BROWSER ||
+            account.status == SyncStatus.FOREGROUND_ONLY || account.capabilities.count == Capability.FOREGROUND_ONLY)
 
     fun supportsCountRefresh(account: Account): Boolean = usesProfileBrowser(account) ||
+        account.countTransport == CountTransport.OFFICIAL_API ||
         (account.provider == Provider.YOUTUBE && account.countTransport == CountTransport.PUBLIC_CHANNEL) ||
         (account.accountType == AccountType.PROFILE &&
             account.provider in setOf(Provider.INSTAGRAM, Provider.TIKTOK, Provider.REDDIT))

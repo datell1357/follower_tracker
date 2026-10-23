@@ -14,7 +14,8 @@ interface SessionCollecting {
     suspend fun relationships(account: Account): Pair<RelationshipSnapshot, RelationshipSnapshot>
 }
 
-class SessionCollector(private val sessions: SessionStore, private val context: Context? = null) : SessionCollecting {
+class SessionCollector(private val sessions: SessionStore, private val context: Context? = null,
+    private val officialStore: OfficialApiStore? = null, private val officialApi: OfficialApiClient = OfficialApiClient()) : SessionCollecting {
     private val http = SessionHttpClient(sessions)
     private val publicYouTube = PublicYouTubeClient()
     private val json = Json { ignoreUnknownKeys = true }
@@ -27,9 +28,31 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
         CollectionMeter.measure(provider, "count") { collectNative(provider, expected) }
 
     suspend fun connectPublicYouTube(address: String, expected: Account?): Pair<Account, MetricSnapshot> =
-        CollectionMeter.measure(Provider.YOUTUBE, "count") { publicYouTube.read(address, expected) }
+        CollectionMeter.measure(Provider.YOUTUBE, "count") {
+            val key = officialStore?.youtubeKey()
+            if (key != null) officialApi.youtube(address, key, expected)
+            else if (expected?.countTransport == CountTransport.OFFICIAL_API) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            else publicYouTube.read(address, expected)
+        }
+
+    suspend fun connectOfficialYouTube(address: String, key: String, expected: Account?) =
+        CollectionMeter.measure(Provider.YOUTUBE, "count") { officialApi.youtube(address, key, expected) }
+
+    suspend fun connectOfficialFacebook(token: String, expected: Account?) =
+        CollectionMeter.measure(Provider.FACEBOOK, "count") { officialApi.facebookPage(token, expected, connecting = true) }
 
     private suspend fun collectNative(provider: Provider, expected: Account?): Pair<Account, MetricSnapshot> {
+        if (expected?.countTransport == CountTransport.OFFICIAL_API) {
+            if (expected.loggedOut || expected.provider != provider) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            // No HTML/cookie fallback: it would bypass an API quota and double the network work.
+            return when (provider) {
+                Provider.YOUTUBE -> officialApi.youtube(expected.profileUrl,
+                    officialStore?.youtubeKey() ?: throw CollectionFailure(SyncStatus.CHECK_REQUIRED), expected)
+                Provider.FACEBOOK -> officialApi.facebookPage(
+                    officialStore?.pageToken(expected.stableId) ?: throw CollectionFailure(SyncStatus.REAUTH_REQUIRED), expected)
+                else -> throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            }
+        }
         if (provider == Provider.YOUTUBE && expected?.countTransport == CountTransport.PUBLIC_CHANNEL) {
             if (expected.loggedOut) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
             return publicYouTube.read(expected.profileUrl, expected)

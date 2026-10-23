@@ -85,6 +85,36 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         RapidTracking.signalChange()
         RapidTracking.recoverRequested(getApplication())
     }
+    fun connectOfficialYouTube(address: String, apiKey: String, completed: () -> Unit): Job = action(::officialApiFailureMessage) {
+        val expected = graph.repository.accounts().firstOrNull { it.provider == Provider.YOUTUBE }
+        val key = apiKey.trim().ifEmpty { graph.officialApis.youtubeKey().orEmpty() }
+        val observation = graph.collector.connectOfficialYouTube(address, key, expected)
+        currentCoroutineContext().ensureActive()
+        withContext(NonCancellable) {
+            withContext(Dispatchers.IO) { graph.officialApis.saveYouTubeKey(key) }
+            graph.repository.saveObservation(observation.first, observation.second, writeIf = graph.officialApis.guard(Provider.YOUTUBE))
+        }
+        finishOfficialConnection(completed)
+    }
+    fun connectOfficialFacebook(pageKey: String?, token: String, completed: () -> Unit): Job = action(::officialApiFailureMessage) {
+        val expected = pageKey?.let { graph.repository.account(it) ?: throw CollectionFailure(SyncStatus.CHECK_REQUIRED) }
+        val credential = token.trim().ifEmpty { expected?.let { graph.officialApis.pageToken(it.stableId) }.orEmpty() }
+        val observation = graph.collector.connectOfficialFacebook(credential, expected)
+        currentCoroutineContext().ensureActive()
+        withContext(NonCancellable) {
+            graph.collector.cancelProfileSession(Provider.FACEBOOK)
+            withContext(Dispatchers.IO) { graph.officialApis.savePageToken(observation.first.stableId, credential) }
+            graph.repository.saveObservation(observation.first, observation.second, writeIf = graph.officialApis.guard(Provider.FACEBOOK))
+        }
+        finishOfficialConnection(completed)
+    }
+    private suspend fun finishOfficialConnection(completed: () -> Unit) {
+        completed()
+        WidgetUpdates.request(getApplication())
+        reload()
+        RapidTracking.signalChange()
+        RapidTracking.recoverRequested(getApplication())
+    }
     fun connect(provider: Provider, payload: String?, userAgent: String,
         facebookPage: Boolean = false, expectedPageKey: String? = null, completed: () -> Unit): Job = action {
         graph.collector.releaseProfileResources(provider)
@@ -119,9 +149,11 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     fun logout(provider: Provider) = action {
         val accounts = graph.repository.accounts().filter { it.provider == provider }
         withContext(NonCancellable) {
+            withContext(Dispatchers.IO) { graph.officialApis.clear(provider) }
             withContext(Dispatchers.IO) { graph.sessions.invalidate(provider) }
             graph.collector.cancelProfileSession(provider)
-            if (accounts.any { it.countTransport != CountTransport.PUBLIC_CHANNEL })
+            // Facebook may still have login cookies from before its Page switched to the API.
+            if (provider != Provider.YOUTUBE || accounts.any { !it.isPublicYouTube })
                 withContext(Dispatchers.IO) { graph.sessions.disconnect(provider) }
             graph.repository.markLoggedOut(provider)
             accounts.forEach { WorkManager.getInstance(getApplication()).cancelUniqueWork("initial-list-${it.key}") }
@@ -131,12 +163,15 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         WidgetUpdates.request(getApplication())
         reload()
         RapidTracking.signalChange()
-        state.update { it.copy(message = if (accounts.isNotEmpty() && accounts.all { row -> row.countTransport == CountTransport.PUBLIC_CHANNEL })
+        state.update { it.copy(message = if (accounts.isNotEmpty() && accounts.all { row -> row.isPublicYouTube })
             "채널 추적을 중지했어요. 채널 링크를 다시 연결하면 이전 기록을 볼 수 있어요."
+            else if (accounts.isNotEmpty() && accounts.all { row -> row.countTransport == CountTransport.OFFICIAL_API })
+                "API 연결을 종료했어요. 공식 API 연결에서 다시 연결하면 이전 기록을 볼 수 있어요."
             else "${provider.title}에서 로그아웃했어요. 다시 로그인하면 이전 기록을 볼 수 있어요.") }
     }
     fun disconnect(key: String) = action {
         val account = graph.repository.account(key) ?: return@action
+        withContext(Dispatchers.IO) { graph.officialApis.removeAccount(account) }
         graph.collector.releaseProfileResources(account.provider)
         WorkManager.getInstance(getApplication()).cancelUniqueWork("initial-list-$key")
         graph.repository.disconnect(key)
@@ -146,13 +181,13 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         reload()
         RapidTracking.signalChange()
     }
-    private fun action(block: suspend () -> Unit): Job {
+    private fun action(failureMessage: (CollectionFailure) -> String = ::connectionFailureMessage, block: suspend () -> Unit): Job {
         operation?.takeUnless { it.isCompleted }?.let { return it }
         return viewModelScope.launch {
             state.update { it.copy(busy = true, message = null) }
             try { block() }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: CollectionFailure) { state.update { it.copy(message = connectionFailureMessage(failure)) } }
+            catch (failure: CollectionFailure) { state.update { it.copy(message = failureMessage(failure)) } }
             catch (_: Exception) { state.update { it.copy(message = "작업을 마치지 못했어요. 기존 기록을 유지했어요.") } }
             finally { state.update { it.copy(busy = false) } }
         }.also { operation = it }

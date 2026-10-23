@@ -72,6 +72,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
     var returnPage by rememberSaveable { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
     var login by remember { mutableStateOf<LoginRequest?>(null) }
+    var officialApi by remember { mutableStateOf<OfficialApiRequest?>(null) }
     var detail by remember { mutableStateOf<String?>(null) }
     var accountAction by remember { mutableStateOf<AccountAction?>(null) }
     var loginJob by remember { mutableStateOf<Job?>(null) }
@@ -80,12 +81,18 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
     val page = MorePage.entries.firstOrNull { it.name == morePage }
     fun openMore(next: MorePage) { tab = 3; morePage = next.name; returnPage = null }
     fun back() { if (morePage != null) { morePage = returnPage; returnPage = null } else tab = 0 }
+    fun reconnect(account: Account) {
+        model.dismissMessage()
+        if (account.countTransport == CountTransport.OFFICIAL_API)
+            officialApi = OfficialApiRequest(account.provider, account.key.takeIf { account.accountType == AccountType.PAGE })
+        else login = LoginRequest.forAccount(account)
+    }
     BackHandler(enabled = tab != 0 || morePage != null) { back() }
     LaunchedEffect(openTrackingRequest) {
         if (openTrackingRequest > 0) { tab = 0; morePage = null; returnPage = null; detail = null }
     }
-    LaunchedEffect(state.message, login) {
-        if (login == null) state.message?.let { snackbar.showSnackbar(it); model.dismissMessage() }
+    LaunchedEffect(state.message, login, officialApi) {
+        if (login == null && officialApi == null) state.message?.let { snackbar.showSnackbar(it); model.dismissMessage() }
     }
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
@@ -122,9 +129,10 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
                 tab == 2 -> WidgetScreen(state, onConnect = { picking = true })
                 else -> when (page) {
                     MorePage.SETTINGS -> SettingsScreen(state)
-                    MorePage.ACCOUNTS -> AccountManagementScreen(state, onReconnect = { login = LoginRequest.forAccount(it) },
+                    MorePage.ACCOUNTS -> AccountManagementScreen(state, onReconnect = ::reconnect,
                         onDisconnect = { accountAction = AccountAction.Disconnect(it) }, onConnect = { picking = true },
                         onLogout = { accountAction = AccountAction.Logout(it) })
+                    MorePage.OFFICIAL_APIS -> OfficialApiScreen(state) { model.dismissMessage(); officialApi = it }
                     MorePage.SUPPORT -> SupportScreen(onHelp = { returnPage = MorePage.SUPPORT.name; morePage = MorePage.HELP.name }, onPrivacy = { returnPage = MorePage.SUPPORT.name; morePage = MorePage.PRIVACY.name })
                     MorePage.PRIVACY -> PrivacyScreen()
                     MorePage.HELP -> HelpScreen()
@@ -167,21 +175,32 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
             onConnect = { payload, agent -> loginJob = model.connect(request.provider, payload, agent, request.facebookPage, request.accountKey) { login = null; loginJob = null } },
             facebookPage = request.facebookPage, expectedPage = state.accounts.firstOrNull { it.account.key == request.accountKey }?.account)
     }
+    officialApi?.let { request ->
+        val account = state.accounts.firstOrNull { if (request.provider == Provider.YOUTUBE) it.account.provider == Provider.YOUTUBE
+            else it.account.key == request.pageKey }?.account
+        OfficialApiDialog(request, account, state.busy, state.message,
+            onDismiss = { loginJob?.cancel(); loginJob = null; officialApi = null; model.dismissMessage() },
+            onConnect = { address, credential ->
+                val completed: () -> Unit = { officialApi = null; loginJob = null }
+                loginJob = if (request.provider == Provider.YOUTUBE) model.connectOfficialYouTube(address, credential, completed)
+                    else model.connectOfficialFacebook(request.pageKey, credential, completed)
+            })
+    }
     detail?.let { key -> state.accounts.firstOrNull { it.account.key == key }?.let { row ->
         ModalBottomSheet(onDismissRequest = { detail = null }) {
             AccountDetail(row, state.busy, onRefresh = { model.refresh(key) },
-                onReconnect = { detail = null; login = LoginRequest.forAccount(row.account) },
+                onReconnect = { detail = null; reconnect(row.account) },
                 onLogout = { detail = null; accountAction = AccountAction.Logout(row.account.provider) })
         }
     } }
     accountAction?.let { action ->
         val logout = action as? AccountAction.Logout
         val publicChannel = logout?.provider == Provider.YOUTUBE && state.accounts.any {
-            it.account.provider == Provider.YOUTUBE && it.account.countTransport == CountTransport.PUBLIC_CHANNEL }
+            it.account.isPublicYouTube }
         AlertDialog(onDismissRequest = { accountAction = null },
             title = { Text(if (publicChannel) "채널 추적을 중지할까요?" else logout?.let { "${it.provider.title}에서 로그아웃할까요?" } ?: "연결을 해제할까요?") },
             text = { Text(if (publicChannel) "계정·위젯에서 채널을 숨기고 자동 수집을 중단해요. 이전 기록은 보관하며 같은 채널 링크를 다시 연결하면 복원돼요."
-                else if (logout != null) "이 기기의 SNS 로그인 정보를 지우고 계정·위젯에서 해당 SNS 연결을 빼요. 같은 SNS의 페이지에도 적용돼요. 이전 기록은 보관하며 같은 계정으로 다시 로그인하면 복원돼요. 다른 SNS 로그인은 유지해요."
+                else if (logout != null) "이 기기의 SNS 로그인 정보와 해당 SNS의 API 토큰을 지우고 계정·위젯에서 연결을 빼요. 같은 SNS의 페이지에도 적용돼요. 이전 기록은 보관하며 같은 계정을 다시 연결하면 복원돼요. 다른 SNS 로그인은 유지해요."
                 else "선택한 연결의 추적·관계 기록을 삭제해요. 같은 SNS의 다른 연결이 있으면 로그인 세션은 유지해요. 다시 연결하면 새 기록부터 시작해요.") },
             confirmButton = { TextButton(onClick = {
                 accountAction = null

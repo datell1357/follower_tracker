@@ -261,7 +261,7 @@ private fun fittedCountSize(text: String, width: Float, maximum: Float): TextUni
 
 internal fun widgetStatus(row: AccountOverview): String {
     val observed = row.latest?.let { "${compactObservationTime(it.observedAt)} 수집" } ?: "수집 기록 없음"
-    return if (row.account.status == SyncStatus.READY) observed else "${row.account.status.label} · $observed"
+    return if (row.account.status == SyncStatus.READY) observed else "${row.account.statusLabel} · $observed"
 }
 
 class TrackerWidgetReceiver : GlanceAppWidgetReceiver() {

@@ -98,7 +98,7 @@ fun GrowthChart(history: List<MetricSnapshot>, modifier: Modifier = Modifier, co
 }
 @Composable
 fun StatusLine(account: Account, at: Long?) {
-    val text = if (account.status == SyncStatus.READY) relativeTime(at) else account.status.label
+    val text = if (account.status == SyncStatus.READY) relativeTime(at) else account.statusLabel
     val tone = if (account.status in setOf(SyncStatus.READY, SyncStatus.FOREGROUND_ONLY, SyncStatus.REFRESHING, SyncStatus.RATE_LIMITED, SyncStatus.OFFLINE)) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
     Text(text, color = tone, style = MaterialTheme.typography.labelMedium)
 }

@@ -18,10 +18,13 @@ Android의 Instagram 프로필 수집은 동일한 앱 전용 WebView 저장소�
 
 ## 저장하는 자료
 
+Android의 선택적 공식 API 연결은 사용자가 입력한 YouTube Data API 키를 `www.googleapis.com`, 페이지 액세스 토큰을 `graph.facebook.com`의 HTTPS 읽기 요청에만 사용한다. 키·토큰은 기존 Keystore 암호화로 앱 내부 설정에 보관하고 백업·기기 전송에서 제외한다. 입력 화면은 화면 캡처를 막으며 비밀값을 화면 상태 복원 데이터나 디버그 로그에 기록하지 않는다. 로그아웃은 해당 SNS의 API 인증 정보도 제거하며, 페이지 연결 해제는 그 페이지 토큰만 제거한다. API 연결·실검증 범위는 [공식 API 설정](OFFICIAL_API_SETUP.md)에 구분한다.
+
 | 자료 | Android | iOS |
 | --- | --- | --- |
 | 로그인 쿠키 | 앱 전용 CookieManager/WebView 저장소 | Keychain. 로그인 WKWebView는 비영구 데이터 저장소를 사용 |
 | 요청에 필요한 사용자 에이전트·자기 ID·저장 시각 | Android Keystore 키로 암호화한 앱 내부 설정 | 쿠키와 함께 Keychain에 저장 |
+| YouTube API 키·Facebook 페이지 액세스 토큰 | Android Keystore AES-GCM 암호문, 앱 내부 설정·백업 제외 | 미구현 |
 | 연결한 SNS·계정 식별자·이름·프로필 URL·지원/오류 상태 | 앱 내부 Room DB | 앱·위젯 App Group의 SQLite DB |
 | 팔로워·팔로잉 수·수집 시각·정밀도·수집기 버전 | Room DB | App Group SQLite DB |
 | 완료된 팔로워·팔로잉 명단 | Android Keystore 키를 사용한 AES-GCM 암호문 | Keychain의 키를 사용한 AES-GCM 암호문을 App Group DB에 저장 |
