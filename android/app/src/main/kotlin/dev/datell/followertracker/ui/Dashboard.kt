@@ -154,7 +154,7 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
             StatusLine(row.account, row.latest?.observedAt)
             Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy && RefreshPolicy.supportsCountRefresh(row.account)) { Text("지금 갱신") }
-                OutlinedButton(onClick = onReconnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text(if (row.account.countTransport == CountTransport.OFFICIAL_API) "API 연결 확인" else if (row.account.isPublicYouTube) "채널 링크 확인" else if (row.account.accountType == AccountType.PAGE) "페이지 열고 갱신" else "공식 로그인 페이지 열기") }
+                OutlinedButton(onClick = onReconnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text(if (row.account.countTransport == CountTransport.OFFICIAL_API) "다시 연결" else if (row.account.isPublicYouTube) "채널 링크 확인" else if (row.account.accountType == AccountType.PAGE) "로그인 후 페이지 선택" else "공식 로그인 페이지 열기") }
             }
         }
         item {

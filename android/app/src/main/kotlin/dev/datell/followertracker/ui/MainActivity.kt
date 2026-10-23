@@ -1,6 +1,7 @@
 package dev.datell.followertracker.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,6 +21,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -57,7 +59,9 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         model.resumeRequestedTracking()
         model.refreshWidgets()
+        model.resumeFacebookConnection()
     }
+    override fun onPause() { model.pauseFacebookConnection(); super.onPause() }
     companion object {
         const val ACTION_OPEN_TRACKING = "dev.datell.followertracker.OPEN_TRACKING"
     }
@@ -67,6 +71,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
     val state by model.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var morePage by rememberSaveable { mutableStateOf<String?>(null) }
     var returnPage by rememberSaveable { mutableStateOf<String?>(null) }
@@ -81,18 +86,25 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
     val page = MorePage.entries.firstOrNull { it.name == morePage }
     fun openMore(next: MorePage) { tab = 3; morePage = next.name; returnPage = null }
     fun back() { if (morePage != null) { morePage = returnPage; returnPage = null } else tab = 0 }
+    fun openConnection(request: OfficialApiRequest) {
+        model.dismissMessage()
+        if (request.provider == Provider.YOUTUBE) officialApi = request
+        else model.startFacebookLogin(request.pageKey) { url ->
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+    }
     fun reconnect(account: Account) {
         model.dismissMessage()
-        if (account.countTransport == CountTransport.OFFICIAL_API)
-            officialApi = OfficialApiRequest(account.provider, account.key.takeIf { account.accountType == AccountType.PAGE })
+        if (account.provider == Provider.YOUTUBE || account.accountType == AccountType.PAGE)
+            openConnection(OfficialApiRequest(account.provider, account.key.takeIf { account.accountType == AccountType.PAGE }))
         else login = LoginRequest.forAccount(account)
     }
     BackHandler(enabled = tab != 0 || morePage != null) { back() }
     LaunchedEffect(openTrackingRequest) {
         if (openTrackingRequest > 0) { tab = 0; morePage = null; returnPage = null; detail = null }
     }
-    LaunchedEffect(state.message, login, officialApi) {
-        if (login == null && officialApi == null) state.message?.let { snackbar.showSnackbar(it); model.dismissMessage() }
+    LaunchedEffect(state.message, login, officialApi, state.facebookConnection) {
+        if (login == null && officialApi == null && state.facebookConnection == null) state.message?.let { snackbar.showSnackbar(it); model.dismissMessage() }
     }
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
@@ -132,7 +144,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
                     MorePage.ACCOUNTS -> AccountManagementScreen(state, onReconnect = ::reconnect,
                         onDisconnect = { accountAction = AccountAction.Disconnect(it) }, onConnect = { picking = true },
                         onLogout = { accountAction = AccountAction.Logout(it) })
-                    MorePage.OFFICIAL_APIS -> OfficialApiScreen(state) { model.dismissMessage(); officialApi = it }
+                    MorePage.OFFICIAL_APIS -> OfficialApiScreen(state, model.managedServiceConfigured, ::openConnection)
                     MorePage.SUPPORT -> SupportScreen(onHelp = { returnPage = MorePage.SUPPORT.name; morePage = MorePage.HELP.name }, onPrivacy = { returnPage = MorePage.SUPPORT.name; morePage = MorePage.PRIVACY.name })
                     MorePage.PRIVACY -> PrivacyScreen()
                     MorePage.HELP -> HelpScreen()
@@ -156,10 +168,10 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
                     modifier = Modifier.clickableSafe { picking = false; model.dismissMessage(); login = LoginRequest(provider) })
             }
                 if (provider == Provider.FACEBOOK) item(key = "facebook-page") {
-                    ListItem(headlineContent = { Text("Facebook 페이지") }, supportingContent = { Text("페이지 링크를 입력하고 연결을 눌러주세요") },
+                    ListItem(headlineContent = { Text("Facebook 페이지") }, supportingContent = { Text("로그인 후 관리하는 페이지 선택") },
                         leadingContent = { ProviderMark(Provider.FACEBOOK) },
                         trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
-                        modifier = Modifier.clickableSafe { picking = false; model.dismissMessage(); login = LoginRequest(Provider.FACEBOOK, facebookPage = true) })
+                        modifier = Modifier.clickableSafe { picking = false; openConnection(OfficialApiRequest(Provider.FACEBOOK)) })
                 }
             }
         }
@@ -169,7 +181,8 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
             state.accounts.firstOrNull { it.account.provider == Provider.YOUTUBE }?.account?.profileUrl.orEmpty(),
             state.busy, state.message,
             onDismiss = { loginJob?.cancel(); loginJob = null; login = null; model.dismissMessage() },
-            onConnect = { address -> loginJob = model.connectPublicYouTube(address) { login = null; loginJob = null } })
+            onConnect = { address -> loginJob = model.connectYouTube(address) { login = null; loginJob = null } },
+            serviceAvailable = model.managedServiceConfigured)
         else SessionLoginDialog(request.provider, state.busy, state.message,
             onDismiss = { loginJob?.cancel(); loginJob = null; login = null; model.dismissMessage() },
             onConnect = { payload, agent -> loginJob = model.connect(request.provider, payload, agent, request.facebookPage, request.accountKey) { login = null; loginJob = null } },
@@ -178,14 +191,13 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
     officialApi?.let { request ->
         val account = state.accounts.firstOrNull { if (request.provider == Provider.YOUTUBE) it.account.provider == Provider.YOUTUBE
             else it.account.key == request.pageKey }?.account
-        OfficialApiDialog(request, account, state.busy, state.message,
+        YouTubeChannelDialog(account?.profileUrl.orEmpty(), state.busy, state.message,
             onDismiss = { loginJob?.cancel(); loginJob = null; officialApi = null; model.dismissMessage() },
-            onConnect = { address, credential ->
-                val completed: () -> Unit = { officialApi = null; loginJob = null }
-                loginJob = if (request.provider == Provider.YOUTUBE) model.connectOfficialYouTube(address, credential, completed)
-                    else model.connectOfficialFacebook(request.pageKey, credential, completed)
-            })
+            onConnect = { address -> loginJob = model.connectYouTube(address) { officialApi = null; loginJob = null } },
+            serviceAvailable = model.managedServiceConfigured)
     }
+    state.facebookConnection?.let { connection -> FacebookPageSelectionDialog(connection, state.busy, state.message,
+        onDismiss = model::cancelFacebookConnection, onRetry = model::resumeFacebookConnection, onSelect = { model.selectFacebookPage(it) }) }
     detail?.let { key -> state.accounts.firstOrNull { it.account.key == key }?.let { row ->
         ModalBottomSheet(onDismissRequest = { detail = null }) {
             AccountDetail(row, state.busy, onRefresh = { model.refresh(key) },

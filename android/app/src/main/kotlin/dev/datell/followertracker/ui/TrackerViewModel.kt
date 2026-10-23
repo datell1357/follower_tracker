@@ -15,7 +15,11 @@ import kotlinx.coroutines.flow.*
 data class TrackerState(val accounts: List<AccountOverview> = emptyList(), val loading: Boolean = true,
     val busy: Boolean = false, val message: String? = null, val selectedKey: String? = null,
     val report: RelationshipReport? = null, val storageError: Boolean = false,
-    val relationshipChanges: List<RelationshipChange> = emptyList())
+    val relationshipChanges: List<RelationshipChange> = emptyList(),
+    val facebookConnection: FacebookConnectionUi? = null)
+
+data class FacebookConnectionUi(val pages: List<FacebookPageChoice> = emptyList(), val waiting: Boolean = true,
+    val message: String? = null)
 
 class TrackerViewModel(application: Application) : AndroidViewModel(application) {
     private val graph = application.appGraph
@@ -23,6 +27,9 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     private var reloadVersion = 0L
     private var operation: Job? = null
     private var widgetRefresh: Job? = null
+    private var facebookPoll: Job? = null
+    private var cleanup: Job? = null
+    val managedServiceConfigured get() = graph.managedApi.configured
     init {
         viewModelScope.launch {
             try { graph.repository.accounts.collect { reload() } }
@@ -70,43 +77,95 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         state.value.selectedKey?.let { graph.coordinator.relationships(it) }
         reload()
     }
-    fun connectPublicYouTube(address: String, completed: () -> Unit): Job = action {
+    fun connectYouTube(address: String, completed: () -> Unit): Job = action(::officialApiFailureMessage) {
         val expected = graph.repository.accounts().firstOrNull { it.provider == Provider.YOUTUBE }
-        val (account, metric) = graph.collector.connectPublicYouTube(address, expected)
-        currentCoroutineContext().ensureActive()
-        // A local connection revision fences late results; no login or authentication cookie is created.
-        withContext(Dispatchers.IO) { graph.sessions.save(Provider.YOUTUBE,
-            SessionMetadata("public-channel", account.stableId, System.currentTimeMillis())) }
-        currentCoroutineContext().ensureActive()
-        graph.repository.saveObservation(account, metric, writeIf = graph.sessions.guard(Provider.YOUTUBE))
-        completed()
-        WidgetUpdates.request(getApplication())
-        reload()
-        RapidTracking.signalChange()
-        RapidTracking.recoverRequested(getApplication())
-    }
-    fun connectOfficialYouTube(address: String, apiKey: String, completed: () -> Unit): Job = action(::officialApiFailureMessage) {
-        val expected = graph.repository.accounts().firstOrNull { it.provider == Provider.YOUTUBE }
-        val key = apiKey.trim().ifEmpty { graph.officialApis.youtubeKey().orEmpty() }
-        val observation = graph.collector.connectOfficialYouTube(address, key, expected)
+        val (account, metric) = graph.managedApi.youtube(address, expected)
         currentCoroutineContext().ensureActive()
         withContext(NonCancellable) {
-            withContext(Dispatchers.IO) { graph.officialApis.saveYouTubeKey(key) }
-            graph.repository.saveObservation(observation.first, observation.second, writeIf = graph.officialApis.guard(Provider.YOUTUBE))
+            withContext(Dispatchers.IO) {
+                graph.managedStore.bind(account)
+                graph.officialApis.removeAccount(account)
+            }
+            graph.repository.saveObservation(account, metric, writeIf = graph.managedStore.guard())
         }
         finishOfficialConnection(completed)
     }
-    fun connectOfficialFacebook(pageKey: String?, token: String, completed: () -> Unit): Job = action(::officialApiFailureMessage) {
+    fun startFacebookLogin(pageKey: String? = null, launchBrowser: (String) -> Unit): Job = action(::officialApiFailureMessage) {
         val expected = pageKey?.let { graph.repository.account(it) ?: throw CollectionFailure(SyncStatus.CHECK_REQUIRED) }
-        val credential = token.trim().ifEmpty { expected?.let { graph.officialApis.pageToken(it.stableId) }.orEmpty() }
-        val observation = graph.collector.connectOfficialFacebook(credential, expected)
+        val url = graph.managedApi.startFacebook(expected)
         currentCoroutineContext().ensureActive()
+        state.update { it.copy(facebookConnection = FacebookConnectionUi()) }
+        try { launchBrowser(url) }
+        catch (_: Exception) {
+            graph.managedStore.cancelLogin()
+            state.update { it.copy(facebookConnection = null) }
+            throw ServiceConnectionFailure("BROWSER_UNAVAILABLE")
+        }
+    }
+    fun pauseFacebookConnection() { facebookPoll?.cancel(); facebookPoll = null }
+    fun resumeFacebookConnection() {
+        flushManagedCleanup()
+        if (facebookPoll?.isActive == true) return
+        val pending = try { graph.managedStore.pending() } catch (_: Exception) {
+            state.update { it.copy(message = "저장된 연결 정보를 읽지 못했어요. 기존 기록은 유지했어요.") }; return
+        } ?: return
+        facebookPoll = viewModelScope.launch {
+            state.update { it.copy(facebookConnection = FacebookConnectionUi()) }
+            try {
+                repeat(60) {
+                    val result = graph.managedApi.facebookStatus(pending)
+                    if (graph.managedStore.pending() != pending) return@launch
+                    when (result.status) {
+                        "selected" -> { selectFacebookPage(checkNotNull(result.selectedId)); return@launch }
+                        "ready" -> {
+                            state.update { it.copy(facebookConnection = FacebookConnectionUi(result.pages, false,
+                                if (result.pages.isEmpty()) "선택할 페이지가 없어요. 로그인한 계정의 페이지 관리 권한과 허용한 페이지를 확인해주세요." else null)) }
+                            return@launch
+                        }
+                        "cancelled", "failed" -> throw ServiceConnectionFailure(result.error ?: "LOGIN_CANCELLED")
+                    }
+                    delay(2000)
+                }
+                state.update { it.copy(facebookConnection = FacebookConnectionUi(waiting = false,
+                    message = "로그인 확인을 기다리고 있어요. Facebook에서 완료한 뒤 다시 확인해주세요.")) }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (graph.managedStore.pending() == pending) state.update { it.copy(facebookConnection = FacebookConnectionUi(
+                    waiting = false, message = serviceFailureMessage(error as? ServiceConnectionFailure ?: ServiceConnectionFailure("OFFLINE")))) }
+            }
+        }
+    }
+    fun cancelFacebookConnection() {
+        pauseFacebookConnection()
+        graph.managedStore.cancelLogin()
+        state.update { it.copy(facebookConnection = null, message = null) }
+        flushManagedCleanup()
+    }
+    fun selectFacebookPage(id: String): Job = action(::officialApiFailureMessage) {
+        val pending = graph.managedStore.pending() ?: throw ServiceConnectionFailure("LOGIN_EXPIRED")
+        val expected = pending.expectedKey?.let { graph.repository.account(it) }
+            ?: graph.repository.account("FACEBOOK:PAGE:$id")
+        val observation = graph.managedApi.selectPage(pending, id, expected)
+        currentCoroutineContext().ensureActive()
+        if (graph.managedStore.pending() != pending) throw ServiceConnectionFailure("LOGIN_EXPIRED")
         withContext(NonCancellable) {
             graph.collector.cancelProfileSession(Provider.FACEBOOK)
-            withContext(Dispatchers.IO) { graph.officialApis.savePageToken(observation.first.stableId, credential) }
-            graph.repository.saveObservation(observation.first, observation.second, writeIf = graph.officialApis.guard(Provider.FACEBOOK))
+            withContext(Dispatchers.IO) {
+                graph.managedStore.bind(observation.first)
+                graph.officialApis.removeAccount(observation.first)
+            }
+            graph.repository.saveObservation(observation.first, observation.second, writeIf = graph.managedStore.guard())
+            withContext(Dispatchers.IO) { graph.managedStore.pending(null) }
         }
-        finishOfficialConnection(completed)
+        finishOfficialConnection { state.update { it.copy(facebookConnection = null) } }
+    }
+    private fun flushManagedCleanup() {
+        if (cleanup?.isActive == true) return
+        cleanup = viewModelScope.launch {
+            try { graph.managedApi.flushRevocations() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Durable deletion queue is retried on the next foreground resume. */ }
+        }
     }
     private suspend fun finishOfficialConnection(completed: () -> Unit) {
         completed()
@@ -149,6 +208,8 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     fun logout(provider: Provider) = action {
         val accounts = graph.repository.accounts().filter { it.provider == provider }
         withContext(NonCancellable) {
+            if (provider == Provider.FACEBOOK) pauseFacebookConnection()
+            withContext(Dispatchers.IO) { graph.managedStore.clear(provider) }
             withContext(Dispatchers.IO) { graph.officialApis.clear(provider) }
             withContext(Dispatchers.IO) { graph.sessions.invalidate(provider) }
             graph.collector.cancelProfileSession(provider)
@@ -163,14 +224,17 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         WidgetUpdates.request(getApplication())
         reload()
         RapidTracking.signalChange()
+        if (provider == Provider.FACEBOOK) state.update { it.copy(facebookConnection = null) }
+        flushManagedCleanup()
         state.update { it.copy(message = if (accounts.isNotEmpty() && accounts.all { row -> row.isPublicYouTube })
             "채널 추적을 중지했어요. 채널 링크를 다시 연결하면 이전 기록을 볼 수 있어요."
             else if (accounts.isNotEmpty() && accounts.all { row -> row.countTransport == CountTransport.OFFICIAL_API })
-                "API 연결을 종료했어요. 공식 API 연결에서 다시 연결하면 이전 기록을 볼 수 있어요."
+                "연결을 종료했어요. 채널·페이지를 다시 연결하면 이전 기록을 볼 수 있어요."
             else "${provider.title}에서 로그아웃했어요. 다시 로그인하면 이전 기록을 볼 수 있어요.") }
     }
     fun disconnect(key: String) = action {
         val account = graph.repository.account(key) ?: return@action
+        withContext(Dispatchers.IO) { graph.managedStore.remove(account) }
         withContext(Dispatchers.IO) { graph.officialApis.removeAccount(account) }
         graph.collector.releaseProfileResources(account.provider)
         WorkManager.getInstance(getApplication()).cancelUniqueWork("initial-list-$key")
@@ -180,6 +244,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         WidgetUpdates.request(getApplication())
         reload()
         RapidTracking.signalChange()
+        flushManagedCleanup()
     }
     private fun action(failureMessage: (CollectionFailure) -> String = ::connectionFailureMessage, block: suspend () -> Unit): Job {
         operation?.takeUnless { it.isCompleted }?.let { return it }
@@ -187,6 +252,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             state.update { it.copy(busy = true, message = null) }
             try { block() }
             catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: ServiceConnectionFailure) { state.update { it.copy(message = serviceFailureMessage(failure)) } }
             catch (failure: CollectionFailure) { state.update { it.copy(message = failureMessage(failure)) } }
             catch (_: Exception) { state.update { it.copy(message = "작업을 마치지 못했어요. 기존 기록을 유지했어요.") } }
             finally { state.update { it.copy(busy = false) } }

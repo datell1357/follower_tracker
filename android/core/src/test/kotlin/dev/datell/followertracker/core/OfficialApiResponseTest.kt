@@ -70,7 +70,7 @@ class OfficialApiResponseTest {
         assertTrue(RefreshPolicy.supportsCountRefresh(account)); assertFalse(RefreshPolicy.usesProfileBrowser(account))
         assertFalse(RefreshPolicy.canRefresh(account.copy(status = SyncStatus.REAUTH_REQUIRED), 2, true))
         assertFalse(RefreshPolicy.canRefresh(account.copy(loggedOut = true), 2, false))
-        assertEquals("API 재연결 필요", account.copy(status = SyncStatus.REAUTH_REQUIRED).statusLabel)
+        assertEquals("다시 로그인 필요", account.copy(status = SyncStatus.REAUTH_REQUIRED).statusLabel)
         try { account.copy(countTransport = CountTransport.PROFILE_BROWSER); fail() } catch (_: IllegalArgumentException) { }
     }
     @Test fun quotaWaitsUntilPacificMidnightRatherThanRetryingEveryMinute() {

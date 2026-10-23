@@ -15,7 +15,8 @@ interface SessionCollecting {
 }
 
 class SessionCollector(private val sessions: SessionStore, private val context: Context? = null,
-    private val officialStore: OfficialApiStore? = null, private val officialApi: OfficialApiClient = OfficialApiClient()) : SessionCollecting {
+    private val officialStore: OfficialApiStore? = null, private val officialApi: OfficialApiClient = OfficialApiClient(),
+    private val managedStore: ManagedApiStore? = null, private val managedApi: ManagedApiClient? = null) : SessionCollecting {
     private val http = SessionHttpClient(sessions)
     private val publicYouTube = PublicYouTubeClient()
     private val json = Json { ignoreUnknownKeys = true }
@@ -44,6 +45,8 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
     private suspend fun collectNative(provider: Provider, expected: Account?): Pair<Account, MetricSnapshot> {
         if (expected?.countTransport == CountTransport.OFFICIAL_API) {
             if (expected.loggedOut || expected.provider != provider) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            if (managedStore?.owns(expected) == true)
+                return managedApi?.read(expected) ?: throw CollectionFailure(SyncStatus.OFFLINE)
             // No HTML/cookie fallback: it would bypass an API quota and double the network work.
             return when (provider) {
                 Provider.YOUTUBE -> officialApi.youtube(expected.profileUrl,

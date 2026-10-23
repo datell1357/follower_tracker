@@ -15,10 +15,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.FollowerTracker"
         android:usesCleartextTraffic="false">
-        <activity android:name=".ui.MainActivity" android:exported="true">
+        <activity android:name=".ui.MainActivity" android:exported="true" android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="followertracker" android:host="facebook" android:path="/complete" />
             </intent-filter>
         </activity>
         <activity android:name=".widget.WidgetConfigurationActivity" android:exported="true">

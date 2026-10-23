@@ -83,9 +83,9 @@ data class Account(
     val authenticationOwnerId: String get() = if (accountType == AccountType.PAGE && countTransport != CountTransport.OFFICIAL_API) checkNotNull(sessionOwnerId) else stableId
     val isPublicYouTube: Boolean get() = provider == Provider.YOUTUBE && countTransport in setOf(CountTransport.PUBLIC_CHANNEL, CountTransport.OFFICIAL_API)
     val statusLabel: String get() = if (countTransport != CountTransport.OFFICIAL_API) status.label else when (status) {
-        SyncStatus.REAUTH_REQUIRED -> "API 재연결 필요"
-        SyncStatus.CHECK_REQUIRED -> "API 연결 확인 필요"
-        SyncStatus.RATE_LIMITED -> "API 갱신 대기"
+        SyncStatus.REAUTH_REQUIRED -> "다시 로그인 필요"
+        SyncStatus.CHECK_REQUIRED -> "연결 확인 필요"
+        SyncStatus.RATE_LIMITED -> "갱신 대기"
         else -> status.label
     }
     fun conflictsWith(other: Account): Boolean = !loggedOut && !other.loggedOut && provider == other.provider && accountType == AccountType.PROFILE &&

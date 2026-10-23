@@ -22,13 +22,16 @@ class AppGraph(context: Context) {
         .addMigrations(TrackerDatabase.MIGRATION_2_3).build(), DataCipher())
     val sessions = SessionStore(context, DataCipher())
     val officialApis = OfficialApiStore(context, DataCipher())
+    val managedStore = ManagedApiStore(context)
+    val managedApi = ManagedApiClient(BuildConfig.TRACKER_SERVICE_URL, managedStore)
     private val apiIdentity by lazy { androidApiIdentity(context) }
     val collector = SessionCollector(sessions, context.applicationContext, officialApis,
-        OfficialApiClient(androidIdentity = { apiIdentity }))
+        OfficialApiClient(androidIdentity = { apiIdentity }), managedStore, managedApi)
     val coordinator = SyncCoordinator(context, repository, collector, sessionGuard = { provider ->
         val sessionCurrent = sessions.guard(provider)
         val apiCurrent = officialApis.guard(provider)
-        val current: () -> Boolean = { sessionCurrent() && apiCurrent() }
+        val managedCurrent = managedStore.guard()
+        val current: () -> Boolean = { sessionCurrent() && apiCurrent() && managedCurrent() }
         current
     })
 }

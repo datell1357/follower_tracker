@@ -19,7 +19,7 @@ import dev.datell.followertracker.sync.PremiumWidgetTestAccess
 enum class MorePage(val title: String, val subtitle: String) {
     SETTINGS("수집 설정", "빠른 추적과 수집 상태"),
     ACCOUNTS("연결된 계정", "SNS 연결과 로그인 관리"),
-    OFFICIAL_APIS("공식 API 연결", "YouTube 채널 · Facebook 페이지"),
+    OFFICIAL_APIS("채널·페이지 연결", "YouTube 채널 · Facebook 페이지"),
     SUPPORT("앱 지원", "기본 기능은 무료로"),
     PRIVACY("개인정보와 데이터", "내 기록이 저장되는 곳"),
     HELP("도움말", "궁금한 점을 빠르게 해결해요")
@@ -46,7 +46,7 @@ fun MoreScreen(state: TrackerState, onPage: (MorePage) -> Unit) {
                     HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     MenuRow("수집 설정", "빠른 추적 시작과 중지", Icons.Outlined.Tune, { onPage(MorePage.SETTINGS) })
                     HorizontalDivider(Modifier.padding(horizontal = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                    MenuRow("공식 API 연결", "YouTube·Facebook 페이지 데이터 절약", Icons.Outlined.DataSaverOn, { onPage(MorePage.OFFICIAL_APIS) })
+                    MenuRow("채널·페이지 연결", "YouTube 링크 · Facebook 로그인", Icons.Outlined.DataSaverOn, { onPage(MorePage.OFFICIAL_APIS) })
                 }
             }
         }
@@ -134,9 +134,11 @@ private fun FeatureBenefit(icon: ImageVector, title: String, detail: String) {
 @Composable
 fun PrivacyScreen() {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 28.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { InfoPanel("내 기기에 보관하는 기록", "팔로워 트래커의 서버로 로그인 세션이나 관계 명단을 업로드하지 않아요. SNS의 공식 페이지와 수집 경로에는 로그인 세션으로 요청해요.", icon = Icons.Outlined.Shield) }
+        item { InfoPanel("기록과 연결 정보를 구분해 보관해요", "수집 이력과 관계 명단은 이 기기에 남아요. YouTube 채널과 Facebook 페이지의 공식 데이터는 연결 서비스를 통해 받아요.", icon = Icons.Outlined.Shield) }
         item { EmptyCard("공식 페이지에서 로그인", "로그인은 각 SNS의 공식 웹페이지에서 직접 진행해요. 앱이 비밀번호 입력값을 읽거나 별도로 저장하지 않아요.") }
         item { EmptyCard("기기 안에 남는 데이터", "로그인 쿠키는 WebView 저장소에 보관해요. 계정과 팔로워 수 기록은 기기 데이터베이스에, 관계 명단과 변화 기록은 암호화해 보관해요. 홈 위젯에는 사용자 이름·수치·마지막 수집 시각이 표시돼요.") }
+        item { EmptyCard("채널·페이지 연결 서비스", "YouTube 채널 주소·식별자와 최근 공개 수치를 처리해요. Facebook 로그인 뒤 허용한 페이지 목록을 받고, 선택한 페이지의 조회 권한만 서버에 암호화해 보관해요. 비밀번호·WebView 쿠키·관계 명단은 서버로 보내지 않아요.") }
+        item { EmptyCard("Facebook 로그아웃", "자동 수집을 중지하고 서버의 페이지 연결 정보 삭제를 요청해요. 오프라인이면 이 기기에서 먼저 연결을 끊고, 다음 온라인 앱 실행 때 서버에서도 삭제해요. 기존 수집 이력은 기기에 보관해요.") }
         item { EmptyCard("연결을 해제하면", "확인창에서 연결 해제를 선택하면 해당 SNS의 로그인 세션과 이 기기의 추적·관계 기록을 삭제해요. SNS 계정 자체나 SNS의 팔로우 관계는 바꾸지 않아요.") }
         item { EmptyCard("자동으로 판단하지 않는 것", "SNS에서 데이터를 읽지 못하면 마지막 기록을 유지해요. 일부 명단만으로 언팔로우를 판단하지 않으며, 명단에서 사라진 이유가 언팔로우·삭제·비활성화 중 무엇인지는 구별할 수 없어요.") }
     }

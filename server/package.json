@@ -1,0 +1,7 @@
+{
+  "name": "follower-tracker-service",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": { "start": "node src/main.mjs", "test": "node --test test/*.test.mjs" }
+}

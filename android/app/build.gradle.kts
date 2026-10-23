@@ -17,6 +17,11 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        val serviceUrl = providers.gradleProperty("trackerServiceUrl").orElse(providers.environmentVariable("TRACKER_SERVICE_URL")).getOrElse("")
+        require(serviceUrl.isEmpty() || serviceUrl.matches(Regex("https://[A-Za-z0-9.-]+(:[0-9]+)?/?"))) {
+            "trackerServiceUrl must be an HTTPS origin"
+        }
+        buildConfigField("String", "TRACKER_SERVICE_URL", "\"$serviceUrl\"")
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
