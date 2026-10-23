@@ -29,10 +29,12 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import dev.datell.followertracker.appGraph
 import dev.datell.followertracker.core.Provider
+import dev.datell.followertracker.core.Precision
 import dev.datell.followertracker.core.SyncStatus
 import dev.datell.followertracker.data.AccountOverview
 import dev.datell.followertracker.ui.MainActivity
 import dev.datell.followertracker.ui.formatCount
+import dev.datell.followertracker.ui.formatMetricCount
 import dev.datell.followertracker.ui.compactObservationTime
 import dev.datell.followertracker.ui.providerPalette
 import dev.datell.followertracker.ui.trackerColorScheme
@@ -113,7 +115,7 @@ private fun SingleAccount(row: AccountOverview, showAccountName: Boolean) {
     val countWidth = (width - iconSize - 12f - if (attention) 12f else 0f).coerceAtLeast(1f)
     val count = countLabel(row, countWidth, min(60f, mainHeight / (1.4f * fontScale)), 20f)
     val identity = if (showAccountName) " ${row.account.identityLabel}" else ""
-    val description = "${row.account.connectionTitle}$identity, ${row.account.provider.metricLabel} ${row.latest?.let { formatCount(it.followers) } ?: "기록 없음"}, ${widgetStatus(row)}"
+    val description = "${row.account.connectionTitle}$identity, ${row.account.provider.metricLabel} ${row.latest?.let(::formatMetricCount) ?: "기록 없음"}, ${widgetStatus(row)}"
     Column(GlanceModifier.fillMaxSize().background(ImageProvider(WidgetArtwork.background(row.account.provider, true)))
         .appWidgetBackground().cornerRadius(24.dp).clickable(openAccounts(LocalContext.current))
         .semantics { contentDescription = description }.padding(padding)) {
@@ -198,7 +200,7 @@ private fun WidgetRow(row: AccountOverview, dark: Boolean, showAccountName: Bool
     Column(GlanceModifier.fillMaxWidth().padding(bottom = 6.dp)) {
         Column(GlanceModifier.fillMaxWidth().background(ColorProvider(palette.background.first())).cornerRadius(16.dp)
             .clickable(openAccounts(LocalContext.current))
-            .semantics { contentDescription = "${row.account.connectionTitle}$identity, ${row.account.provider.metricLabel} ${row.latest?.let { formatCount(it.followers) } ?: "기록 없음"}, ${widgetStatus(row)}" }
+            .semantics { contentDescription = "${row.account.connectionTitle}$identity, ${row.account.provider.metricLabel} ${row.latest?.let(::formatMetricCount) ?: "기록 없음"}, ${widgetStatus(row)}" }
             .padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 ProviderIcon(row.account.provider, 40f)
@@ -235,10 +237,11 @@ private fun whiteStyle(size: Float, bold: Boolean = false, alpha: Float = 1f) = 
 @Composable
 private fun countLabel(row: AccountOverview, availableWidth: Float, maximum: Float, readable: Float): Pair<String, TextUnit> {
     val count = row.latest?.followers
-    val exact = count?.let(::formatCount) ?: "—"
+    val exact = row.latest?.let(::formatMetricCount) ?: "—"
     val fontScale = LocalWidgetEnvironment.current.fontScale
     val exactSize = fittedCountSize(exact, availableWidth, maximum)
-    val label = if (exactSize.value * fontScale >= readable || count == null) exact else compactWidgetCount(count)
+    val label = if (exactSize.value * fontScale >= readable || count == null) exact else
+        (if (row.latest?.precision == Precision.EXACT) "" else "약 ") + compactWidgetCount(count)
     return label to fittedCountSize(label, availableWidth, maximum)
 }
 

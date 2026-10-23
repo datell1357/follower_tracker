@@ -16,6 +16,7 @@ interface SessionCollecting {
 
 class SessionCollector(private val sessions: SessionStore, private val context: Context? = null) : SessionCollecting {
     private val http = SessionHttpClient(sessions)
+    private val publicYouTube = PublicYouTubeClient()
     private val json = Json { ignoreUnknownKeys = true }
     private val profileBrowser by lazy { context?.let { ProfilePageCollector(it, sessions) } }
 
@@ -25,7 +26,14 @@ class SessionCollector(private val sessions: SessionStore, private val context: 
     override suspend fun native(provider: Provider, expected: Account?): Pair<Account, MetricSnapshot> =
         CollectionMeter.measure(provider, "count") { collectNative(provider, expected) }
 
+    suspend fun connectPublicYouTube(address: String, expected: Account?): Pair<Account, MetricSnapshot> =
+        CollectionMeter.measure(Provider.YOUTUBE, "count") { publicYouTube.read(address, expected) }
+
     private suspend fun collectNative(provider: Provider, expected: Account?): Pair<Account, MetricSnapshot> {
+        if (provider == Provider.YOUTUBE && expected?.countTransport == CountTransport.PUBLIC_CHANNEL) {
+            if (expected.loggedOut) throw CollectionFailure(SyncStatus.CHECK_REQUIRED)
+            return publicYouTube.read(expected.profileUrl, expected)
+        }
         val attempt = currentCoroutineContext()[DiagnosticAttempt]?.id
         fun rejectSession(stage: DiagnosticStage): Nothing {
             DebugDiagnostics.record(DiagnosticEntry(DiagnosticKind.READ_FAILURE, provider, expected?.accountType,

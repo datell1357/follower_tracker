@@ -6,6 +6,7 @@ object RefreshPolicy {
             account.capabilities.count == Capability.FOREGROUND_ONLY
 
     fun supportsCountRefresh(account: Account): Boolean = usesProfileBrowser(account) ||
+        (account.provider == Provider.YOUTUBE && account.countTransport == CountTransport.PUBLIC_CHANNEL) ||
         (account.accountType == AccountType.PROFILE &&
             account.provider in setOf(Provider.INSTAGRAM, Provider.TIKTOK, Provider.REDDIT))
 

@@ -76,10 +76,10 @@ private fun AccountCard(row: AccountOverview, onClick: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(row.latest?.let { formatCount(it.followers) } ?: "—", modifier = Modifier.weight(1f), style = MaterialTheme.typography.displaySmall)
+                    Text(row.latest?.let(::formatMetricCount) ?: "—", modifier = Modifier.weight(1f), style = MaterialTheme.typography.displaySmall)
                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        ToneBadge(formatChange(row), positive = row.change?.let { it >= 0 } == true)
-                        Text(if (row.comparisonAt != null) "직전 기록 대비" else "기록을 시작해요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        ToneBadge(if (row.latest?.precision == Precision.ROUNDED) "공개 수치" else formatChange(row), positive = row.change?.let { it >= 0 } == true)
+                        Text(if (row.latest?.precision == Precision.ROUNDED) "유튜브 축약 표시" else if (row.comparisonAt != null) "직전 기록 대비" else "기록을 시작해요", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -111,7 +111,7 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 onLogout?.let { logout ->
-                    TextButton(onClick = logout, modifier = Modifier.heightIn(min = 48.dp), enabled = !busy) { Text("로그아웃") }
+                    TextButton(onClick = logout, modifier = Modifier.heightIn(min = 48.dp), enabled = !busy) { Text(if (row.account.countTransport == CountTransport.PUBLIC_CHANNEL) "추적 중지" else "로그아웃") }
                 }
             }
         }
@@ -119,7 +119,8 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.fillMaxWidth().padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("현재 ${row.account.provider.metricLabel}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text(row.latest?.let { formatCount(it.followers) } ?: "—", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(row.latest?.let(::formatMetricCount) ?: "—", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    if (row.latest?.precision == Precision.ROUNDED) Text("공개 축약 수치 · 1명 단위 변화는 표시되지 않아요.", style = MaterialTheme.typography.bodySmall)
                     Text(row.latest?.let { "${observationTime(it.observedAt)} 수집" } ?: "아직 수집 기록이 없어요", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     row.latest?.following?.let { Text("팔로잉 ${formatCount(it)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer) }
                 }
@@ -153,7 +154,7 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
             StatusLine(row.account, row.latest?.observedAt)
             Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy && RefreshPolicy.supportsCountRefresh(row.account)) { Text("지금 갱신") }
-                OutlinedButton(onClick = onReconnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text(if (row.account.accountType == AccountType.PAGE) "페이지 열고 갱신" else "공식 로그인 페이지 열기") }
+                OutlinedButton(onClick = onReconnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy) { Text(if (row.account.countTransport == CountTransport.PUBLIC_CHANNEL) "채널 링크 확인" else if (row.account.accountType == AccountType.PAGE) "페이지 열고 갱신" else "공식 로그인 페이지 열기") }
             }
         }
         item {
@@ -169,7 +170,7 @@ fun AccountDetail(row: AccountOverview, busy: Boolean, onRefresh: () -> Unit, on
             Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(14.dp)) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text(compactObservationTime(metric.observedAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(formatCount(metric.followers), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(formatMetricCount(metric), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

@@ -31,6 +31,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 fun formatCount(count: Long) = NumberFormat.getIntegerInstance().format(count)
+fun formatMetricCount(metric: MetricSnapshot) = (if (metric.precision == Precision.EXACT) "" else "약 ") + formatCount(metric.followers)
 fun observationTime(at: Long): String = DateTimeFormatter.ofPattern("yyyy.M.d HH:mm")
     .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(at))
 fun compactObservationTime(at: Long): String {

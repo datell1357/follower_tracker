@@ -40,7 +40,7 @@ enum class Precision { EXACT, ROUNDED, ESTIMATED }
 enum class Capability { UNVERIFIED, OBSERVED, FOREGROUND_ONLY, UNAVAILABLE }
 
 @Serializable
-enum class CountTransport { SESSION_HTTP, PROFILE_BROWSER }
+enum class CountTransport { SESSION_HTTP, PROFILE_BROWSER, PUBLIC_CHANNEL }
 
 @Serializable
 enum class AccountType { PROFILE, PAGE }

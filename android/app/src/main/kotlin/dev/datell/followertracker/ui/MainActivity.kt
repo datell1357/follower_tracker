@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.datell.followertracker.core.Provider
+import dev.datell.followertracker.core.CountTransport
 import dev.datell.followertracker.core.Account
 import dev.datell.followertracker.core.AccountType
 import kotlinx.coroutines.Job
@@ -137,12 +138,12 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.padding(horizontal = 24.dp)) {
             Text("어떤 SNS를 연결할까요?", style = MaterialTheme.typography.headlineSmall)
-            Text("공식 페이지에서 로그인하면 본인 계정을 확인해 자동으로 연결해요. 세션은 이 기기에 보관돼요.", modifier = Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("SNS 계정은 공식 페이지에서 로그인해 연결해요. YouTube는 채널 링크만 입력하면 돼요.", modifier = Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         LazyColumn(Modifier.padding(bottom = 24.dp)) {
             Provider.entries.forEach { provider -> item(key = provider.name) {
                 val connected = state.accounts.any { it.account.provider == provider && it.account.accountType == AccountType.PROFILE }
-                ListItem(headlineContent = { Text(provider.title) }, supportingContent = { Text(if (connected) "연결됨 · 로그인 확인" else if (provider == Provider.YOUTUBE) "YouTube Studio의 정확한 구독자 수" else if (provider == Provider.INSTAGRAM) "팔로워 수 · 위젯 · 빠른 추적" else "로그인 후 수집 가능 여부를 확인해요") },
+                ListItem(headlineContent = { Text(provider.title) }, supportingContent = { Text(if (provider == Provider.YOUTUBE) "채널 링크로 연결 · 로그인 없음" else if (connected) "연결됨 · 로그인 확인" else if (provider == Provider.INSTAGRAM) "팔로워 수 · 위젯 · 빠른 추적" else "로그인 후 수집 가능 여부를 확인해요") },
                     leadingContent = { ProviderMark(provider) }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
                     modifier = Modifier.clickableSafe { picking = false; model.dismissMessage(); login = LoginRequest(provider) })
             }
@@ -156,7 +157,12 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
         }
     }
     login?.let { request ->
-        SessionLoginDialog(request.provider, state.busy, state.message,
+        if (request.provider == Provider.YOUTUBE) YouTubeChannelDialog(
+            state.accounts.firstOrNull { it.account.provider == Provider.YOUTUBE }?.account?.profileUrl.orEmpty(),
+            state.busy, state.message,
+            onDismiss = { loginJob?.cancel(); loginJob = null; login = null; model.dismissMessage() },
+            onConnect = { address -> loginJob = model.connectPublicYouTube(address) { login = null; loginJob = null } })
+        else SessionLoginDialog(request.provider, state.busy, state.message,
             onDismiss = { loginJob?.cancel(); loginJob = null; login = null; model.dismissMessage() },
             onConnect = { payload, agent -> loginJob = model.connect(request.provider, payload, agent, request.facebookPage, request.accountKey) { login = null; loginJob = null } },
             facebookPage = request.facebookPage, expectedPage = state.accounts.firstOrNull { it.account.key == request.accountKey }?.account)
@@ -170,9 +176,12 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
     } }
     accountAction?.let { action ->
         val logout = action as? AccountAction.Logout
+        val publicChannel = logout?.provider == Provider.YOUTUBE && state.accounts.any {
+            it.account.provider == Provider.YOUTUBE && it.account.countTransport == CountTransport.PUBLIC_CHANNEL }
         AlertDialog(onDismissRequest = { accountAction = null },
-            title = { Text(logout?.let { "${it.provider.title}에서 로그아웃할까요?" } ?: "연결을 해제할까요?") },
-            text = { Text(if (logout != null) "이 기기의 SNS 로그인 정보를 지우고 계정·위젯에서 해당 SNS 연결을 빼요. 같은 SNS의 페이지에도 적용돼요. 이전 기록은 보관하며 같은 계정으로 다시 로그인하면 복원돼요. 다른 SNS 로그인은 유지해요."
+            title = { Text(if (publicChannel) "채널 추적을 중지할까요?" else logout?.let { "${it.provider.title}에서 로그아웃할까요?" } ?: "연결을 해제할까요?") },
+            text = { Text(if (publicChannel) "계정·위젯에서 채널을 숨기고 자동 수집을 중단해요. 이전 기록은 보관하며 같은 채널 링크를 다시 연결하면 복원돼요."
+                else if (logout != null) "이 기기의 SNS 로그인 정보를 지우고 계정·위젯에서 해당 SNS 연결을 빼요. 같은 SNS의 페이지에도 적용돼요. 이전 기록은 보관하며 같은 계정으로 다시 로그인하면 복원돼요. 다른 SNS 로그인은 유지해요."
                 else "선택한 연결의 추적·관계 기록을 삭제해요. 같은 SNS의 다른 연결이 있으면 로그인 세션은 유지해요. 다시 연결하면 새 기록부터 시작해요.") },
             confirmButton = { TextButton(onClick = {
                 accountAction = null
@@ -180,7 +189,7 @@ fun TrackerApp(model: TrackerViewModel, openTrackingRequest: Int = 0) {
                     is AccountAction.Logout -> model.logout(action.provider)
                     is AccountAction.Disconnect -> model.disconnect(action.key)
                 }
-            }) { Text(if (logout != null) "로그아웃" else "연결 해제") } },
+            }) { Text(if (publicChannel) "추적 중지" else if (logout != null) "로그아웃" else "연결 해제") } },
             dismissButton = { TextButton(onClick = { accountAction = null }) { Text("취소") } })
     }
 }
